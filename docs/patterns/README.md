@@ -28,8 +28,7 @@ Patterns for structuring durable documents (investigations, decisions, knowledge
 Patterns for workflow decisions and agent management.
 
 - **agent-salvage-vs-fresh** - When to redirect existing agent vs spawn fresh
-- **multi-phase-validation** - Validation checkpoints between sequential phases
-- **agent-post-mortem** - Systematic capture of agent failures for improvement
+- **multi-phase-feature-validation** - Validation checkpoints between sequential phases
 
 ## Using These Patterns
 
