@@ -84,12 +84,16 @@ def _should_clean_agent(agent: dict, clean_all: bool, pattern_violations: bool, 
         return False
 
     # --all mode: clean everything cleanable
+    # Note: 'Unknown' phase is NOT included here because:
+    # 1. Newly-spawned agents have 'Unknown' phase until workspace is populated
+    # 2. Corrupt/unreadable workspaces also show 'Unknown' - safer to not auto-clean
+    # Use --pattern-violations to clean orphaned agents with 'Unknown' phase
     if clean_all:
         if status_val in ('abandoned', 'terminated', 'completed', 'completing'):
             return True
         if 'project_dir' in agent and 'workspace' in agent:
             workspace_status = check_status_func(agent)
-            if workspace_status.phase in ('Complete', 'Unknown', 'Abandoned'):
+            if workspace_status.phase in ('Complete', 'Abandoned'):
                 return True
         return False
 
