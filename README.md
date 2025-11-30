@@ -159,6 +159,38 @@ black src tests
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org/):
+
+- **MAJOR** (x.0.0): Breaking changes to CLI interface or configuration
+- **MINOR** (0.x.0): New features, backward-compatible
+- **PATCH** (0.0.x): Bug fixes, backward-compatible
+
+### Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+### Generating Changelog
+
+This project uses [git-cliff](https://git-cliff.org/) to generate changelogs from conventional commits:
+
+```bash
+# Generate changelog for a new version
+git-cliff --tag vX.Y.Z -o CHANGELOG.md
+
+# Preview unreleased changes
+git-cliff --unreleased
+```
+
+### Release Process
+
+1. Update version in `src/orch/__init__.py` and `pyproject.toml`
+2. Generate changelog: `git-cliff --tag vX.Y.Z -o CHANGELOG.md`
+3. Commit changes: `git commit -am "chore(release): prepare for vX.Y.Z"`
+4. Tag release: `git tag vX.Y.Z`
+5. Push: `git push && git push --tags`
+
 ## Contributing
 
 Contributions welcome! Please note this project is maintained opportunistically - PRs may take time to review.
@@ -167,6 +199,7 @@ Before contributing:
 1. Check existing issues/PRs for similar work
 2. For significant changes, open an issue first to discuss
 3. Follow existing code style (black formatting, type hints where possible)
+4. Use [conventional commits](https://www.conventionalcommits.org/) for commit messages
 
 ---
 
