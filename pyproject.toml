@@ -1,0 +1,184 @@
+# pyproject.toml - Orch CLI: kubectl for AI agents
+#
+# A CLI for orchestrating AI coding agents (Claude Code, OpenCode, etc.)
+# https://github.com/dylanconlin/orch-cli
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orch-cli"
+version = "0.1.0"
+description = "kubectl for AI agents - orchestrate, monitor, and coordinate AI coding agents"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Dylan Conlin", email = "dylan@dylanconlin.com"}
+]
+keywords = [
+    "ai",
+    "agents",
+    "orchestration",
+    "cli",
+    "claude",
+    "coding-agents",
+    "ai-agents",
+    "developer-tools",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0.0",
+    "libtmux>=0.22.0",
+    "PyYAML>=6.0",
+    "Jinja2>=3.0.0",
+    "rich>=13.0.0",
+    "readchar>=4.0.0",
+    "tiktoken>=0.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "flake8-pyproject>=1.2.0",
+]
+
+[project.scripts]
+orch = "orch.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/dylanconlin/orch-cli"
+Repository = "https://github.com/dylanconlin/orch-cli"
+Documentation = "https://github.com/dylanconlin/orch-cli#readme"
+Issues = "https://github.com/dylanconlin/orch-cli/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# =============================================================================
+# Code Quality Tools
+# =============================================================================
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+ignore_missing_imports = true
+files = ["src/orch", "tests"]
+exclude = [
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    "build",
+    "dist",
+]
+
+[[tool.mypy.overrides]]
+module = "orch.complete"
+no_implicit_optional = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "orch.spawn",
+    "orch.registry",
+    "orch.backends.*",
+    "orch.session",
+    "orch.logging",
+    "orch.workspace",
+    "orch.roadmap",
+    "orch.roadmap_markdown",
+    "orch.features",
+    "orch.transcript_analysis",
+    "orch.doc_check",
+    "orch.tmux_utils",
+    "orch.inbox",
+    "orch.verification",
+    "orch.skill_discovery",
+    "orch.validate",
+    "orch.pattern_detection",
+    "orch.spawn_context_quality",
+    "orch.dashboard.*",
+    "orch.workspace_naming",
+    "orch.cleanup_daemon",
+    "orch.artifact_search",
+    "orch.*",
+]
+no_implicit_optional = false
+check_untyped_defs = false
+disable_error_code = [
+    "var-annotated",
+    "assignment",
+    "arg-type",
+    "attr-defined",
+    "union-attr",
+    "unreachable",
+    "no-any-return",
+    "return-value",
+    "operator",
+    "index",
+    "valid-type",
+    "call-overload",
+    "list-item",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.pytest_cache
+    | __pycache__
+    | node_modules
+    | build
+    | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    "node_modules",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+norecursedirs = ["tests/fixtures"]
