@@ -11,6 +11,7 @@ Related:
 - Documentation: docs/spawning-agents.md (Pre-Spawn Artifact Check section)
 """
 
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -37,8 +38,8 @@ MIN_WORD_LENGTH = 4
 # Maximum number of keywords to extract
 MAX_KEYWORDS = 3
 
-# Maximum artifacts to show in hint
-MAX_ARTIFACTS_TO_SHOW = 5
+# Maximum artifacts to show in hint (reduced from 5 for less noise)
+MAX_ARTIFACTS_TO_SHOW = 3
 
 # Maximum summary length
 MAX_SUMMARY_LENGTH = 80
@@ -317,9 +318,10 @@ def _search_files_for_keyword(keyword: str, files: List[Path]) -> List[Path]:
         return []
 
     try:
-        # Use ripgrep for fast search
+        # Use ripgrep for fast search with word-boundary matching (-w)
+        # This ensures 'auth' matches 'auth' but not 'authentication'
         result = subprocess.run(
-            ['rg', '-l', '-i', keyword] + [str(f) for f in files],
+            ['rg', '-l', '-i', '-w', keyword] + [str(f) for f in files],
             capture_output=True,
             text=True,
             timeout=5
@@ -335,12 +337,14 @@ def _search_files_for_keyword(keyword: str, files: List[Path]) -> List[Path]:
 
     except (FileNotFoundError, subprocess.TimeoutExpired):
         # ripgrep not available or timed out, fall back to Python search
+        # Use word-boundary matching with regex for consistency with ripgrep -w
+        pattern = re.compile(r'\b' + re.escape(keyword) + r'\b', re.IGNORECASE)
         matching_files = []
         for file_path in files:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read().lower()
-                    if keyword.lower() in content:
+                    content = f.read()
+                    if pattern.search(content):
                         matching_files.append(file_path)
             except (UnicodeDecodeError, OSError):
                 pass
