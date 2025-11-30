@@ -21,6 +21,13 @@ pip install -e .
 pytest
 ```
 
+## Versioning & Releases
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Conventional commit format (required for changelog)
+- Semantic versioning policy
+- Release process with git-cliff
+
 ## Related Repos
 
 - **orch-knowledge** - Knowledge archive (decisions, investigations, skill sources)
