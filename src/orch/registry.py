@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 from orch.logging import OrchLogger
 from orch.workspace import parse_workspace
+from orch.frontmatter import extract_metadata_from_file
 
 class AgentRegistry:
     """
@@ -386,76 +387,107 @@ class AgentRegistry:
                 # Use stable window_id instead of window target (which changes when tmux renumbers)
                 # Fall back to None for old registry entries without window_id
                 if agent.get('window_id') not in active_window_set:
-                    # Window closed - check workspace Phase to determine if work was completed
+                    # Window closed - check coordination artifact to determine if work was completed
+                    # Check primary_artifact first (for investigation agents), then workspace
                     workspace_rel = agent.get('workspace')
+                    primary_artifact = agent.get('primary_artifact')
                     phase = None
 
-                    # Resolve workspace path relative to project_dir
-                    workspace_exists = False
-                    workspace_path = None
                     project_dir = Path(agent.get('project_dir', '.'))
 
-                    if workspace_rel:
+                    # First: Check primary_artifact for completion (investigation agents)
+                    # primary_artifact takes precedence because it's the coordination artifact
+                    # for workspace-less investigation agents
+                    primary_artifact_checked = False
+                    if primary_artifact:
+                        primary_path = Path(primary_artifact).expanduser()
+                        if not primary_path.is_absolute():
+                            primary_path = (project_dir / primary_path).resolve()
+
+                        if primary_path.exists():
+                            # Extract Status from investigation file
+                            # Investigation files use **Status:** not **Phase:**
+                            metadata = extract_metadata_from_file(primary_path)
+                            # Check both status and phase (investigations use status, workspaces use phase)
+                            artifact_status = metadata.status or metadata.phase
+                            if artifact_status and artifact_status.lower() == 'complete':
+                                phase = 'Complete'  # Normalize for completion check
+                            elif artifact_status:
+                                phase = artifact_status  # Keep original for logging
+                            primary_artifact_checked = True
+
+                    # Second: Fall back to workspace check if no primary_artifact or not checked
+                    workspace_exists = False
+                    workspace_path = None
+
+                    if not primary_artifact_checked and workspace_rel:
                         workspace_path = project_dir / workspace_rel
                         if workspace_path.is_dir():
                             workspace_exists = (workspace_path / "WORKSPACE.md").exists()
                         else:
                             workspace_exists = workspace_path.exists()
 
-                    if workspace_exists:
-                        # Parse workspace to get Phase
-                        signal = parse_workspace(workspace_path)
-                        phase = signal.phase
+                        if workspace_exists:
+                            # Parse workspace to get Phase
+                            signal = parse_workspace(workspace_path)
+                            phase = signal.phase
+
+                    # Determine if any coordination artifact exists
+                    coordination_artifact_exists = primary_artifact_checked or workspace_exists
 
                     # Backward-compatible behavior:
-                    # - If workspace exists, only mark as 'completed' if workspace Phase is 'Complete'.
-                    # - If no workspace on disk (no directory/file), treat as 'completed' (legacy agents and no-workspace investigation agents).
+                    # - If coordination artifact exists, only mark as 'completed' if Phase/Status is 'Complete'.
+                    # - If no coordination artifact on disk (no directory/file), treat as 'completed' (legacy agents).
 
-                    if workspace_exists and phase and phase.lower() == 'complete':
+                    if coordination_artifact_exists and phase and phase.lower() == 'complete':
                         now = datetime.now().isoformat()
                         agent['status'] = 'completed'
                         agent['completed_at'] = now
                         agent['updated_at'] = now  # For timestamp-based merge
 
                         # Log state transition to completed
-                        self._logger.log_event("registry", f"Agent completed (window closed, Phase: Complete): {agent['id']}", {
+                        artifact_type = "primary_artifact" if primary_artifact_checked else "workspace"
+                        self._logger.log_event("registry", f"Agent completed (window closed, {artifact_type} Phase: Complete): {agent['id']}", {
                             "agent_id": agent['id'],
                             "window": agent['window'],
                             "window_id": agent.get('window_id'),
                             "phase": phase,
+                            "artifact_type": artifact_type,
                             "reason": "window_closed_phase_complete"
                         }, level="INFO")
 
                         completed_count += 1
-                    elif not workspace_exists:
-                        # No workspace on disk – treat as completed
+                    elif not coordination_artifact_exists:
+                        # No coordination artifact on disk – treat as completed (legacy agents)
                         now = datetime.now().isoformat()
                         agent['status'] = 'completed'
                         agent['completed_at'] = now
                         agent['updated_at'] = now  # For timestamp-based merge
 
-                        self._logger.log_event("registry", f"Agent completed (window closed, no workspace on disk): {agent['id']}", {
+                        self._logger.log_event("registry", f"Agent completed (window closed, no coordination artifact): {agent['id']}", {
                             "agent_id": agent['id'],
                             "window": agent['window'],
                             "window_id": agent.get('window_id'),
                             "phase": phase or 'unknown',
-                            "reason": "window_closed_no_workspace"
+                            "reason": "window_closed_no_artifact"
                         }, level="INFO")
 
                         completed_count += 1
                     else:
-                        # Window closed but Phase is not Complete (workspace present) - mark as terminated
+                        # Window closed but Phase/Status is not Complete - mark as terminated
                         now = datetime.now().isoformat()
                         agent['status'] = 'terminated'
                         agent['terminated_at'] = now
                         agent['updated_at'] = now  # For timestamp-based merge
 
                         # Log state transition to terminated
-                        self._logger.log_event("registry", f"Agent terminated (window closed, Phase: {phase or 'unknown'}): {agent['id']}", {
+                        artifact_type = "primary_artifact" if primary_artifact_checked else "workspace"
+                        self._logger.log_event("registry", f"Agent terminated (window closed, {artifact_type} Phase: {phase or 'unknown'}): {agent['id']}", {
                             "agent_id": agent['id'],
                             "window": agent['window'],
                             "window_id": agent.get('window_id'),
                             "phase": phase or 'unknown',
+                            "artifact_type": artifact_type,
                             "reason": "window_closed_phase_incomplete"
                         }, level="INFO")
 

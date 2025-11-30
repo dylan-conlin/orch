@@ -918,3 +918,165 @@ class TestTombstoneDeletion:
             f"Expected only agent-a, got {agent_ids}. "
             f"If agent-b or agent-c are present, the re-animation bug occurred."
         )
+
+
+class TestReconcilePrimaryArtifact:
+    """Tests for reconcile() checking primary_artifact for investigation agents.
+
+    Bug fix: Prior to fix, reconcile() only checked workspace for Phase.
+    Investigation agents use primary_artifact as their coordination artifact,
+    not workspace. When the investigation file's Status is "Complete",
+    reconcile() should mark the agent as completed, not terminated.
+
+    See: .orch/investigations/simple/2025-11-30-orch-wait-doesn-reliably-detect.md
+    """
+
+    @pytest.fixture
+    def temp_registry(self, tmp_path):
+        """Create a temporary registry for testing."""
+        registry_path = tmp_path / "test-registry.json"
+        return AgentRegistry(registry_path=registry_path)
+
+    @pytest.fixture
+    def temp_investigation(self, tmp_path):
+        """Create a temporary investigation file."""
+        inv_dir = tmp_path / ".orch" / "investigations" / "simple"
+        inv_dir.mkdir(parents=True)
+        return inv_dir / "2025-11-30-test-investigation.md"
+
+    def test_reconcile_checks_primary_artifact_for_completion(
+        self, temp_registry, temp_investigation, tmp_path
+    ):
+        """
+        When window closes and primary_artifact has Status: Complete,
+        reconcile should mark agent as 'completed' (not terminated).
+
+        Investigation agents use primary_artifact, not workspace.
+        """
+        # Setup: Register an active investigation agent with primary_artifact
+        temp_registry.register(
+            agent_id="inv-agent",
+            task="Investigation task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=None,  # No workspace for investigation agents
+            primary_artifact=str(temp_investigation),
+        )
+
+        # Create investigation file with Status: Complete
+        temp_investigation.write_text(
+            """# Investigation: Test
+
+**Status:** Complete
+**Confidence:** High
+
+## Findings
+
+Investigation complete.
+"""
+        )
+
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
+
+        # Assert: Agent marked as completed (NOT terminated)
+        agent = temp_registry.find("inv-agent")
+        assert agent["status"] == "completed", (
+            f"Expected 'completed' but got '{agent['status']}'. "
+            "reconcile() should check primary_artifact for investigation agents."
+        )
+        assert "completed_at" in agent
+
+    def test_reconcile_marks_terminated_when_primary_artifact_not_complete(
+        self, temp_registry, temp_investigation, tmp_path
+    ):
+        """
+        When window closes and primary_artifact has Status: Active (not Complete),
+        reconcile should mark agent as 'terminated'.
+        """
+        # Setup: Register an active investigation agent
+        temp_registry.register(
+            agent_id="inv-agent",
+            task="Investigation task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=None,
+            primary_artifact=str(temp_investigation),
+        )
+
+        # Create investigation file with Status: Active (not complete)
+        temp_investigation.write_text(
+            """# Investigation: Test
+
+**Status:** Active
+**Confidence:** Low
+
+## Findings
+
+Still investigating...
+"""
+        )
+
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
+
+        # Assert: Agent marked as terminated (work not complete)
+        agent = temp_registry.find("inv-agent")
+        assert agent["status"] == "terminated"
+        assert "terminated_at" in agent
+
+    def test_reconcile_prefers_primary_artifact_over_workspace(
+        self, temp_registry, temp_investigation, tmp_path
+    ):
+        """
+        When both primary_artifact and workspace exist,
+        primary_artifact Status should take precedence.
+        """
+        # Setup workspace (with Phase: Implementing)
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text(
+            """**TLDR:** Test workspace
+---
+# Workspace: test-workspace
+**Phase:** Implementing
+**Status:** Active
+"""
+        )
+
+        # Setup: Register agent with both workspace and primary_artifact
+        temp_registry.register(
+            agent_id="inv-agent",
+            task="Investigation task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=str(workspace_dir),  # Has Phase: Implementing
+            primary_artifact=str(temp_investigation),  # Will have Status: Complete
+        )
+
+        # Create investigation file with Status: Complete
+        temp_investigation.write_text(
+            """# Investigation: Test
+
+**Status:** Complete
+**Confidence:** High
+
+## Findings
+
+Investigation complete.
+"""
+        )
+
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
+
+        # Assert: Agent marked as completed (primary_artifact takes precedence)
+        agent = temp_registry.find("inv-agent")
+        assert agent["status"] == "completed", (
+            f"Expected 'completed' (from primary_artifact) but got '{agent['status']}'. "
+            "primary_artifact should take precedence over workspace."
+        )
