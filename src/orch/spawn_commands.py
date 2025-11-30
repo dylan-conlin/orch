@@ -183,22 +183,20 @@ def register_spawn_commands(cli):
                 skill_name = context_or_skill if context_or_skill else "feature-impl"
                 task_description = issue.title
 
-                # Build custom prompt with issue context
+                # Build beads issue context (added to full prompt, not replacing it)
                 issue_context = f"BEADS ISSUE: {issue_id}\n"
                 if issue.description:
                     issue_context += f"\nIssue Description:\n{issue.description}\n"
                 if issue.notes:
                     issue_context += f"\nNotes:\n{issue.notes}\n"
 
-                # Combine with any existing custom_prompt
-                if custom_prompt:
-                    issue_context += f"\n{custom_prompt}"
-
                 click.echo(f"🔗 Spawning from beads issue: {issue_id}")
                 click.echo(f"   Skill: {skill_name}")
                 click.echo(f"   Title: {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
 
                 # Spawn with beads tracking
+                # Note: issue_context goes to additional_context (incorporated into full prompt)
+                # custom_prompt (from --prompt-file) still works as full replacement if provided
                 spawn_with_skill(
                     skill_name=skill_name,
                     task=task_description,
@@ -206,7 +204,8 @@ def register_spawn_commands(cli):
                     workspace_name=workspace_name,
                     yes=yes,
                     resume=resume,
-                    custom_prompt=issue_context,
+                    custom_prompt=custom_prompt,  # Only used if --prompt-file provided
+                    additional_context=issue_context,  # Beads context added to full prompt
                     phases=phases,
                     mode=mode,
                     validation=validation,

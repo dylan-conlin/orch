@@ -473,6 +473,12 @@ Signal orchestrator when blocked:
     # Build additional sections that don't come from template
     additional_parts = []
 
+    # Additional context (from beads issues, etc.) - incorporated into prompt
+    if config.additional_context:
+        additional_parts.append("\n## ADDITIONAL CONTEXT\n")
+        additional_parts.append(config.additional_context)
+        additional_parts.append("\n")
+
     # Design context from context_ref (if provided)
     # This gives the agent background from prior design work
     if config.context_ref:

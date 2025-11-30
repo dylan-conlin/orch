@@ -314,6 +314,10 @@ class SpawnConfig:
     interactive: bool = False  # If True, skill operates in collaborative mode with Dylan
     # Beads integration
     beads_id: Optional[str] = None  # Beads issue ID for lifecycle tracking
+    # Additional context (incorporated into prompt, does NOT replace it)
+    # Use this for beads issue context or other supplementary information
+    # Contrast with custom_prompt which replaces the entire generated prompt
+    additional_context: Optional[str] = None
 
 
 # Constants
@@ -1829,6 +1833,7 @@ def spawn_with_skill(
     yes: bool = False,
     resume: bool = False,
     custom_prompt: Optional[str] = None,
+    additional_context: Optional[str] = None,
     phases: Optional[str] = None,
     mode: Optional[str] = None,
     validation: Optional[str] = None,
@@ -1855,6 +1860,7 @@ def spawn_with_skill(
         yes: Skip confirmation if True
         resume: Allow resuming existing workspace
         custom_prompt: Optional custom prompt to replace generated prompt
+        additional_context: Optional context to incorporate into prompt (does not replace)
         phases: Comma-separated phases for feature-impl
         mode: Implementation mode (tdd or direct)
         validation: Validation level (none, tests, smoke-test, multi-phase)
@@ -1972,6 +1978,7 @@ def spawn_with_skill(
         skill_name=skill_name,
         deliverables=deliverables,
         custom_prompt=custom_prompt,
+        additional_context=additional_context,  # Incorporated into prompt (not replacing)
         skill_metadata=skill_metadata,  # Phase 3: Pass full metadata for verification
         # Phase 4: Feature-impl configuration
         phases=phases,
