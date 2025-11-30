@@ -1577,10 +1577,9 @@ def build(ctx, target_skills, target_readme, dry_run, check):
         project_skills_dir = Path(orch_root) / '.claude' / 'skills'
 
         # Categories and their output locations
-        # worker, shared, utilities, meta -> global (~/.claude/skills/)
-        # orchestrator -> project (.claude/skills/)
-        global_categories = ['worker', 'shared', 'utilities', 'meta']
-        project_categories = ['orchestrator']
+        # All skill categories deploy to global (~/.claude/skills/)
+        global_categories = ['worker', 'shared', 'utilities', 'meta', 'orchestrator']
+        project_categories = []  # Reserved for future project-scoped skills
 
         built_count = 0
         deployed_count = 0
