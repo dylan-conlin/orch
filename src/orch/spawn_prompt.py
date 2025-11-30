@@ -371,6 +371,24 @@ def build_spawn_prompt(config: "SpawnConfig") -> str:
     # Note: Template uses [Variable Name] format which we replace with actual values
     prompt = template
     prompt = prompt.replace("[One sentence description]", config.task)
+
+    # Insert CRITICAL instruction right after TASK section
+    # This prevents "Phase: Unknown" from persisting - agents MUST set Phase: Planning early
+    critical_instruction = """
+🚨 CRITICAL - FIRST 3 ACTIONS:
+You MUST do these within your first 3 tool calls:
+1. Read your coordination artifact (WORKSPACE.md or create investigation file)
+2. Set Phase: Planning in the artifact
+3. Begin planning
+
+If Phase is not set to Planning within first 3 actions, you will be flagged as unresponsive.
+Do NOT skip this - the orchestrator monitors Phase to track agent status.
+"""
+    # Find end of TASK line and insert critical instruction after it
+    task_end = prompt.find('\n', prompt.find('TASK:'))
+    if task_end != -1:
+        prompt = prompt[:task_end] + '\n' + critical_instruction + prompt[task_end:]
+
     prompt = prompt.replace("[Minimal background needed]", context_text)
     prompt = prompt.replace("[Absolute path to project]", str(config.project_dir))
 
