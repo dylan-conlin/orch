@@ -96,6 +96,42 @@ Built-in skills include:
 - **research**: Research external topics
 - **codebase-audit**: Comprehensive code review
 
+## AI Agent Setup
+
+For AI agents (like Claude Code) to automatically load orchestration context:
+
+### 1. Install the orchestrator skill
+
+```bash
+mkdir -p ~/.claude/skills/orchestrator
+cp skills/orchestrator/SKILL.md ~/.claude/skills/orchestrator/
+```
+
+### 2. Install the SessionStart hook
+
+```bash
+mkdir -p ~/.orch/hooks
+cp hooks/load-orchestration-context.py ~/.orch/hooks/
+chmod +x ~/.orch/hooks/load-orchestration-context.py
+```
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ~/.orch/hooks/load-orchestration-context.py"
+      }
+    ]
+  }
+}
+```
+
+Now when Claude Code starts in an orch project, it automatically loads orchestration context.
+
 ## Agent Compatibility
 
 Designed to work with:
