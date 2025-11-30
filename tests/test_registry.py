@@ -670,6 +670,43 @@ class TestTimestampBasedMerge:
         # Both should be the same at registration time
         assert agent['updated_at'] == agent['spawned_at']
 
+    def test_register_stores_beads_id(self, temp_registry):
+        """
+        Registering an agent with beads_id should store it in the registry.
+
+        This is required for orch complete to auto-close beads issues.
+        Reference: beads issue meta-orchestration-qrk
+        """
+        temp_registry.register(
+            agent_id="test-agent",
+            task="Test task",
+            window="test:1",
+            window_id="@123",
+            project_dir="/tmp/test",
+            workspace="/tmp/workspace/WORKSPACE.md",
+            beads_id="meta-orchestration-xyz"
+        )
+
+        agent = temp_registry.find("test-agent")
+        assert 'beads_id' in agent, "Agent should have beads_id field"
+        assert agent['beads_id'] == "meta-orchestration-xyz"
+
+    def test_register_without_beads_id(self, temp_registry):
+        """
+        Registering an agent without beads_id should work (backwards compatible).
+        """
+        temp_registry.register(
+            agent_id="test-agent",
+            task="Test task",
+            window="test:1",
+            window_id="@123",
+            project_dir="/tmp/test",
+            workspace="/tmp/workspace/WORKSPACE.md",
+        )
+
+        agent = temp_registry.find("test-agent")
+        assert 'beads_id' not in agent, "Agent without beads_id should not have the field"
+
 
 class TestTombstoneDeletion:
     """Tests for tombstone-based deletion to prevent re-animation."""

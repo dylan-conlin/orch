@@ -944,7 +944,8 @@ def register_agent(
     backend: Optional[str] = None,
     session_id: Optional[str] = None,
     stashed: bool = False,
-    feature_id: Optional[str] = None
+    feature_id: Optional[str] = None,
+    beads_id: Optional[str] = None
 ) -> None:
     """
     Register agent in orch registry.
@@ -961,6 +962,7 @@ def register_agent(
         session_id: OpenCode session ID (for opencode backend)
         stashed: True if git changes were stashed before spawn
         feature_id: Feature ID from backlog.json for lifecycle tracking
+        beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
 
     Raises:
         ValueError: If agent_id already exists
@@ -989,7 +991,8 @@ def register_agent(
             backend=backend,
             session_id=session_id,
             stashed=stashed,
-            feature_id=feature_id
+            feature_id=feature_id,
+            beads_id=beads_id
         )
 
         # Log successful registration to orch logs
@@ -1002,7 +1005,8 @@ def register_agent(
             "is_interactive": is_interactive,
             "skill": skill_name,
             "backend": backend,
-            "feature_id": feature_id
+            "feature_id": feature_id,
+            "beads_id": beads_id
         }, level="INFO")
 
         if backend == "opencode":
@@ -2081,7 +2085,8 @@ def spawn_with_skill(
                 backend="opencode",
                 session_id=spawn_info.get('session_id'),
                 stashed=stashed,
-                feature_id=config.feature_id
+                feature_id=config.feature_id,
+                beads_id=config.beads_id
             )
 
             click.echo(f"\n✅ Spawned (OpenCode): {config.workspace_name}")
@@ -2105,7 +2110,8 @@ def spawn_with_skill(
                 skill_name=config.skill_name,
                 primary_artifact=str(config.primary_artifact) if config.primary_artifact else None,
                 stashed=stashed,
-                feature_id=config.feature_id
+                feature_id=config.feature_id,
+                beads_id=config.beads_id
             )
 
             click.echo(f"\n✅ Spawned: {spawn_info['window_name']}")

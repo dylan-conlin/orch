@@ -233,7 +233,8 @@ class AgentRegistry:
         backend: str = None,
         session_id: str = None,
         stashed: bool = False,
-        feature_id: str = None
+        feature_id: str = None,
+        beads_id: str = None
     ) -> Dict[str, Any]:
         """
         Register a new agent.
@@ -248,6 +249,7 @@ class AgentRegistry:
             session_id: OpenCode session ID (only for opencode backend)
             stashed: True if git changes were stashed before spawn (auto-unstash on complete)
             feature_id: Feature ID from backlog.json for lifecycle tracking
+            beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
 
         Raises:
             ValueError: If agent_id already exists in registry
@@ -321,6 +323,9 @@ class AgentRegistry:
         # Track feature ID for backlog.json lifecycle
         if feature_id:
             agent['feature_id'] = feature_id
+        # Track beads issue ID for auto-close on complete
+        if beads_id:
+            agent['beads_id'] = beads_id
         self._agents.append(agent)
         self.save()
 
