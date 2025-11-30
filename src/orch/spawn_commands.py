@@ -88,7 +88,8 @@ def register_spawn_commands(cli):
     @click.option('--allow-dirty', is_flag=True, help='Allow spawn with uncommitted changes (may cause bundled commits)')
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')
     @click.option('--context-ref', help='Path to context file (design doc, investigation) to include in spawn prompt')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref):
+    @click.option('--parallel', is_flag=True, help='Use parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)')
+    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel):
         """
         Spawn a new worker agent or interactive session.
 
@@ -412,7 +413,8 @@ def register_spawn_commands(cli):
                 model=model,
                 stash=stash,
                 allow_dirty=allow_dirty,
-                context_ref=context_ref
+                context_ref=context_ref,
+                parallel=parallel
             )
 
         except ValueError as e:

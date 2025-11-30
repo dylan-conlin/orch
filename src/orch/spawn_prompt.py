@@ -549,6 +549,30 @@ Signal orchestrator when blocked:
         additional_parts.append(f"Create investigation file in .orch/investigations/{config.investigation_type}/ subdirectory.")
         additional_parts.append(f"Follow investigation skill guidance for {config.investigation_type} investigations.\n")
 
+    # Parallel execution mode (codebase-audit specific)
+    if config.parallel and config.skill_name == 'codebase-audit':
+        additional_parts.append("EXECUTION MODE: PARALLEL")
+        additional_parts.append("")
+        additional_parts.append("**You are running in parallel execution mode.** Follow the mode-parallel.md workflow:")
+        additional_parts.append("")
+        additional_parts.append("1. **Spawn 5 dimension agents in parallel** (use Task tool with 5 concurrent invocations)")
+        additional_parts.append("   - Security Agent (Haiku) - secrets, injection, auth")
+        additional_parts.append("   - Performance Agent (Haiku) - large files, complexity, N+1")
+        additional_parts.append("   - Architecture Agent (Haiku) - god objects, coupling")
+        additional_parts.append("   - Tests Agent (Haiku) - coverage gaps, flaky indicators")
+        additional_parts.append("   - Organizational Agent (Haiku) - drift, doc sync")
+        additional_parts.append("")
+        additional_parts.append("2. **Each agent returns JSON findings** (structured for synthesis)")
+        additional_parts.append("")
+        additional_parts.append("3. **Spawn synthesis agent** after all dimension agents complete")
+        additional_parts.append("   - Combines findings, assigns severity, sorts by ROI")
+        additional_parts.append("   - Produces prioritized report with top 20 findings")
+        additional_parts.append("")
+        additional_parts.append("4. **Write final report** to investigation file")
+        additional_parts.append("")
+        additional_parts.append("See mode-parallel.md in the skill for detailed JSON formats and prompts.")
+        additional_parts.append("Expected speedup: ~3x faster than sequential (5-10 min vs 15-30 min)\n")
+
     # Task-specific deliverables (append to template's deliverables section)
     deliverables = config.deliverables or DEFAULT_DELIVERABLES
     if deliverables:

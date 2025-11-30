@@ -318,6 +318,8 @@ class SpawnConfig:
     # Use this for beads issue context or other supplementary information
     # Contrast with custom_prompt which replaces the entire generated prompt
     additional_context: Optional[str] = None
+    # Parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)
+    parallel: bool = False
 
 
 # Constants
@@ -1847,7 +1849,8 @@ def spawn_with_skill(
     feature_id: Optional[str] = None,
     interactive: bool = False,
     context_ref: Optional[str] = None,
-    beads_id: Optional[str] = None
+    beads_id: Optional[str] = None,
+    parallel: bool = False
 ) -> Dict[str, str]:
     """
     Spawn agent with specific skill.
@@ -1998,7 +2001,9 @@ def spawn_with_skill(
         # Interactive mode (collaborative design)
         interactive=interactive,
         # Beads integration
-        beads_id=beads_id
+        beads_id=beads_id,
+        # Parallel execution mode
+        parallel=parallel
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)
