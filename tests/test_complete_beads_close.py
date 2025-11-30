@@ -110,7 +110,7 @@ Done.
             with patch('orch.complete.verify_agent_work') as mock_verify:
                 mock_verify.return_value = Mock(passed=True, errors=[])
 
-                with patch('orch.git_utils.validate_work_committed') as mock_git:
+                with patch('orch.complete.validate_work_committed') as mock_git:
                     mock_git.return_value = (True, None)
 
                     with patch('orch.complete.close_beads_issue') as mock_close:
@@ -120,8 +120,7 @@ Done.
                             result = complete_agent_work(
                                 agent_id='test-agent',
                                 project_dir=tmp_path,
-                                roadmap_path=None
-                            )
+                                                            )
 
                             # Should have called close_beads_issue
                             mock_close.assert_called_once_with('meta-orchestration-xyz')
@@ -171,7 +170,7 @@ Done.
             with patch('orch.complete.verify_agent_work') as mock_verify:
                 mock_verify.return_value = Mock(passed=True, errors=[])
 
-                with patch('orch.git_utils.validate_work_committed') as mock_git:
+                with patch('orch.complete.validate_work_committed') as mock_git:
                     mock_git.return_value = (True, None)
 
                     with patch('orch.complete.close_beads_issue') as mock_close:
@@ -179,8 +178,7 @@ Done.
                             result = complete_agent_work(
                                 agent_id='test-agent',
                                 project_dir=tmp_path,
-                                roadmap_path=None
-                            )
+                                                            )
 
                             # Should NOT have called close_beads_issue
                             mock_close.assert_not_called()
@@ -229,7 +227,7 @@ Done.
             with patch('orch.complete.verify_agent_work') as mock_verify:
                 mock_verify.return_value = Mock(passed=True, errors=[])
 
-                with patch('orch.git_utils.validate_work_committed') as mock_git:
+                with patch('orch.complete.validate_work_committed') as mock_git:
                     mock_git.return_value = (True, None)
 
                     with patch('orch.complete.close_beads_issue') as mock_close:
@@ -239,8 +237,7 @@ Done.
                             result = complete_agent_work(
                                 agent_id='test-agent',
                                 project_dir=tmp_path,
-                                roadmap_path=None
-                            )
+                                                            )
 
                             # Should still succeed but have warning
                             assert result['success'] is True
@@ -274,8 +271,7 @@ class TestCompleteAgentAsyncBeadsClose:
                     result = complete_agent_async(
                         agent_id='test-agent',
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
                     # Should have called close_beads_issue
                     mock_close.assert_called_once_with('meta-orchestration-xyz')
@@ -303,8 +299,7 @@ class TestCompleteAgentAsyncBeadsClose:
                     result = complete_agent_async(
                         agent_id='test-agent',
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
                     # Should NOT have called close_beads_issue
                     mock_close.assert_not_called()
@@ -330,18 +325,16 @@ class TestCLIBeadsClose:
             }
             MockRegistry.return_value = mock_registry
 
-            with patch('orch.cli._auto_detect_roadmap', return_value=None):
-                with patch('orch.complete.complete_agent_work') as mock_complete:
-                    mock_complete.return_value = {
-                        'success': True,
-                        'verified': True,
-                        'roadmap_updated': False,
-                        'beads_closed': True,
-                        'errors': [],
-                        'warnings': []
-                    }
+            with patch('orch.complete.complete_agent_work') as mock_complete:
+                mock_complete.return_value = {
+                    'success': True,
+                    'verified': True,
+                    'beads_closed': True,
+                    'errors': [],
+                    'warnings': []
+                }
 
-                    result = runner.invoke(cli, ['complete', 'test-agent', '--sync'])
+                result = runner.invoke(cli, ['complete', 'test-agent', '--sync'])
 
-                    # Should show beads closed message
-                    assert 'beads' in result.output.lower() or result.exit_code == 0
+                # Should show beads closed message
+                assert 'beads' in result.output.lower() or result.exit_code == 0

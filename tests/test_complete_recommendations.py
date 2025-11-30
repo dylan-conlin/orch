@@ -308,12 +308,11 @@ Found something.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         # Verify success
         assert result['success'] is True
@@ -364,12 +363,11 @@ Found something.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         # Verify success
         assert result['success'] is True
@@ -416,12 +414,11 @@ Found security issues.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         assert result['success'] is True
         captured = capsys.readouterr()
@@ -463,12 +460,11 @@ Use JWT with refresh tokens.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         assert result['success'] is True
         captured = capsys.readouterr()
@@ -497,12 +493,11 @@ Use JWT with refresh tokens.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         assert result['success'] is True
         captured = capsys.readouterr()
@@ -543,12 +538,11 @@ Done - no recommendations needed.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     result = complete_agent_work(
                         agent_id=workspace_name,
                         project_dir=tmp_path,
-                        roadmap_path=None
-                    )
+                                            )
 
         # Should succeed without error
         assert result['success'] is True
@@ -589,13 +583,12 @@ Done - no recommendations needed.
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
                     with patch('orch.complete.verify_agent_work', return_value=mock_verification):
                         result = complete_agent_work(
                             agent_id=workspace_name,
                             project_dir=tmp_path,
-                            roadmap_path=None
-                        )
+                                                    )
 
         # Should succeed without error (recommendation surfacing handles missing file)
         assert result['success'] is True
@@ -664,7 +657,6 @@ Found something important.
             result = complete_agent_async(
                 agent_id=workspace_name,
                 project_dir=tmp_path,
-                roadmap_path=None,
                 registry_path=registry_path
             )
 
@@ -714,7 +706,6 @@ Found something important.
             result = complete_agent_async(
                 agent_id=workspace_name,
                 project_dir=tmp_path,
-                roadmap_path=None,
                 registry_path=registry_path
             )
 

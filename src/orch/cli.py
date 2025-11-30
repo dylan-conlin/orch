@@ -348,49 +348,8 @@ def abandon(agent_ids, reason, force):
     click.echo("Run 'orch clean' to remove them from the registry.")
 
 
-def _auto_detect_roadmap(project_dir: Path, roadmap: Optional[str] = None) -> Optional[Path]:
-    """
-    Auto-detect ROADMAP.org path for project.
-
-    Args:
-        project_dir: Project directory path
-        roadmap: Optional explicit roadmap path
-
-    Returns:
-        Path to ROADMAP.org file if found, None otherwise.
-        None indicates the project uses backlog.json instead of ROADMAP.org,
-        and agents should be treated as ad-hoc (no ROADMAP update on completion).
-    """
-    if roadmap:
-        return Path(roadmap)
-
-    # Search configured roadmap paths first
-    from orch.config import get_roadmap_paths
-    for candidate in get_roadmap_paths():
-        if candidate.exists():
-            return candidate
-
-    # Fall back to project-level locations
-    candidate = project_dir / "ROADMAP.org"
-    if candidate.exists():
-        return candidate
-
-    candidate2 = project_dir / "docs" / "ROADMAP.org"
-    if candidate2.exists():
-        return candidate2
-
-    candidate3 = project_dir / ".orch" / "ROADMAP.org"
-    if candidate3.exists():
-        return candidate3
-
-    # Return None instead of aborting - allows backlog.json-only projects
-    return None
-
-
 @cli.command()
 @click.argument('agent_id', required=False)
-@click.option('--roadmap', type=click.Path(exists=True), help='Path to ROADMAP.org (auto-detected if not specified)')
-@click.option('--allow-roadmap-miss', is_flag=True, help='Proceed with cleanup even if ROADMAP item not found')
 @click.option('--dry-run', is_flag=True, help='Show what would happen without executing')
 @click.option('--all', 'complete_all', is_flag=True, help='Complete all ready agents (READY_COMPLETE or READY_CLEAN scenarios)')
 @click.option('--project', help='Filter agents by project directory (used with --all)')
@@ -399,25 +358,19 @@ def _auto_detect_roadmap(project_dir: Path, roadmap: Optional[str] = None) -> Op
 @click.option('--sync', 'sync_mode', is_flag=True, help='Run completion synchronously (blocking, wait for cleanup)')
 @click.option('--async', 'async_mode', is_flag=True, hidden=True, help='[DEPRECATED] Async is now the default. This flag has no effect.')
 @click.option('--discover', is_flag=True, help='Capture discovered/punted work items and create beads issues')
-def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
+def complete(agent_id, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
     """
-    Complete agent work: verify, update ROADMAP (if applicable), commit, cleanup.
+    Complete agent work: verify, close beads issue, cleanup.
 
-    Auto-detects whether agent is ROADMAP-based or ad-hoc, then runs appropriate workflow:
-
-    For ROADMAP agents:
+    Workflow:
     1. Verify agent work (Phase: Complete, deliverables exist)
-    2. Update ROADMAP.org (mark DONE, add CLOSED timestamp)
-    3. Git commit ROADMAP update
+    2. Close beads issue (if spawned from --issue)
+    3. Restore git stash (if changes were stashed during spawn)
     4. Clean up agent and close tmux window
-
-    For ad-hoc agents:
-    1. Verify agent work (Phase: Complete, deliverables exist)
-    2. Clean up agent and close tmux window
 
     Example:
         orch complete my-agent-workspace
-        orch complete investigate-bug-123  # Works for both ROADMAP and ad-hoc
+        orch complete investigate-bug-123
     """
     from orch.complete import complete_agent_work
     from orch.monitor import check_agent_status, Scenario
@@ -467,15 +420,11 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
             click.echo(f"Completing: {agent_id_batch}")
 
             try:
-                # Auto-detect ROADMAP
                 project_dir = Path(agent_info['project_dir'])
-                roadmap_path = _auto_detect_roadmap(project_dir, roadmap)
 
                 result = complete_agent_work(
                     agent_id=agent_id_batch,
                     project_dir=project_dir,
-                    roadmap_path=roadmap_path,
-                    allow_roadmap_miss=allow_roadmap_miss,
                     dry_run=False,
                     skip_test_check=skip_test_check
                 )
@@ -522,16 +471,9 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
     # Get project directory from agent
     project_dir = Path(agent['project_dir'])
 
-    # Auto-detect ROADMAP
-    roadmap_path = _auto_detect_roadmap(project_dir, roadmap)
-
     click.echo()
     click.echo(f"🔍 Completing: {agent_id}")
     click.echo(f"   Project: {project_dir}")
-    if roadmap_path:
-        click.echo(f"   ROADMAP: {roadmap_path}")
-    else:
-        click.echo("   ROADMAP: (none - using backlog.json)")
     click.echo()
 
     # Run complete workflow (async by default, sync if --sync flag or --dry-run provided)
@@ -542,16 +484,13 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
 
         result = complete_agent_async(
             agent_id=agent_id,
-            project_dir=project_dir,
-            roadmap_path=roadmap_path
+            project_dir=project_dir
         )
     else:
         # Opt-in: sync mode (blocking)
         result = complete_agent_work(
             agent_id=agent_id,
             project_dir=project_dir,
-            roadmap_path=roadmap_path,
-            allow_roadmap_miss=allow_roadmap_miss,
             dry_run=dry_run,
             skip_test_check=skip_test_check,
             force=force
@@ -580,12 +519,6 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
             click.echo("✅ Agent work completed successfully!")
             click.echo()
             click.echo("   ✓ Verification passed")
-            if result['roadmap_updated']:
-                click.echo("   ✓ ROADMAP marked DONE (ROADMAP-based agent)")
-                if result['committed']:
-                    click.echo("   ✓ Changes committed to git")
-            else:
-                click.echo("   ✓ Ad-hoc agent (no ROADMAP update)")
             click.echo("   ✓ Agent cleaned up")
             if result.get('beads_closed'):
                 click.echo("   ✓ Beads issue closed")

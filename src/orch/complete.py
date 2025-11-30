@@ -2,18 +2,16 @@
 Complete command functionality for orch tool.
 
 Handles:
-- Auto-detecting ROADMAP vs ad-hoc agents
-- Finding ROADMAP items from workspace metadata (for ROADMAP agents)
-- Marking ROADMAP items as DONE (for ROADMAP agents only)
 - Verification checklist
-- Git commits (for ROADMAP agents only)
-- Agent cleanup (for both agent types)
+- Beads issue auto-close (for agents spawned from beads issues)
+- Investigation recommendation surfacing
+- Git stash restoration
+- Agent cleanup
 
 Architecture: This module orchestrates completion workflow, delegating to:
 - orch.verification: Agent work verification
-- orch.roadmap_utils: ROADMAP operations
+- orch.beads_integration: Work tracking via beads
 - orch.tmux_utils: Process management
-- orch.git_utils: Git operations
 """
 
 from pathlib import Path
@@ -22,11 +20,6 @@ from datetime import datetime
 import re
 import click
 
-from orch.roadmap import RoadmapItem
-from orch.roadmap_utils import (
-    find_roadmap_item_for_workspace as roadmap_find_item_for_workspace,
-    mark_roadmap_item_done as roadmap_mark_item_done,
-)
 # Import verification functions - exposed here for backward compatibility
 from orch.verification import (
     VerificationResult,
@@ -44,7 +37,7 @@ from orch.tmux_utils import (
     graceful_shutdown_window,
 )
 # Import git operations - exposed here for backward compatibility
-from orch.git_utils import commit_roadmap_update
+from orch.git_utils import validate_work_committed
 
 # Import beads integration for auto-close on complete
 from orch.beads_integration import (
@@ -262,54 +255,11 @@ def surface_investigation_recommendations(
     }
 
 
-# Backward compatibility wrapper
-def find_roadmap_item_for_workspace(
-    workspace_name: str,
-    roadmap_path: Path | None
-) -> RoadmapItem | None:
-    """
-    Find ROADMAP item that matches workspace name.
-
-    NOTE: This is a wrapper to orch.roadmap.find_roadmap_item_for_workspace
-    for backward compatibility.
-    """
-    if roadmap_path is None:
-        return None
-    return roadmap_find_item_for_workspace(workspace_name, roadmap_path)
-
-
-# Backward compatibility wrapper
-def mark_roadmap_item_done(
-    workspace_name: str,
-    roadmap_path: Path | None
-) -> None:
-    """
-    Mark ROADMAP item as DONE.
-
-    NOTE: This is a wrapper to orch.roadmap.mark_roadmap_item_done
-    for backward compatibility.
-    """
-    if roadmap_path is None:
-        raise ValueError("Cannot mark ROADMAP item done: roadmap_path is None")
-    success = roadmap_mark_item_done(
-        roadmap_path=roadmap_path,
-        workspace_name=workspace_name
-    )
-    if not success:
-        raise ValueError(f"Workspace '{workspace_name}' not found in ROADMAP")
-
-
-# NOTE: ROADMAP operations moved to orch.roadmap_utils module
-# Backward compatibility wrappers above delegate to that module
-
 # NOTE: Verification functions moved to orch.verification module
 # Imported above for backward compatibility with existing callers
 
 # NOTE: Process management functions (has_active_processes, graceful_shutdown_window)
 # moved to orch.tmux_utils module - imported above for backward compatibility
-
-# NOTE: Git operations (commit_roadmap_update) moved to orch.git_utils module
-# Imported above for backward compatibility
 
 
 def get_agent_by_id(agent_id: str) -> dict[str, Any] | None:
@@ -405,11 +355,10 @@ def clean_up_agent(agent_id: str, force: bool = False) -> None:
 def complete_agent_async(
     agent_id: str,
     project_dir: Path,
-    roadmap_path: Path | None,
     registry_path: Path | None = None
 ) -> dict[str, Any]:
     """
-    Start async agent completion: verify, update ROADMAP, spawn background daemon.
+    Start async agent completion: verify, spawn background daemon.
 
     This function returns immediately after spawning the cleanup daemon.
     The actual cleanup (window killing, etc.) happens in the background.
@@ -417,7 +366,6 @@ def complete_agent_async(
     Args:
         agent_id: Agent identifier (workspace name)
         project_dir: Project directory
-        roadmap_path: Path to ROADMAP.org file, or None for backlog.json-only projects
         registry_path: Optional path to registry (for testing)
 
     Returns:
@@ -565,22 +513,18 @@ def complete_agent_async(
 def complete_agent_work(
     agent_id: str,
     project_dir: Path,
-    roadmap_path: Path | None,
-    allow_roadmap_miss: bool = False,
     dry_run: bool = False,
     skip_test_check: bool = False,
     force: bool = False
 ) -> dict[str, Any]:
     """
-    Complete agent work: verify, update ROADMAP, commit, cleanup.
+    Complete agent work: verify, close beads issue, cleanup.
 
     This is the main orchestration function that ties everything together.
 
     Args:
         agent_id: Agent identifier (workspace name)
         project_dir: Project directory
-        roadmap_path: Path to ROADMAP.org file, or None for backlog.json-only projects
-        allow_roadmap_miss: Proceed with cleanup even if ROADMAP item not found
         dry_run: Show what would happen without executing
         skip_test_check: Skip test verification check (use when pre-existing test failures block completion)
         force: Bypass safety checks (active processes, git state) - use when work complete but session hung
@@ -589,8 +533,7 @@ def complete_agent_work(
         Dictionary with:
         - success: bool (overall success)
         - verified: bool (verification passed)
-        - roadmap_updated: bool (ROADMAP marked DONE)
-        - committed: bool (git commit successful)
+        - beads_closed: bool (beads issue closed)
         - errors: List[str] (any errors encountered)
         - warnings: List[str] (any warnings)
     """
@@ -600,8 +543,6 @@ def complete_agent_work(
     result: dict[str, Any] = {
         'success': False,
         'verified': False,
-        'roadmap_updated': False,
-        'committed': False,
         'errors': [],
         'warnings': [],
         'dry_run': dry_run
@@ -632,87 +573,27 @@ def complete_agent_work(
         return result
 
     # Step 1.5: Validate work is committed and pushed (main-branch workflow)
-    from orch.git_utils import validate_work_committed
-    
     # Define orchestrator working files to exclude from validation
     # These files are frequently modified by the orchestrator during sessions
     # and shouldn't block agent completion.
     orchestrator_files = [
-        '.orch/ROADMAP.org',
         '.orch/workspace/coordination/WORKSPACE.md',
         '.orch/CLAUDE.md'
     ]
-    
+
     is_valid, warning_message = validate_work_committed(project_dir, exclude_files=orchestrator_files)
     if not is_valid:
         # Block completion - uncommitted changes must be resolved
         result['errors'].append(f"Git validation error:\n{warning_message}")
         return result
 
-    # Phase 4: Dry-run check - exit before making changes
+    # Step 2: Dry-run check - exit before making changes
     if dry_run:
         logger.log_event("complete", "Dry-run mode - would complete successfully", {
             "agent_id": agent_id
         })
         result['success'] = True
         return result
-
-    # Step 2: Auto-detect ROADMAP vs ad-hoc agent
-    workspace_name = workspace_dir.name  # Extract workspace name from path
-    roadmap_item = find_roadmap_item_for_workspace(workspace_name, roadmap_path)
-
-    if roadmap_item:
-        # Check if item is already DONE before trying to mark it
-        if roadmap_item.is_done:
-            # Item already marked DONE - this is fine, just warn and proceed
-            result['warnings'].append(f"ROADMAP item already marked DONE (closed: {roadmap_item.closed_date or 'unknown'})")
-            result['roadmap_updated'] = False  # Already done, no update needed
-            logger.log_event("complete", "ROADMAP item already DONE", {
-                "workspace": workspace_name,
-                "closed_date": roadmap_item.closed_date
-            })
-        else:
-            # ROADMAP-based agent: Update ROADMAP
-            try:
-                mark_roadmap_item_done(workspace_name, roadmap_path)
-                result['roadmap_updated'] = True
-                logger.log_event("complete", "ROADMAP item marked DONE", {
-                    "workspace": workspace_name
-                })
-            except ValueError as e:
-                # Phase 4: Conservative ROADMAP handling
-                if not allow_roadmap_miss:
-                    # Default: Escalate when ROADMAP item not found
-                    result['errors'].append(f"ROADMAP item not found: {str(e)}\nUse --allow-roadmap-miss to proceed with cleanup anyway")
-                    logger.log_event("complete", "ROADMAP item not found - escalating", {
-                        "workspace": workspace_name,
-                        "error": str(e)
-                    })
-                    return result
-                else:
-                    # Allow-miss flag: Proceed with warning
-                    result['warnings'].append(f"ROADMAP item not found (proceeding with cleanup): {str(e)}")
-                    result['roadmap_updated'] = False
-                    logger.log_event("complete", "ROADMAP item not found - proceeding (allow-miss)", {
-                        "workspace": workspace_name,
-                        "error": str(e)
-                    })
-
-        # Commit ROADMAP update (only if successfully updated)
-        if result['roadmap_updated'] and roadmap_path is not None:
-            committed = commit_roadmap_update(roadmap_path, workspace_name, project_dir)
-            result['committed'] = committed
-            if committed:
-                logger.log_event("complete", "ROADMAP update committed", {
-                    "workspace": workspace_name
-                })
-    else:
-        # Ad-hoc agent: Skip ROADMAP update (no error)
-        result['roadmap_updated'] = False
-        result['committed'] = False
-        logger.log_event("complete", "Ad-hoc agent - no ROADMAP update", {
-            "agent_id": agent_id
-        })
 
     # Step 3: Close beads issue if agent was spawned from beads issue
     if agent.get('beads_id'):

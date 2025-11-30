@@ -46,17 +46,14 @@ class TestCompleteDefaultBehavior:
 
         # Mock complete functions
         with patch('orch.complete.complete_agent_async') as mock_async, \
-             patch('orch.complete.complete_agent_work') as mock_sync, \
-             patch('orch.cli._auto_detect_roadmap') as mock_roadmap:
+             patch('orch.complete.complete_agent_work') as mock_sync:
 
             # Setup mocks
-            mock_roadmap.return_value = tmp_path / 'ROADMAP.org'
             mock_async.return_value = {
                 'success': True,
                 'async_mode': True,
                 'daemon_pid': 12345,
-                'verified': True,
-                'roadmap_updated': False
+                'verified': True
             }
 
             # Execute: Run complete command WITHOUT any flags
@@ -82,17 +79,13 @@ class TestCompleteDefaultBehavior:
 
         # Mock complete functions
         with patch('orch.complete.complete_agent_async') as mock_async, \
-             patch('orch.complete.complete_agent_work') as mock_sync, \
-             patch('orch.cli._auto_detect_roadmap') as mock_roadmap:
+             patch('orch.complete.complete_agent_work') as mock_sync:
 
             # Setup mocks
-            mock_roadmap.return_value = tmp_path / 'ROADMAP.org'
             mock_sync.return_value = {
                 'success': True,
                 'async_mode': False,
-                'verified': True,
-                'roadmap_updated': False,
-                'committed': True
+                'verified': True
             }
 
             # Execute: Run complete command WITH --sync flag
@@ -120,17 +113,14 @@ class TestBackwardCompatibility:
 
         # Mock complete functions
         with patch('orch.complete.complete_agent_async') as mock_async, \
-             patch('orch.complete.complete_agent_work') as mock_sync, \
-             patch('orch.cli._auto_detect_roadmap') as mock_roadmap:
+             patch('orch.complete.complete_agent_work') as mock_sync:
 
             # Setup mocks
-            mock_roadmap.return_value = tmp_path / 'ROADMAP.org'
             mock_async.return_value = {
                 'success': True,
                 'async_mode': True,
                 'daemon_pid': 12345,
-                'verified': True,
-                'roadmap_updated': False
+                'verified': True
             }
 
             # Execute: Run complete command WITH old --async flag

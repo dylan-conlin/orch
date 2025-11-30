@@ -105,7 +105,6 @@ class TestSpawnCheckCompleteWorkflow:
                  patch('orch.registry.AgentRegistry', return_value=mock_registry), \
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.complete.verify_agent_work') as mock_verify, \
-                 patch('orch.complete.find_roadmap_item_for_workspace', return_value=None), \
                  patch('orch.spawn.get_project_dir', return_value=e2e_project_dir), \
                  patch('orch.spawn.ClaudeBackend', return_value=mock_backend), \
                  patch('orch.tmux_utils.get_window_by_target', return_value=True), \
@@ -221,7 +220,6 @@ class TestSpawnSendCompleteWorkflow:
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.monitoring_commands.AgentRegistry', return_value=mock_registry), \
                  patch('orch.complete.verify_agent_work') as mock_verify, \
-                 patch('orch.complete.find_roadmap_item_for_workspace', return_value=None), \
                  patch('orch.spawn.get_project_dir', return_value=e2e_project_dir), \
                  patch('orch.spawn.ClaudeBackend', return_value=mock_backend), \
                  patch('orch.tmux_utils.get_window_by_target', return_value=True), \
@@ -283,10 +281,14 @@ Phase: Complete
 
 
 class TestROADMAPWorkflow:
-    """Test ROADMAP-based spawning and completion workflow."""
+    """Test ROADMAP-based spawning workflow.
+
+    Note: Completing agents no longer updates ROADMAP (beads is now the work tracker).
+    This test verifies spawning from ROADMAP still works.
+    """
 
     def test_roadmap_spawn_complete_workflow(self, cli_runner, e2e_project_dir, mock_subprocess):
-        """Test spawning from ROADMAP and completing back to ROADMAP."""
+        """Test spawning from ROADMAP and completing agent."""
         with cli_runner.isolated_filesystem(temp_dir=e2e_project_dir.parent):
             import os
             os.chdir(str(e2e_project_dir))
@@ -351,14 +353,13 @@ Implement ROADMAP-based spawning.
                 # Verify spawn succeeded
                 assert spawn_result.exit_code == 0, f"ROADMAP spawn failed: {spawn_result.output}"
 
-                # Step 2: Complete and mark ROADMAP item DONE
+                # Step 2: Complete agent (no longer updates ROADMAP - beads is now the work tracker)
                 workspace_dir = e2e_project_dir / ".orch" / "workspace" / workspace_name
                 workspace_dir.mkdir(parents=True, exist_ok=True)
                 (workspace_dir / "WORKSPACE.md").write_text(f"""---
 Type: implementation
 Phase: Complete
 Project: test-project
-ROADMAP-Task: Test ROADMAP Feature
 ---
 """)
 
@@ -369,8 +370,7 @@ ROADMAP-Task: Test ROADMAP Feature
                     'project_dir': str(e2e_project_dir),
                     'window_id': '@1008',
                     'window': 'workers:10',
-                    'status': 'active',
-                    'roadmap_task': 'Test ROADMAP Feature'
+                    'status': 'active'
                 }]
                 mock_registry.find.return_value = {
                     'id': agent_id,
@@ -378,20 +378,12 @@ ROADMAP-Task: Test ROADMAP Feature
                     'project_dir': str(e2e_project_dir),
                     'window_id': '@1008',
                     'window': 'workers:10',
-                    'status': 'active',
-                    'roadmap_task': 'Test ROADMAP Feature'
+                    'status': 'active'
                 }
 
-                with patch('orch.complete.find_roadmap_item_for_workspace') as mock_find:
-                    # Mock finding the ROADMAP item
-                    mock_find.return_value = Mock(
-                        title='Test ROADMAP Feature',
-                        properties={'Workspace': workspace_name}
-                    )
+                complete_result = cli_runner.invoke(cli, ['complete', agent_id])
 
-                    complete_result = cli_runner.invoke(cli, ['complete', agent_id])
-
-                    assert complete_result.exit_code == 0, f"Complete failed: {complete_result.output}"
+                assert complete_result.exit_code == 0, f"Complete failed: {complete_result.output}"
 
 
 class TestMultipleAgentsWorkflow:

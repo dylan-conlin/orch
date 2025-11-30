@@ -51,31 +51,29 @@ class TestDiscoverFlagCLI:
             }
             MockRegistry.return_value = mock_registry
 
-            with patch('orch.cli._auto_detect_roadmap', return_value=None):
-                # Patch at the source module where complete_agent_work is defined
-                with patch('orch.complete.complete_agent_work') as mock_complete:
-                    mock_complete.return_value = {
-                        'success': True,
-                        'verified': True,
-                        'roadmap_updated': False,
-                        'errors': [],
-                        'warnings': []
-                    }
+            # Patch at the source module where complete_agent_work is defined
+            with patch('orch.complete.complete_agent_work') as mock_complete:
+                mock_complete.return_value = {
+                    'success': True,
+                    'verified': True,
+                    'errors': [],
+                    'warnings': []
+                }
 
-                    # Also mock subprocess to prevent actual bd calls
-                    with patch('subprocess.run') as mock_run:
-                        mock_run.return_value = Mock(returncode=0, stdout='Created: test-123', stderr='')
+                # Also mock subprocess to prevent actual bd calls
+                with patch('subprocess.run') as mock_run:
+                    mock_run.return_value = Mock(returncode=0, stdout='Created: test-123', stderr='')
 
-                        # Simulate user entering one item then empty to finish
-                        result = runner.invoke(
-                            cli,
-                            ['complete', 'test-agent', '--discover', '--sync'],
-                            input='Add caching for API calls\n\n'  # One item, then empty
-                        )
+                    # Simulate user entering one item then empty to finish
+                    result = runner.invoke(
+                        cli,
+                        ['complete', 'test-agent', '--discover', '--sync'],
+                        input='Add caching for API calls\n\n'  # One item, then empty
+                    )
 
-                        # Should show discovery prompt
-                        assert 'discovered' in result.output.lower() or 'punted' in result.output.lower(), \
-                            f"Expected discovery prompt in output, got: {result.output}"
+                    # Should show discovery prompt
+                    assert 'discovered' in result.output.lower() or 'punted' in result.output.lower(), \
+                        f"Expected discovery prompt in output, got: {result.output}"
 
 
 class TestDiscoverFunctionality:
