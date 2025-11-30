@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from enum import Enum
 from orch.workspace import parse_workspace, parse_workspace_verification
+from orch.frontmatter import extract_phase as fm_extract_phase, extract_metadata
 import re
 from orch.patterns import check_patterns
 from orch.context import ContextInfo
@@ -66,8 +67,10 @@ def extract_phase_from_file(path: Path) -> Optional[str]:
     """
     Extract Phase value from a coordination artifact (workspace or investigation file).
 
+    Uses YAML frontmatter if present, falls back to inline markdown extraction.
+
     Args:
-        path: Path to file containing '**Phase:**' style metadata
+        path: Path to file containing '**Phase:**' style metadata or YAML frontmatter
 
     Returns:
         Phase string if found, else None
@@ -84,6 +87,12 @@ def extract_phase_from_file(path: Path) -> Optional[str]:
     except Exception:
         return None
 
+    # Use new frontmatter module (handles both frontmatter and inline with fallback)
+    phase = fm_extract_phase(content)
+    if phase:
+        return phase
+
+    # Legacy fallback: regex extraction for edge cases the frontmatter module might miss
     match = re.search(
         r'\*\*Phase:\*\*\s*([^\n]+)|^Phase:\s*([^\n]+)|^\*\*Status:\*\*\s+Phase:\s*([^\n]+)|\*\*Status:\*\*\s*([^\n]+)',
         content,
