@@ -53,6 +53,49 @@ orch send <agent-id> "Focus on the OAuth flow first"
 orch complete <agent-id>
 ```
 
+## Integration Loop Workflow
+
+The recommended workflow integrates [beads](https://github.com/dylan-conlin/beads) (work tracking) with orch:
+
+```
+bd create → orch spawn --issue → agent works → orch complete → bd close (auto)
+```
+
+```bash
+# 1. Create work item
+bd create --title="Add rate limiting" --type=feature
+
+# 2. Spawn agent from issue
+orch spawn --issue meta-proj-xyz
+
+# 3. Monitor progress
+orch status                    # overview
+orch check <agent-id>          # details
+
+# 4. Complete when done
+orch complete <agent-id>       # verifies, cleans up, closes beads issue
+```
+
+**Ad-hoc spawning** (without beads tracking):
+
+```bash
+orch spawn feature-impl "add rate limiting" --project my-app
+```
+
+### Delegate vs Execute
+
+When should the orchestrator spawn an agent vs execute directly?
+
+**Delegate when:**
+- 5+ file reads required
+- Produces an investigation or analysis artifact
+- Estimated >10 minutes of work
+
+**Execute directly when:**
+- Trivial task (<5 files, <10 min)
+- Simple fixes (typos, config changes)
+- No artifact produced
+
 ## Core Commands
 
 | Command | Description |
