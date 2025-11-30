@@ -1512,35 +1512,36 @@ def spawn_interactive(
     if context and context.strip():
         # Generate descriptive name using same logic as skill-based spawns
         base_name = create_workspace_adhoc(context, skill_name=None, project_dir=project_dir)
-        # Insert 'interactive-' after date prefix
-        # Format: YYYY-MM-DD-slug -> YYYY-MM-DD-interactive-slug
-        parts = base_name.split('-', 3)  # Split on first 3 hyphens (date parts)
-        if len(parts) >= 4:
-            # Has date prefix and slug: YYYY-MM-DD-slug
-            date_prefix = f"{parts[0]}-{parts[1]}-{parts[2]}"  # YYYY-MM-DD (10 chars)
-            context_slug = parts[3]
+        # Insert 'interactive-' before the date suffix
+        # Format: slug-DDMMM -> slug-interactive-DDMMM
+        # The date suffix is always 5 chars (e.g., "30nov")
+        parts = base_name.rsplit('-', 1)  # Split on last hyphen
+        if len(parts) == 2:
+            slug_part = parts[0]
+            date_suffix = parts[1]
 
-            # Calculate available chars for context after 'interactive-' prefix
-            # Total: 70, Date: 10, Hyphens: 2, Interactive: 11 = 47 chars available for context
-            available_chars = 70 - len(date_prefix) - 1 - len("interactive") - 1
-            original_slug = context_slug
+            # Calculate available chars for context
+            # Max length: 35, date: 5, interactive: 11, hyphens: 2 = 17 chars for slug
+            max_length = 35
+            available_chars = max_length - 5 - 11 - 2
+            original_slug = slug_part
 
-            # Truncate context slug if needed to fit within 70-char limit
-            context_slug = truncate_at_word_boundary(context_slug, available_chars)
+            # Truncate slug if needed to fit within limit
+            slug_part = truncate_at_word_boundary(slug_part, available_chars)
 
             # Log if truncation occurred
-            if len(context_slug) < len(original_slug):
+            if len(slug_part) < len(original_slug):
                 import click
-                click.echo(f"ℹ️  Context truncated to fit 70-char limit: '{original_slug[:20]}...' → '{context_slug}'")
+                click.echo(f"ℹ️  Context truncated to fit 35-char limit: '{original_slug[:15]}...' → '{slug_part}'")
 
-            workspace_name = f"{date_prefix}-interactive-{context_slug}"
+            workspace_name = f"{slug_part}-interactive-{date_suffix}"
         else:
             # Fallback: prepend interactive to entire name
             workspace_name = f"interactive-{base_name}"
     else:
         # Fallback to timestamp for empty context
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        workspace_name = f"interactive-{timestamp}"
+        date_suffix = datetime.now().strftime("%d%b").lower()
+        workspace_name = f"interactive-{date_suffix}"
 
     try:
         workspace_info = create_workspace(

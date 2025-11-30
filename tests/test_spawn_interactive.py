@@ -562,11 +562,11 @@ class TestInteractiveMode:
             # Assert: Workspace name should be descriptive, not timestamp-based
             workspace_name = result['agent_id']
 
-            # Expected format: YYYY-MM-DD-interactive-debug-authentication-flow
-            # Should include date prefix
-            today = datetime.now().strftime("%Y-%m-%d")
-            assert workspace_name.startswith(today), \
-                f"Expected workspace name to start with date '{today}', got: {workspace_name}"
+            # Expected format: slug-interactive-DDMMM (e.g., debug-auth-interactive-30nov)
+            # Should include date suffix
+            today = datetime.now().strftime("%d%b").lower()
+            assert workspace_name.endswith(today), \
+                f"Expected workspace name to end with date '{today}', got: {workspace_name}"
 
             # Should include 'interactive' identifier
             assert 'interactive' in workspace_name, \
@@ -620,10 +620,10 @@ class TestInteractiveMode:
                 yes=True
             )
 
-            # Assert: Workspace name should use timestamp format as fallback
+            # Assert: Workspace name should use date suffix as fallback
             workspace_name = result['agent_id']
 
-            # Expected format: interactive-YYYYMMDD-HHMMSS
-            timestamp_pattern = r'^interactive-\d{8}-\d{6}$'
-            assert re.match(timestamp_pattern, workspace_name), \
-                f"Expected timestamp format 'interactive-YYYYMMDD-HHMMSS' for empty context, got: {workspace_name}"
+            # Expected format: interactive-DDmmm (e.g., interactive-30nov)
+            today = datetime.now().strftime("%d%b").lower()
+            assert workspace_name == f"interactive-{today}", \
+                f"Expected 'interactive-{today}' for empty context, got: {workspace_name}"

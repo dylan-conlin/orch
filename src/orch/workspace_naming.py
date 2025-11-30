@@ -74,7 +74,8 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     """
     Auto-generate workspace name for ad-hoc spawns.
 
-    Creates names with pattern: YYYY-MM-DD-[skill-]description
+    Creates names with pattern: [skill-]description-DDMMM
+    Date suffix uses compact format (e.g., 30nov, 15dec).
     Truncates at word boundaries to avoid mid-word cuts.
 
     Args:
@@ -87,8 +88,8 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     """
     from orch.workspace import apply_abbreviations
 
-    # Get current date prefix
-    date_prefix = datetime.now().strftime("%Y-%m-%d")
+    # Get compact date suffix (e.g., "30nov", "15dec")
+    date_suffix = datetime.now().strftime("%d%b").lower()
 
     # Extract meaningful words
     words = extract_meaningful_words(task)
@@ -103,10 +104,12 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     else:
         slug_words = words if words else ['workspace']
 
-    # Calculate available space for slug (70 total - date - hyphens)
-    # Format: YYYY-MM-DD-slug
-    # 10 chars for date + 1 for hyphen = 11
-    available_chars = 70 - 11
+    # Calculate available space for slug
+    # Format: slug-DDMMM (e.g., feat-auth-fix-30nov)
+    # 5 chars for date + 1 for hyphen = 6
+    # Target max length: 35 chars (much shorter than old 70)
+    max_length = 35
+    available_chars = max_length - 6
 
     # Build slug with smart truncation at word boundaries
     slug_parts = []
@@ -129,18 +132,18 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
         slug_parts = [slug_words[0][:available_chars]]
 
     slug = '-'.join(slug_parts)
-    name = f"{date_prefix}-{slug}"
+    name = f"{slug}-{date_suffix}"
 
     # Check for collision if project_dir provided
     if project_dir:
         workspace_path = project_dir / ".orch" / "workspace" / name
         if workspace_path.exists():
             # Add hash suffix on collision (truncate slug to make room)
-            task_hash = abs(hash(task)) % 1000000  # 6-digit hash
-            # Format: YYYY-MM-DD-slug-XXXXXX (need 7 chars for -XXXXXX)
-            max_slug_length = 70 - 11 - 7  # date - hash suffix
+            task_hash = abs(hash(task)) % 10000  # 4-digit hash (shorter)
+            # Format: slug-XXXX-DDMMM (need 5 chars for -XXXX)
+            max_slug_length = max_length - 6 - 5  # date - hash suffix
             truncated_slug = '-'.join(slug_parts)[:max_slug_length].rstrip('-')
-            name = f"{date_prefix}-{truncated_slug}-{task_hash:06d}"
+            name = f"{truncated_slug}-{task_hash:04d}-{date_suffix}"
 
     return name
 
