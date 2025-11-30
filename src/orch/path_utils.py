@@ -49,6 +49,10 @@ def find_orch_root(start_path: Optional[str] = None) -> Optional[str]:
     This allows context detection to work when running from any subdirectory
     within a project, including from within .orch/ itself.
 
+    IMPORTANT: Stops at git root boundary to prevent detecting ~/.orch/
+    (the global config directory) as a project root. If in a git repo,
+    only looks within that repo for .orch/.
+
     Args:
         start_path: Directory to start search from (default: cwd)
 
@@ -60,10 +64,20 @@ def find_orch_root(start_path: Optional[str] = None) -> Optional[str]:
 
     current = Path(start_path).resolve()
 
+    # Get git root as upper boundary (if in a git repo)
+    git_root = get_git_root(start_path)
+    git_root_path = Path(git_root).resolve() if git_root else None
+
     # Walk up the directory tree
     while current != current.parent:
         if (current / '.orch').is_dir():
             return str(current)
+
+        # Stop at git root - don't look outside the repo
+        # This prevents ~/.orch/ from being detected as a project root
+        if git_root_path and current == git_root_path:
+            return None
+
         current = current.parent
 
     return None
