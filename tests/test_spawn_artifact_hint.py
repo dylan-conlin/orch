@@ -502,3 +502,101 @@ class TestSpawnWithArtifactHint:
                 # Spawn should proceed (not blocked by hint)
                 # Either succeeds or fails for other reasons, not artifact check
                 # The key is the flow continues past the hint
+
+
+class TestMaxArtifactsLimit:
+    """Tests for MAX_ARTIFACTS_TO_SHOW limit."""
+
+    def test_max_artifacts_is_three(self):
+        """MAX_ARTIFACTS_TO_SHOW should be 3 for reduced noise."""
+        from orch.artifact_hint import MAX_ARTIFACTS_TO_SHOW
+
+        assert MAX_ARTIFACTS_TO_SHOW == 3, (
+            f"MAX_ARTIFACTS_TO_SHOW should be 3, not {MAX_ARTIFACTS_TO_SHOW}"
+        )
+
+    def test_scored_artifacts_limited_to_three(self, tmp_path):
+        """Should return at most 3 scored artifacts."""
+        from orch.artifact_hint import check_for_related_artifacts
+
+        # Create many matching artifacts
+        orch_dir = tmp_path / ".orch"
+        inv_dir = orch_dir / "investigations" / "simple"
+        inv_dir.mkdir(parents=True)
+
+        for i in range(10):
+            (inv_dir / f"2025-11-{20+i}-test-keyword.md").write_text(
+                f"# Test {i}\n\n**TLDR:** Contains keyword test\n"
+            )
+
+        result = check_for_related_artifacts(
+            keywords=['keyword'],
+            project_dir=tmp_path
+        )
+
+        # Should find matches but limit to 3
+        assert result.found
+        assert len(result.scored_artifacts) <= 3
+
+
+class TestWordBoundaryMatching:
+    """Tests for word-boundary (exact) keyword matching."""
+
+    @pytest.fixture
+    def mock_project_with_auth_variations(self, tmp_path):
+        """Create project with files containing auth vs authentication."""
+        orch_dir = tmp_path / ".orch"
+        inv_dir = orch_dir / "investigations" / "simple"
+        inv_dir.mkdir(parents=True)
+
+        # File with "auth" as a word
+        (inv_dir / "2025-11-20-auth-flow.md").write_text(
+            "# Auth Flow\n\n**TLDR:** How auth works\n\nThe auth system uses JWT."
+        )
+
+        # File with "authentication" but NOT "auth" as a standalone word
+        (inv_dir / "2025-11-21-authentication-design.md").write_text(
+            "# Authentication Design\n\n**TLDR:** Authentication approach\n\n"
+            "The authentication system uses OAuth2."
+        )
+
+        return tmp_path
+
+    def test_word_boundary_matches_exact_word(self, mock_project_with_auth_variations):
+        """Searching for 'auth' should match 'auth' but not 'authentication'."""
+        from orch.artifact_hint import check_for_related_artifacts
+
+        result = check_for_related_artifacts(
+            keywords=['auth'],
+            project_dir=mock_project_with_auth_variations
+        )
+
+        # Should find auth-flow (has 'auth' as word)
+        # Should NOT find authentication-design (only has 'authentication')
+        assert result.found
+
+        matched_paths = [str(sa.path) for sa in result.scored_artifacts]
+        auth_flow_matched = any('auth-flow' in p for p in matched_paths)
+        authentication_matched = any('authentication-design' in p for p in matched_paths)
+
+        assert auth_flow_matched, "Should match file with 'auth' as a word"
+        assert not authentication_matched, (
+            "Should NOT match file with only 'authentication' (no 'auth' as word)"
+        )
+
+    def test_word_boundary_matches_longer_keyword(self, mock_project_with_auth_variations):
+        """Searching for 'authentication' should still match files with that word."""
+        from orch.artifact_hint import check_for_related_artifacts
+
+        result = check_for_related_artifacts(
+            keywords=['authentication'],
+            project_dir=mock_project_with_auth_variations
+        )
+
+        # Should find authentication-design
+        assert result.found
+
+        matched_paths = [str(sa.path) for sa in result.scored_artifacts]
+        authentication_matched = any('authentication-design' in p for p in matched_paths)
+
+        assert authentication_matched, "Should match file with 'authentication' word"
