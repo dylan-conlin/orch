@@ -345,3 +345,94 @@ archived: true
         result = extract_metadata(content)
         # archived isn't a standard field, but shouldn't break parsing
         assert result.phase == "Complete"
+
+
+class TestInlineFieldAnchoring:
+    """Test that inline field extraction only matches at start of line.
+
+    Bug fix: Prior to fix, regex pattern matched **Phase:** anywhere in content,
+    not just at start of line. This caused false matches when content discussed
+    metadata fields (e.g., "the template uses `**Phase:**`").
+
+    See: .orch/investigations/simple/2025-11-30-orch-wait-doesn-reliably-detect.md
+    """
+
+    def test_phase_in_content_not_extracted(self):
+        """
+        When **Phase:** appears mid-line in content (not at start),
+        it should NOT be extracted as the Phase value.
+        """
+        content = """# Investigation
+
+**Status:** Active
+
+## Findings
+
+There is NO `**Phase:**` field in the investigation template.
+Instead, it uses `**Status:**` to track completion.
+"""
+        # The actual Status is Active, but there's no Phase field
+        # The regex should NOT match the backtick-wrapped **Phase:** in content
+        result = extract_metadata(content)
+
+        # Status should be correctly extracted
+        assert result.status == "Active"
+        # Phase should be None - not garbage from content
+        assert result.phase is None
+
+    def test_status_in_content_not_extracted(self):
+        """
+        When **Status:** appears mid-line in content,
+        it should NOT override the actual metadata value.
+        """
+        content = """# Workspace
+
+**Phase:** Implementation
+**Status:** Active
+
+## Notes
+
+The template uses `**Status:**` pattern for tracking.
+Previous files used `**Status:** Blocked` format.
+"""
+        result = extract_metadata(content)
+
+        # Should get the FIRST occurrence (actual metadata), not content mentions
+        assert result.status == "Active"
+        assert result.phase == "Implementation"
+
+    def test_field_at_start_of_line_is_extracted(self):
+        """
+        Fields that ARE at start of line should still be extracted correctly.
+        """
+        content = """# Title
+
+**Phase:** Complete
+**Status:** Active
+**Started:** 2025-11-30
+"""
+        result = extract_metadata(content)
+
+        assert result.phase == "Complete"
+        assert result.status == "Active"
+        assert result.started == "2025-11-30"
+
+    def test_indented_field_not_extracted(self):
+        """
+        Fields indented with spaces should NOT be extracted.
+        Only true start-of-line should match.
+        """
+        content = """# Markdown with code block
+
+```markdown
+    **Phase:** Complete
+```
+
+**Status:** Active
+"""
+        result = extract_metadata(content)
+
+        # Indented Phase in code block should not match
+        assert result.phase is None
+        # Status at start of line should match
+        assert result.status == "Active"

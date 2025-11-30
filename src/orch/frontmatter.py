@@ -181,6 +181,10 @@ def _extract_inline_field(content: str, field_name: str) -> Optional[str]:
     - **Field:** value
     - Field: value
 
+    IMPORTANT: Only matches at the START of a line (anchored with ^).
+    This prevents false matches when field names appear mid-line in content
+    (e.g., discussing "the template uses **Phase:**" in investigation text).
+
     Args:
         content: Markdown content string
         field_name: Name of field to extract
@@ -188,8 +192,9 @@ def _extract_inline_field(content: str, field_name: str) -> Optional[str]:
     Returns:
         Field value if found, None otherwise
     """
-    # Match **Field:** value or Field: value
-    pattern = rf'\*\*{field_name}:\*\*\s*([^\n]+)|^{field_name}:\s*([^\n]+)'
+    # Match **Field:** value or Field: value at START OF LINE only
+    # Both alternatives must be anchored with ^ to prevent mid-line matches
+    pattern = rf'^\*\*{field_name}:\*\*\s*([^\n]+)|^{field_name}:\s*([^\n]+)'
     match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE)
 
     if match:
