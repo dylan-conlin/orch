@@ -2102,13 +2102,6 @@ def spawn_with_skill(
             if stashed:
                 click.echo(f"   ⚠️  Git changes stashed (will auto-unstash on complete)")
 
-        # Update feature status if spawned from backlog.json
-        if config.feature_id:
-            from orch.features import start_feature
-            workspace_rel = f".orch/workspace/{config.workspace_name}"
-            start_feature(config.feature_id, workspace_rel, config.project_dir)
-            click.echo(f"   Feature: {config.feature_id} → in_progress")
-
         # Update beads issue with workspace link if spawned from beads
         if config.beads_id:
             try:

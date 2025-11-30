@@ -46,12 +46,6 @@ from orch.tmux_utils import (
 # Import git operations - exposed here for backward compatibility
 from orch.git_utils import commit_roadmap_update
 
-# Import features operations for backlink automation
-from orch.features import (
-    get_features_by_context_ref,
-    all_features_complete_for_context_ref,
-)
-
 # Import beads integration for auto-close on complete
 from orch.beads_integration import (
     BeadsIntegration,
@@ -101,21 +95,8 @@ def check_investigation_backlink(
         - investigation_path: path to investigation file
         - feature_count: number of features referencing this investigation
     """
-    if not context_ref or not is_investigation_ref(context_ref):
-        return None
-
-    # Check if all features with this context_ref are complete
-    if not all_features_complete_for_context_ref(context_ref, project_dir):
-        return None
-
-    # Get count of features
-    features = get_features_by_context_ref(context_ref, project_dir)
-
-    return {
-        'all_complete': True,
-        'investigation_path': context_ref,
-        'feature_count': len(features)
-    }
+    # Features system removed - roadmap clearing now managed by beads
+    return None
 
 
 # ============================================================================
@@ -502,38 +483,6 @@ def complete_agent_async(
                 "agent_id": agent_id
             })
 
-    # Update feature status if feature_id present (do this before daemon)
-    if agent.get('feature_id'):
-        from orch.features import complete_feature, FeatureNotFoundError, FeaturesNotFoundError
-        feature_id = agent['feature_id']
-        try:
-            complete_feature(feature_id, project_dir)
-            result['feature_updated'] = True
-            click.echo(f"📋 Feature '{feature_id}' marked complete")
-            logger.log_event("complete", "Feature marked complete", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except FeaturesNotFoundError:
-            result['warnings'].append(f"backlog.json not found - cannot update feature status")
-            logger.log_event("complete", "Features file not found", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except FeatureNotFoundError:
-            result['warnings'].append(f"Feature '{feature_id}' not found in backlog.json")
-            logger.log_event("complete", "Feature not found", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except Exception as e:
-            result['warnings'].append(f"Failed to update feature status: {e}")
-            logger.log_event("complete", "Feature update failed", {
-                "feature_id": feature_id,
-                "agent_id": agent_id,
-                "error": str(e)
-            })
-
     # Close beads issue if agent was spawned from beads issue
     # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
     if agent.get('beads_id'):
@@ -765,64 +714,7 @@ def complete_agent_work(
             "agent_id": agent_id
         })
 
-    # Step 3: Update feature status if feature_id present
-    if agent.get('feature_id'):
-        from orch.features import complete_feature, FeatureNotFoundError, FeaturesNotFoundError
-        feature_id = agent['feature_id']
-        try:
-            complete_feature(feature_id, project_dir)
-            result['feature_updated'] = True
-            click.echo(f"📋 Feature '{feature_id}' marked complete")
-            logger.log_event("complete", "Feature marked complete", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except FeaturesNotFoundError:
-            result['warnings'].append(f"backlog.json not found - cannot update feature status")
-            logger.log_event("complete", "Features file not found", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except FeatureNotFoundError:
-            result['warnings'].append(f"Feature '{feature_id}' not found in backlog.json")
-            logger.log_event("complete", "Feature not found", {
-                "feature_id": feature_id,
-                "agent_id": agent_id
-            })
-        except Exception as e:
-            result['warnings'].append(f"Failed to update feature status: {e}")
-            logger.log_event("complete", "Feature update failed", {
-                "feature_id": feature_id,
-                "agent_id": agent_id,
-                "error": str(e)
-            })
-
-        # Step 3.5: Check investigation backlink
-        # If this feature has context_ref to an investigation, check if all
-        # features from that investigation are now complete
-        try:
-            from orch.features import get_feature
-            feature = get_feature(feature_id, project_dir)
-            if feature and feature.context_ref:
-                backlink_info = check_investigation_backlink(
-                    context_ref=feature.context_ref,
-                    project_dir=project_dir
-                )
-                if backlink_info:
-                    result['investigation_backlink'] = backlink_info
-                    logger.log_event("complete", "Investigation backlink detected", {
-                        "feature_id": feature_id,
-                        "investigation_path": backlink_info['investigation_path'],
-                        "feature_count": backlink_info['feature_count']
-                    })
-        except Exception as e:
-            # Don't fail completion if backlink check fails
-            logger.log_event("complete", "Investigation backlink check failed", {
-                "feature_id": feature_id,
-                "error": str(e)
-            })
-
-    # Step 3.6: Close beads issue if agent was spawned from beads issue
+    # Step 3: Close beads issue if agent was spawned from beads issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
         if close_beads_issue(beads_id):
