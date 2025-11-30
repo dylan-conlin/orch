@@ -9,6 +9,11 @@ from pathlib import Path
 
 from orch.registry import AgentRegistry
 from orch.logging import OrchLogger
+from orch.beads_integration import (
+    BeadsIntegration,
+    BeadsCLINotFoundError,
+    BeadsIssueNotFoundError,
+)
 
 
 def register_spawn_commands(cli):
@@ -79,11 +84,12 @@ def register_spawn_commands(cli):
     @click.option('--backend', type=click.Choice(['claude', 'codex', 'opencode']), help='AI backend to use (default: claude)')
     @click.option('--model', help='Model to use (e.g., "sonnet", "opus", or full model name like "claude-sonnet-4-5-20250929")')
     @click.option('--feature', 'feature_id', help='Spawn from backlog.json by feature ID (updates feature status)')
+    @click.option('--issue', 'issue_id', help='Spawn from beads issue by ID (e.g., meta-orchestration-ltv)')
     @click.option('--stash', is_flag=True, help='Stash uncommitted changes before spawn (auto-unstash on complete)')
     @click.option('--allow-dirty', is_flag=True, help='Allow spawn with uncommitted changes (may cause bundled commits)')
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')
     @click.option('--context-ref', help='Path to context file (design doc, investigation) to include in spawn prompt')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, feature_id, stash, allow_dirty, skip_artifact_check, context_ref):
+    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, feature_id, issue_id, stash, allow_dirty, skip_artifact_check, context_ref):
         """
         Spawn a new worker agent or interactive session.
 
@@ -223,6 +229,82 @@ def register_spawn_commands(cli):
                     allow_dirty=allow_dirty,
                     feature_id=feature_id,
                     context_ref=feature.context_ref
+                )
+                return
+
+            # Mode 5: Issue mode (from beads)
+            if issue_id:
+                # Auto-detect project directory
+                project_dir = None
+                if project:
+                    from orch.spawn import get_project_dir, format_project_not_found_error
+                    project_dir = get_project_dir(project)
+                    if not project_dir:
+                        click.echo(format_project_not_found_error(project, "--project"), err=True)
+                        raise click.Abort()
+                else:
+                    # Try auto-detection
+                    from orch.spawn import detect_project_from_cwd
+                    detected = detect_project_from_cwd()
+                    if detected:
+                        project, project_dir = detected
+                    else:
+                        click.echo("❌ --project required when using --issue (auto-detection failed)", err=True)
+                        raise click.Abort()
+
+                try:
+                    # Look up beads issue
+                    beads = BeadsIntegration()
+                    issue = beads.get_issue(issue_id)
+                except BeadsCLINotFoundError:
+                    click.echo("❌ bd CLI not found. Install beads or check PATH.", err=True)
+                    click.echo("   See: https://github.com/dylanconlin/beads", err=True)
+                    raise click.Abort()
+                except BeadsIssueNotFoundError:
+                    click.echo(f"❌ Beads issue '{issue_id}' not found", err=True)
+                    click.echo("   Run 'bd list' to see available issues.", err=True)
+                    raise click.Abort()
+
+                # Use issue title as task, with skill from first positional arg or default
+                skill_name = context_or_skill if context_or_skill else "feature-impl"
+                task_description = issue.title
+
+                # Build custom prompt with issue context
+                issue_context = f"BEADS ISSUE: {issue_id}\n"
+                if issue.description:
+                    issue_context += f"\nIssue Description:\n{issue.description}\n"
+                if issue.notes:
+                    issue_context += f"\nNotes:\n{issue.notes}\n"
+
+                # Combine with any existing custom_prompt
+                if custom_prompt:
+                    issue_context += f"\n{custom_prompt}"
+
+                click.echo(f"🔗 Spawning from beads issue: {issue_id}")
+                click.echo(f"   Skill: {skill_name}")
+                click.echo(f"   Title: {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
+
+                # Spawn with beads tracking
+                spawn_with_skill(
+                    skill_name=skill_name,
+                    task=task_description,
+                    project=project,
+                    workspace_name=workspace_name,
+                    yes=yes,
+                    resume=resume,
+                    custom_prompt=issue_context,
+                    phases=phases,
+                    mode=mode,
+                    validation=validation,
+                    phase_id=phase_id,
+                    depends_on=depends_on,
+                    investigation_type=investigation_type,
+                    backend=backend,
+                    model=model,
+                    stash=stash,
+                    allow_dirty=allow_dirty,
+                    beads_id=issue_id,
+                    context_ref=context_ref
                 )
                 return
 

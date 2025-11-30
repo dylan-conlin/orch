@@ -312,6 +312,8 @@ class SpawnConfig:
     context_ref: Optional[str] = None  # Path to context file (design doc, investigation) to include in spawn prompt
     # Interactive mode (for collaborative design work)
     interactive: bool = False  # If True, skill operates in collaborative mode with Dylan
+    # Beads integration
+    beads_id: Optional[str] = None  # Beads issue ID for lifecycle tracking
 
 
 # Constants
@@ -1838,7 +1840,8 @@ def spawn_with_skill(
     allow_dirty: bool = False,
     feature_id: Optional[str] = None,
     interactive: bool = False,
-    context_ref: Optional[str] = None
+    context_ref: Optional[str] = None,
+    beads_id: Optional[str] = None
 ) -> Dict[str, str]:
     """
     Spawn agent with specific skill.
@@ -1863,6 +1866,7 @@ def spawn_with_skill(
         allow_dirty: If True, allow spawn with uncommitted changes without prompting
         feature_id: Feature ID from backlog.json for lifecycle tracking
         interactive: If True, skill operates in collaborative mode with Dylan
+        beads_id: Beads issue ID for lifecycle tracking
 
     Returns:
         Spawn result dictionary with window, window_name, agent_id
@@ -1984,7 +1988,9 @@ def spawn_with_skill(
         feature_id=feature_id,
         context_ref=context_ref,  # Design context file to include in spawn prompt
         # Interactive mode (collaborative design)
-        interactive=interactive
+        interactive=interactive,
+        # Beads integration
+        beads_id=beads_id
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)
@@ -2101,6 +2107,18 @@ def spawn_with_skill(
             workspace_rel = f".orch/workspace/{config.workspace_name}"
             start_feature(config.feature_id, workspace_rel, config.project_dir)
             click.echo(f"   Feature: {config.feature_id} → in_progress")
+
+        # Update beads issue with workspace link if spawned from beads
+        if config.beads_id:
+            try:
+                from orch.beads_integration import BeadsIntegration
+                beads = BeadsIntegration()
+                workspace_rel = f".orch/workspace/{config.workspace_name}"
+                beads.add_workspace_link(config.beads_id, workspace_rel)
+                click.echo(f"   Beads: {config.beads_id} → workspace linked")
+            except Exception as e:
+                # Don't fail spawn if beads update fails
+                click.echo(f"   ⚠️  Could not update beads issue: {e}", err=True)
 
         return spawn_info
 
