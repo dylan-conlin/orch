@@ -83,7 +83,7 @@ When you run `orch init`, it creates a `.orch/` directory in your project:
 ├── workspace/          # Agent workspaces
 ├── investigations/     # Investigation artifacts
 ├── decisions/          # Decision records
-└── backlog.json        # Work items and status
+└── README.md           # Artifact index (auto-generated)
 ```
 
 ## Skills
