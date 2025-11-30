@@ -5,6 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Optional
+
+from orch import __version__
 from orch.registry import AgentRegistry
 from orch.tmux_utils import list_windows, find_session, is_tmux_available, get_window_by_target
 from orch.monitor import check_agent_status, get_status_emoji
@@ -24,6 +26,7 @@ from orch.monitoring_commands import register_monitoring_commands
 from orch.workspace_commands import register_workspace_commands
 
 @click.group()
+@click.version_option(version=__version__, prog_name="orch")
 def cli():
     """Orchestration monitoring and coordination tools."""
     pass
