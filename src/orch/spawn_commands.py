@@ -85,7 +85,7 @@ def register_spawn_commands(cli):
     @click.option('--model', help='Model to use (e.g., "sonnet", "opus", or full model name like "claude-sonnet-4-5-20250929")')
     @click.option('--issue', 'issue_id', help='Spawn from beads issue by ID (e.g., meta-orchestration-ltv)')
     @click.option('--stash', is_flag=True, help='Stash uncommitted changes before spawn (auto-unstash on complete)')
-    @click.option('--allow-dirty', is_flag=True, help='Allow spawn with uncommitted changes (may cause bundled commits)')
+    @click.option('--allow-dirty/--require-clean', default=True, help='Allow spawn with uncommitted changes (default: allow)')
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')
     @click.option('--context-ref', help='Path to context file (design doc, investigation) to include in spawn prompt')
     @click.option('--parallel', is_flag=True, help='Use parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)')

@@ -1849,7 +1849,7 @@ def spawn_with_skill(
     backend: Optional[str] = None,
     model: Optional[str] = None,
     stash: bool = False,
-    allow_dirty: bool = False,
+    allow_dirty: bool = True,
     feature_id: Optional[str] = None,
     interactive: bool = False,
     context_ref: Optional[str] = None,
