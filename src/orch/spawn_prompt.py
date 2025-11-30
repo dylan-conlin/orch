@@ -518,11 +518,12 @@ Signal orchestrator when blocked:
             additional_parts.append(f"(Skill content not found - follow {config.skill_name} skill principles)\n")
 
     # Feature-impl configuration - apply defaults when skill is feature-impl
-    # Default phases/mode/validation per documentation: implementation, tdd, tests
+    # Default phases/mode/validation: implementation+validation, tdd, tests
     is_feature_impl = config.skill_name == 'feature-impl'
 
     # Apply defaults for feature-impl if not explicitly specified
-    phases = config.phases or ('implementation' if is_feature_impl else None)
+    # Default includes validation phase to ensure agents verify their work
+    phases = config.phases or ('implementation,validation' if is_feature_impl else None)
     mode = config.mode or ('tdd' if is_feature_impl else None)
     validation = config.validation or ('tests' if is_feature_impl else None)
 
