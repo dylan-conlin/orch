@@ -941,11 +941,170 @@ def _find_claude_files_with_depth(base_dir: Path, max_depth: int = 4, max_files:
     return results
 
 
+def _lint_skills():
+    """Validate CLI command references in skill files."""
+    import re
+    from pathlib import Path
+    from orch.doc_check import extract_cli_reference
+
+    # Get valid commands from CLI
+    valid_commands = extract_cli_reference(cli)
+
+    # Build set of valid command names (including nested like "build skills")
+    valid_cmd_names = set(valid_commands.keys())
+
+    # Build map of command -> valid options
+    cmd_options = {}
+    for cmd_name, cmd_info in valid_commands.items():
+        cmd_options[cmd_name] = set()
+        for opt in cmd_info.get('options', []):
+            opt_name = opt.get('name', '')
+            if opt_name.startswith('--'):
+                cmd_options[cmd_name].add(opt_name)
+                # Also add without -- prefix
+                cmd_options[cmd_name].add(opt_name[2:])
+
+    # Find skill files
+    skills_dir = Path.home() / ".claude" / "skills"
+
+    if not skills_dir.exists():
+        click.echo("✅ No skills directory found (~/.claude/skills/)")
+        return
+
+    # Discover skill files (hierarchical structure)
+    skill_files = []
+    for category_dir in skills_dir.iterdir():
+        if not category_dir.is_dir() or category_dir.name.startswith('.'):
+            continue
+        for skill_dir in category_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                skill_files.append(skill_file)
+
+    if not skill_files:
+        click.echo("✅ No skill files found (0 skills scanned)")
+        return
+
+    # Pattern to extract orch commands and flags
+    # Match: orch <command> [subcommand] [--flag] [--flag2]
+    # Examples: "orch spawn", "orch build skills", "orch spawn --issue"
+    orch_pattern = re.compile(
+        r'`?orch\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)?)'  # command + optional subcommand
+        r'((?:\s+--[a-z][a-z0-9-]*)*)',  # optional flags
+        re.IGNORECASE
+    )
+
+    # Track issues
+    issues = []  # List of (skill_name, file_path, issue_description)
+    total_commands = 0
+    valid_count = 0
+
+    for skill_file in skill_files:
+        skill_name = skill_file.parent.name
+        try:
+            content = skill_file.read_text()
+        except Exception:
+            continue
+
+        # Find all orch command references
+        for match in orch_pattern.finditer(content):
+            total_commands += 1
+            cmd_part = match.group(1).strip().lower()
+            flags_part = match.group(2).strip() if match.group(2) else ""
+
+            # Check if command is valid
+            # Try both single command and subcommand format
+            cmd_valid = False
+            matched_cmd = None
+
+            if cmd_part in valid_cmd_names:
+                cmd_valid = True
+                matched_cmd = cmd_part
+            else:
+                # Try splitting into command + subcommand
+                parts = cmd_part.split()
+                if len(parts) == 2:
+                    full_cmd = f"{parts[0]} {parts[1]}"
+                    if full_cmd in valid_cmd_names:
+                        cmd_valid = True
+                        matched_cmd = full_cmd
+                    elif parts[0] in valid_cmd_names:
+                        # Command exists but subcommand may be invalid
+                        cmd_valid = True
+                        matched_cmd = parts[0]
+                        # Check if this command has subcommands
+                        parent_info = valid_commands.get(parts[0], {})
+                        if parent_info.get('subcommands'):
+                            if parts[1] not in parent_info['subcommands']:
+                                issues.append((
+                                    skill_name,
+                                    str(skill_file),
+                                    f"Unknown subcommand: orch {parts[0]} {parts[1]} (valid: {', '.join(parent_info['subcommands'])})"
+                                ))
+                                continue
+                elif len(parts) == 1 and parts[0] in valid_cmd_names:
+                    cmd_valid = True
+                    matched_cmd = parts[0]
+
+            if not cmd_valid:
+                issues.append((
+                    skill_name,
+                    str(skill_file),
+                    f"Unknown command: orch {cmd_part}"
+                ))
+                continue
+
+            # Check flags if command is valid
+            if flags_part and matched_cmd:
+                # Extract individual flags
+                flag_pattern = re.compile(r'--([a-z][a-z0-9-]*)')
+                for flag_match in flag_pattern.finditer(flags_part):
+                    flag_name = flag_match.group(1)
+                    valid_flags = cmd_options.get(matched_cmd, set())
+                    if flag_name not in valid_flags and f"--{flag_name}" not in valid_flags:
+                        issues.append((
+                            skill_name,
+                            str(skill_file),
+                            f"Unknown flag: --{flag_name} on 'orch {matched_cmd}'"
+                        ))
+                        continue
+
+            valid_count += 1
+
+    # Report results
+    click.echo(f"🔍 Skill CLI reference check:")
+    click.echo(f"   Scanned {len(skill_files)} skill files")
+    click.echo(f"   Found {total_commands} orch command references")
+    click.echo()
+
+    if issues:
+        click.echo(f"⚠️  Found {len(issues)} issues:")
+        click.echo()
+
+        # Group by skill
+        by_skill = {}
+        for skill_name, file_path, issue in issues:
+            if skill_name not in by_skill:
+                by_skill[skill_name] = []
+            by_skill[skill_name].append(issue)
+
+        for skill_name, skill_issues in sorted(by_skill.items()):
+            click.echo(f"   📦 {skill_name}:")
+            for issue in skill_issues:
+                click.echo(f"      • {issue}")
+            click.echo()
+    else:
+        click.echo(f"✅ All {valid_count} command references are valid!")
+
+
 @cli.command(name='lint')
 @click.option('--file', type=click.Path(exists=True), help='Specific CLAUDE.md file to check')
 @click.option('--all', 'check_all', is_flag=True, help='Check all known CLAUDE.md files')
 @click.option('--instructions', is_flag=True, help='Check orchestrator instruction drift (missing instructions)')
-def lint(file, check_all, instructions):
+@click.option('--skills', is_flag=True, help='Validate CLI command references in skill files')
+def lint(file, check_all, instructions, skills):
     """
     Check CLAUDE.md files against token and character size limits, or check instruction drift.
 
@@ -958,12 +1117,15 @@ def lint(file, check_all, instructions):
 
     With --instructions, checks for missing orchestrator instructions in current project.
 
+    With --skills, validates that skill files reference valid CLI commands and flags.
+
     \b
     Examples:
       orch lint                             # Check CLAUDE.md in current project
       orch lint --file ~/.claude/CLAUDE.md  # Check specific file
       orch lint --all                       # Check all known CLAUDE.md files
       orch lint --instructions              # Check for missing instructions
+      orch lint --skills                    # Validate skill CLI references
     """
     from pathlib import Path
 
@@ -1024,6 +1186,11 @@ def lint(file, check_all, instructions):
             click.echo()
             click.echo("✅ No missing instructions - project has all available instructions!")
 
+        return
+
+    # Handle --skills mode
+    if skills:
+        _lint_skills()
         return
 
     import tiktoken

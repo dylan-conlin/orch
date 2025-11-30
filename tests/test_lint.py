@@ -319,3 +319,149 @@ def test_orchignore_glob_patterns(tmp_path):
     assert normal / "CLAUDE.md" in results
     assert test_dir / "CLAUDE.md" not in results
     assert tmp_dir / "CLAUDE.md" not in results
+
+
+# =============================================================================
+# SKILLS MODE TESTS
+# =============================================================================
+
+
+def test_lint_skills_mode_detects_valid_commands(cli_runner, tmp_path, monkeypatch):
+    """Test that --skills mode validates skill file CLI references."""
+    from orch.cli import cli
+
+    # Create a mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    # Create a skill file with valid commands
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("""---
+name: test-skill
+---
+
+# Test Skill
+
+Use `orch spawn` to start an agent.
+Run `orch status` to check progress.
+Use `orch complete` when done.
+""")
+
+    # Point HOME to temp directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Should succeed with valid commands
+    assert result.exit_code == 0
+    assert "valid" in result.output.lower() or "passed" in result.output.lower() or "✅" in result.output
+
+
+def test_lint_skills_mode_detects_invalid_commands(cli_runner, tmp_path, monkeypatch):
+    """Test that --skills mode warns about unknown CLI commands."""
+    from orch.cli import cli
+
+    # Create a mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    # Create a skill file with invalid commands
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("""---
+name: test-skill
+---
+
+# Test Skill
+
+Use `orch nonexistent-command` to do something.
+Run `orch status` to check progress.
+Use `orch fake-command` when done.
+""")
+
+    # Point HOME to temp directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Should warn about invalid commands
+    assert "nonexistent-command" in result.output
+    assert "fake-command" in result.output
+
+
+def test_lint_skills_mode_detects_invalid_flags(cli_runner, tmp_path, monkeypatch):
+    """Test that --skills mode warns about unknown flags on valid commands."""
+    from orch.cli import cli
+
+    # Create a mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    # Create a skill file with invalid flags
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("""---
+name: test-skill
+---
+
+# Test Skill
+
+Use `orch spawn --nonexistent-flag` to start.
+Run `orch status --fake-flag` to check.
+""")
+
+    # Point HOME to temp directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Should warn about invalid flags
+    assert "--nonexistent-flag" in result.output or "nonexistent-flag" in result.output
+    assert "--fake-flag" in result.output or "fake-flag" in result.output
+
+
+def test_lint_skills_mode_handles_subcommands(cli_runner, tmp_path, monkeypatch):
+    """Test that --skills mode correctly validates subcommands like 'build skills'."""
+    from orch.cli import cli
+
+    # Create a mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    # Create a skill file with subcommands
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("""---
+name: test-skill
+---
+
+# Test Skill
+
+Run `orch build skills` to rebuild.
+Run `orch projects list` to see all projects.
+Run `orch build nonexistent` should warn.
+""")
+
+    # Point HOME to temp directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Valid subcommands should pass, invalid should warn
+    # 'build skills' is valid, 'build nonexistent' is invalid
+    assert "build nonexistent" in result.output.lower() or "nonexistent" in result.output
+
+
+def test_lint_skills_mode_no_skills_found(cli_runner, tmp_path, monkeypatch):
+    """Test graceful handling when no skill files exist."""
+    from orch.cli import cli
+
+    # Create empty skills directory
+    skills_dir = tmp_path / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+
+    # Point HOME to temp directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Should handle gracefully
+    assert result.exit_code == 0
+    assert "no skill" in result.output.lower() or "0 skill" in result.output.lower()
