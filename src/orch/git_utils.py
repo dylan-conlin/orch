@@ -345,6 +345,62 @@ def validate_work_committed(directory: Path, exclude_files: Optional[list[str]] 
     return True, ""
 
 
+def find_commits_mentioning_issue(directory: Path, issue_id: str) -> list[CommitInfo]:
+    """
+    Search git log for commits mentioning a beads issue ID.
+
+    Useful for detecting if work for an issue has already been done,
+    preventing duplicate agent spawns for completed work.
+
+    Args:
+        directory: Path to git repository
+        issue_id: Beads issue ID to search for (e.g., "meta-orchestration-qrk")
+
+    Returns:
+        List of CommitInfo for commits mentioning the issue, empty if none found
+    """
+    if not is_git_repo(directory):
+        return []
+
+    try:
+        # Use git log --grep to find commits mentioning the issue ID
+        result = subprocess.run(
+            ['git', 'log', '--oneline', f'--grep={issue_id}', '--format=%H|%an|%at|%s'],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        if not result.stdout.strip():
+            return []
+
+        commits = []
+        for line in result.stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+
+            parts = line.split('|', 3)
+            if len(parts) != 4:
+                continue
+
+            commit_hash, author, timestamp_str, message = parts
+            try:
+                timestamp = datetime.fromtimestamp(int(timestamp_str))
+                commits.append(CommitInfo(
+                    hash=commit_hash,
+                    message=message.strip(),
+                    author=author,
+                    timestamp=timestamp
+                ))
+            except ValueError:
+                continue
+
+        return commits
+    except subprocess.CalledProcessError:
+        return []
+
+
 def commit_roadmap_update(roadmap_path: Path, workspace_name: str, project_dir: Path) -> bool:
     """
     Commit ROADMAP update to git.

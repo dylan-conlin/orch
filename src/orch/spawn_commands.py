@@ -14,6 +14,7 @@ from orch.beads_integration import (
     BeadsCLINotFoundError,
     BeadsIssueNotFoundError,
 )
+from orch.git_utils import find_commits_mentioning_issue
 
 
 def register_spawn_commands(cli):
@@ -179,6 +180,27 @@ def register_spawn_commands(cli):
                     click.echo(f"❌ Beads issue '{issue_id}' not found", err=True)
                     click.echo("   Run 'bd list' to see available issues.", err=True)
                     raise click.Abort()
+
+                # Check for prior commits mentioning this issue
+                # Prevents spawning for already-completed work
+                if project_dir:
+                    prior_commits = find_commits_mentioning_issue(Path(project_dir), issue_id)
+                    if prior_commits:
+                        click.echo("")
+                        click.echo(f"⚠️  Found {len(prior_commits)} prior commit(s) mentioning {issue_id}:", err=True)
+                        for commit in prior_commits[:5]:  # Show first 5
+                            click.echo(f"   • {commit.short_hash} {commit.short_message[:60]}", err=True)
+                        if len(prior_commits) > 5:
+                            click.echo(f"   ... and {len(prior_commits) - 5} more", err=True)
+                        click.echo("")
+                        click.echo("   Work may already be completed for this issue.", err=True)
+                        click.echo(f"   Review: git log --grep='{issue_id}'", err=True)
+                        click.echo("")
+
+                        # Prompt to continue or abort
+                        if not yes:
+                            if not click.confirm("Spawn agent anyway?", default=False):
+                                raise click.Abort()
 
                 # Use issue title as task, with skill from first positional arg or default
                 skill_name = context_or_skill if context_or_skill else "feature-impl"
