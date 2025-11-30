@@ -164,18 +164,182 @@ Use JWT with HTTP-only cookies.
         # Recent artifacts should be found
         assert result.found
 
+    def test_returns_scored_artifacts(self, mock_project_dir, mock_artifacts):
+        """Should return scored artifacts ranked by relevance."""
+        from orch.artifact_hint import check_for_related_artifacts
+
+        result = check_for_related_artifacts(
+            keywords=['authentication', 'jwt'],
+            project_dir=mock_project_dir
+        )
+
+        # Should have scored artifacts
+        assert result.found
+        assert len(result.scored_artifacts) > 0
+
+        # Each scored artifact should have summary
+        for sa in result.scored_artifacts:
+            assert sa.summary
+
+    def test_scored_artifacts_sorted_by_relevance(self, mock_project_dir, mock_artifacts):
+        """Scored artifacts should be sorted by score (highest first)."""
+        from orch.artifact_hint import check_for_related_artifacts
+
+        result = check_for_related_artifacts(
+            keywords=['authentication'],
+            project_dir=mock_project_dir
+        )
+
+        if len(result.scored_artifacts) >= 2:
+            # Scores should be in descending order
+            scores = [sa.score for sa in result.scored_artifacts]
+            assert scores == sorted(scores, reverse=True)
+
+
+class TestExtractArtifactSummary:
+    """Tests for TLDR/summary extraction from artifacts."""
+
+    def test_extracts_tldr_line(self, tmp_path):
+        """Should extract TLDR when present."""
+        from orch.artifact_hint import extract_artifact_summary
+
+        md_file = tmp_path / "test.md"
+        md_file.write_text("""# Investigation
+
+**TLDR:** JWT tokens are refreshed every 15 minutes.
+
+## Details
+More content here.
+""")
+
+        summary = extract_artifact_summary(md_file)
+        assert "JWT tokens" in summary
+
+    def test_extracts_tldr_alternate_format(self, tmp_path):
+        """Should extract TLDR with alternate formatting."""
+        from orch.artifact_hint import extract_artifact_summary
+
+        md_file = tmp_path / "test.md"
+        md_file.write_text("""# Investigation
+
+TLDR: Authentication uses OAuth2 flow.
+
+## Details
+""")
+
+        summary = extract_artifact_summary(md_file)
+        assert "OAuth2" in summary or "Authentication" in summary
+
+    def test_fallback_to_first_content_line(self, tmp_path):
+        """Should fall back to first content line when no TLDR."""
+        from orch.artifact_hint import extract_artifact_summary
+
+        md_file = tmp_path / "test.md"
+        md_file.write_text("""# Investigation
+
+---
+
+This is the first meaningful content line.
+
+## Details
+""")
+
+        summary = extract_artifact_summary(md_file)
+        assert "first meaningful content" in summary
+
+    def test_truncates_long_summaries(self, tmp_path):
+        """Should truncate summaries that are too long."""
+        from orch.artifact_hint import extract_artifact_summary, MAX_SUMMARY_LENGTH
+
+        md_file = tmp_path / "test.md"
+        long_text = "x" * 200
+        md_file.write_text(f"""# Investigation
+
+**TLDR:** {long_text}
+""")
+
+        summary = extract_artifact_summary(md_file)
+        assert len(summary) <= MAX_SUMMARY_LENGTH
+        assert summary.endswith("...")
+
+    def test_handles_missing_file(self, tmp_path):
+        """Should return fallback for missing files."""
+        from orch.artifact_hint import extract_artifact_summary
+
+        missing_file = tmp_path / "missing.md"
+
+        summary = extract_artifact_summary(missing_file)
+        assert "unable to read" in summary
+
+
+class TestScoreArtifact:
+    """Tests for artifact scoring."""
+
+    def test_score_increases_with_keyword_matches(self, tmp_path):
+        """More keyword matches should increase score."""
+        from orch.artifact_hint import score_artifact
+        from datetime import datetime
+
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Test\nContent")
+
+        now = datetime.now()
+        score1 = score_artifact(md_file, keyword_match_count=1, now=now)
+        score2 = score_artifact(md_file, keyword_match_count=3, now=now)
+
+        assert score2.score > score1.score
+        assert score2.keyword_matches == 3
+        assert score1.keyword_matches == 1
+
+    def test_recency_affects_score(self, tmp_path):
+        """Recent files should score higher than old files."""
+        from orch.artifact_hint import score_artifact
+        from datetime import datetime, timedelta
+        import os
+
+        # Create two files with different mtimes
+        recent_file = tmp_path / "recent.md"
+        recent_file.write_text("# Recent\nContent")
+
+        old_file = tmp_path / "old.md"
+        old_file.write_text("# Old\nContent")
+
+        # Set old file mtime to 30 days ago
+        old_mtime = datetime.now() - timedelta(days=30)
+        os.utime(old_file, (old_mtime.timestamp(), old_mtime.timestamp()))
+
+        now = datetime.now()
+        recent_score = score_artifact(recent_file, keyword_match_count=1, now=now)
+        old_score = score_artifact(old_file, keyword_match_count=1, now=now)
+
+        # Same keyword match, but recent should score higher
+        assert recent_score.score > old_score.score
+        assert recent_score.days_old < old_score.days_old
+
 
 class TestArtifactHintMessage:
     """Tests for artifact search hint message generation."""
 
-    def test_generates_hint_with_search_command(self):
+    def test_generates_hint_with_search_command(self, tmp_path):
         """Hint message should include orch search command."""
-        from orch.artifact_hint import format_artifact_hint
+        from orch.artifact_hint import format_artifact_hint, ScoredArtifact
+
+        artifact_path = tmp_path / "investigations" / "2025-11-20-auth-flow.md"
+        scored = [
+            ScoredArtifact(
+                path=artifact_path,
+                score=20.0,
+                keyword_matches=2,
+                days_old=0,
+                summary="How does authentication work?"
+            )
+        ]
 
         hint = format_artifact_hint(
             keywords=['authentication', 'token'],
-            artifact_count=2,
-            artifact_example='investigations/2025-11-20-auth-flow.md'
+            scored_artifacts=scored,
+            total_count=2,
+            project_dir=tmp_path
         )
 
         # Should include orch search command
@@ -183,18 +347,118 @@ class TestArtifactHintMessage:
         # Should include keyword suggestion
         assert 'authentication' in hint or 'token' in hint
 
-    def test_hint_mentions_prior_work(self):
+    def test_hint_mentions_prior_work(self, tmp_path):
         """Hint should mention checking for prior work."""
-        from orch.artifact_hint import format_artifact_hint
+        from orch.artifact_hint import format_artifact_hint, ScoredArtifact
+
+        artifact_path = tmp_path / "decisions" / "2025-11-15-auth-decision.md"
+        scored = [
+            ScoredArtifact(
+                path=artifact_path,
+                score=15.0,
+                keyword_matches=1,
+                days_old=5,
+                summary="Use JWT with HTTP-only cookies."
+            )
+        ]
 
         hint = format_artifact_hint(
             keywords=['authentication'],
-            artifact_count=1,
-            artifact_example='decisions/2025-11-15-auth-decision.md'
+            scored_artifacts=scored,
+            total_count=1,
+            project_dir=tmp_path
         )
 
         # Should mention prior work
         assert 'prior' in hint.lower() or 'related' in hint.lower() or 'found' in hint.lower()
+
+    def test_hint_shows_artifact_summaries(self, tmp_path):
+        """Hint should display summaries for each artifact."""
+        from orch.artifact_hint import format_artifact_hint, ScoredArtifact
+
+        scored = [
+            ScoredArtifact(
+                path=tmp_path / "investigations" / "auth.md",
+                score=20.0,
+                keyword_matches=2,
+                days_old=1,
+                summary="JWT tokens with 15-minute expiry"
+            ),
+            ScoredArtifact(
+                path=tmp_path / "decisions" / "session.md",
+                score=15.0,
+                keyword_matches=1,
+                days_old=3,
+                summary="Use HTTP-only cookies for sessions"
+            )
+        ]
+
+        hint = format_artifact_hint(
+            keywords=['authentication'],
+            scored_artifacts=scored,
+            total_count=2,
+            project_dir=tmp_path
+        )
+
+        # Should show both summaries
+        assert "JWT tokens with 15-minute expiry" in hint
+        assert "Use HTTP-only cookies for sessions" in hint
+
+    def test_hint_shows_recency(self, tmp_path):
+        """Hint should show how old each artifact is."""
+        from orch.artifact_hint import format_artifact_hint, ScoredArtifact
+
+        scored = [
+            ScoredArtifact(
+                path=tmp_path / "test.md",
+                score=20.0,
+                keyword_matches=2,
+                days_old=0,
+                summary="Test summary"
+            ),
+            ScoredArtifact(
+                path=tmp_path / "old.md",
+                score=10.0,
+                keyword_matches=1,
+                days_old=7,
+                summary="Old summary"
+            )
+        ]
+
+        hint = format_artifact_hint(
+            keywords=['test'],
+            scored_artifacts=scored,
+            total_count=2,
+            project_dir=tmp_path
+        )
+
+        # Should show recency indicators
+        assert "today" in hint
+        assert "7d ago" in hint
+
+    def test_hint_shows_more_count(self, tmp_path):
+        """Hint should indicate when there are more artifacts not shown."""
+        from orch.artifact_hint import format_artifact_hint, ScoredArtifact
+
+        scored = [
+            ScoredArtifact(
+                path=tmp_path / "test.md",
+                score=20.0,
+                keyword_matches=2,
+                days_old=0,
+                summary="Test summary"
+            )
+        ]
+
+        hint = format_artifact_hint(
+            keywords=['test'],
+            scored_artifacts=scored,
+            total_count=10,  # 9 more not shown
+            project_dir=tmp_path
+        )
+
+        # Should indicate more exist
+        assert "9 more" in hint
 
 
 class TestSpawnWithArtifactHint:
