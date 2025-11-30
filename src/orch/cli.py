@@ -417,7 +417,8 @@ def _auto_detect_roadmap(project_dir: Path, roadmap: Optional[str] = None) -> Op
 @click.option('--force', is_flag=True, help='Bypass safety checks (active processes, git state) - use when work complete but session hung')
 @click.option('--sync', 'sync_mode', is_flag=True, help='Run completion synchronously (blocking, wait for cleanup)')
 @click.option('--async', 'async_mode', is_flag=True, hidden=True, help='[DEPRECATED] Async is now the default. This flag has no effect.')
-def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode):
+@click.option('--discover', is_flag=True, help='Capture discovered/punted work items and create beads issues')
+def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
     """
     Complete agent work: verify, update ROADMAP (if applicable), commit, cleanup.
 
@@ -628,6 +629,33 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
                 click.echo("   ⚠️  Warnings:")
                 for warning in result['warnings']:
                     click.echo(f"      {warning}")
+
+            # Handle discovery capture (--discover flag)
+            if discover:
+                from orch.complete import (
+                    prompt_for_discoveries,
+                    process_discoveries,
+                    get_discovery_parent_id,
+                    format_discovery_summary
+                )
+
+                # Get parent beads ID from agent if available
+                parent_id = get_discovery_parent_id(agent)
+
+                # Prompt for discovered items
+                items = prompt_for_discoveries()
+
+                if items:
+                    # Process discoveries and create beads issues
+                    discovery_results = process_discoveries(
+                        items=items,
+                        discovered_from=parent_id
+                    )
+
+                    # Show summary
+                    summary = format_discovery_summary(discovery_results)
+                    click.echo(summary)
+
         click.echo()
     else:
         click.echo("❌ Completion failed:", err=True)

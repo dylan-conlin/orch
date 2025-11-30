@@ -834,3 +834,167 @@ def complete_agent_work(
     # Overall success
     result['success'] = True
     return result
+
+
+# ============================================================================
+# DISCOVERY CAPTURE (VC PATTERN ADOPTION)
+# ============================================================================
+# Reference: .orch/investigations/systems/2025-11-29-vc-vs-orch-philosophical-comparison.md
+# Patterns adopted: Post-completion analysis + Discovery linking
+
+def prompt_for_discoveries() -> List[str]:
+    """
+    Interactive prompt for discovered/punted work items.
+
+    Prompts user to enter work items discovered during agent execution
+    that should be tracked for future work.
+
+    Returns:
+        List of item descriptions (empty if user skips)
+    """
+    items = []
+
+    click.echo("\n📋 Discovered/punted work capture")
+    click.echo("   Enter items discovered during this work (empty line to finish):")
+
+    while True:
+        try:
+            item = click.prompt("   Item", default='', show_default=False)
+            if not item.strip():
+                break
+            items.append(item.strip())
+        except click.Abort:
+            break
+
+    return items
+
+
+def create_beads_issue(
+    title: str,
+    discovered_from: str | None = None
+) -> str | None:
+    """
+    Create a beads issue via bd CLI.
+
+    Args:
+        title: Issue title/description
+        discovered_from: Parent issue ID to link with --discovered-from
+
+    Returns:
+        Created issue ID (e.g., 'meta-orchestration-abc') or None on failure
+    """
+    import subprocess
+
+    cmd = ['bd', 'create', title, '--type', 'task']
+
+    if discovered_from:
+        cmd.extend(['--discovered-from', discovered_from])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode != 0:
+            click.echo(f"   ⚠️  Failed to create issue: {result.stderr.strip()}", err=True)
+            return None
+
+        # Parse issue ID from output (format: "Created: meta-orchestration-abc")
+        output = result.stdout.strip()
+        if 'Created:' in output:
+            # Extract ID after "Created: "
+            parts = output.split('Created:')
+            if len(parts) > 1:
+                return parts[1].strip().split()[0]
+
+        # Fallback: return first word that looks like an issue ID
+        for word in output.split():
+            if '-' in word and len(word) > 3:
+                return word
+
+        return output.split()[0] if output else None
+
+    except subprocess.TimeoutExpired:
+        click.echo("   ⚠️  bd create timed out", err=True)
+        return None
+    except Exception as e:
+        click.echo(f"   ⚠️  Error creating issue: {e}", err=True)
+        return None
+
+
+def get_discovery_parent_id(agent: Dict[str, Any]) -> str | None:
+    """
+    Extract parent beads ID from agent if available.
+
+    Checks agent metadata for beads_id field (set when spawned from beads issue).
+
+    Args:
+        agent: Agent info dictionary
+
+    Returns:
+        Parent beads issue ID or None
+    """
+    return agent.get('beads_id')
+
+
+def process_discoveries(
+    items: List[str],
+    discovered_from: str | None = None
+) -> List[Dict[str, Any]]:
+    """
+    Process all discovered items and create beads issues.
+
+    Args:
+        items: List of item descriptions
+        discovered_from: Parent issue ID for --discovered-from links
+
+    Returns:
+        List of result dicts with 'item', 'issue_id', and optionally 'error'
+    """
+    results = []
+
+    for item in items:
+        issue_id = create_beads_issue(title=item, discovered_from=discovered_from)
+
+        result = {
+            'item': item,
+            'issue_id': issue_id
+        }
+
+        if issue_id is None:
+            result['error'] = 'Failed to create issue'
+
+        results.append(result)
+
+    return results
+
+
+def format_discovery_summary(results: List[Dict[str, Any]]) -> str:
+    """
+    Format summary of created discovery issues.
+
+    Args:
+        results: List of result dicts from process_discoveries
+
+    Returns:
+        Formatted summary string
+    """
+    lines = ["\n📋 Discovery Summary:"]
+
+    successful = [r for r in results if r.get('issue_id')]
+    failed = [r for r in results if not r.get('issue_id')]
+
+    if successful:
+        lines.append(f"\n   Created {len(successful)} issue(s):")
+        for r in successful:
+            lines.append(f"   ✓ {r['issue_id']}: {r['item'][:50]}...")
+
+    if failed:
+        lines.append(f"\n   ⚠️  {len(failed)} item(s) failed:")
+        for r in failed:
+            lines.append(f"   ✗ {r['item'][:50]}... - {r.get('error', 'Unknown error')}")
+
+    return '\n'.join(lines)
