@@ -335,6 +335,81 @@ class TestCleanCommand:
         # Verify registry.save() was called
         mock_registry.save.assert_called_once()
 
+    def test_clean_all_does_not_clean_active_agents_with_unknown_phase(self, cli_runner):
+        """
+        Test that 'clean --all' does NOT clean active agents with phase='Unknown'.
+
+        Bug context: When running 'orch clean --all' with completed agents and newly-spawned
+        active agents, all agents were being cleaned. The --all flag should mean 'all completed'
+        not 'all agents'. Active agents have status='active' and phase='Unknown' (workspace
+        template not yet populated).
+
+        Root cause: cli.py line 92 included 'Unknown' in cleanable phases for --all mode.
+        Fix: Remove 'Unknown' from that tuple - only 'Complete' and 'Abandoned' should be cleaned.
+
+        Beads issue: meta-orchestration-7pj
+        """
+        from orch.cli import cli
+
+        # Active agent with phase='Unknown' (newly spawned, workspace not yet populated)
+        mock_active_agent = {
+            'id': 'active-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1001',
+            'task': 'Active task',
+            'status': 'active',  # Not in ('abandoned', 'terminated', 'completed', 'completing')
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/active-agent'
+        }
+
+        # Completed agent that SHOULD be cleaned
+        mock_completed_agent = {
+            'id': 'completed-agent',
+            'window': 'orchestrator:6',
+            'window_id': '@1002',
+            'task': 'Completed task',
+            'status': 'completed',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/completed-agent'
+        }
+
+        # Mock check_agent_status to return different phases based on agent
+        def mock_check_status(agent):
+            mock_status = Mock()
+            if agent['id'] == 'active-agent':
+                mock_status.phase = 'Unknown'  # Newly spawned, workspace not populated
+            else:
+                mock_status.phase = 'Complete'  # Completed agent
+            return mock_status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            all_agents = [mock_active_agent, mock_completed_agent]
+            mock_registry.list_agents.return_value = all_agents
+            mock_registry._agents = all_agents.copy()
+            MockRegistry.return_value = mock_registry
+
+            # Track which agents were removed
+            removed_agents = []
+            def track_removal(agent_id):
+                removed_agents.append(agent_id)
+            mock_registry.remove.side_effect = track_removal
+
+            result = cli_runner.invoke(cli, ['clean', '--all'])
+
+        # Should succeed
+        assert result.exit_code == 0
+
+        # Should only clean 1 agent (the completed one), NOT the active one
+        assert 'Cleaned 1' in result.output, f"Expected 'Cleaned 1' but got: {result.output}"
+
+        # Verify only completed agent was removed, not active agent
+        assert 'completed-agent' in removed_agents, "Completed agent should be cleaned"
+        assert 'active-agent' not in removed_agents, "Active agent with Unknown phase should NOT be cleaned"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
