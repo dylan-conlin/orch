@@ -52,6 +52,13 @@ from orch.features import (
     all_features_complete_for_context_ref,
 )
 
+# Import beads integration for auto-close on complete
+from orch.beads_integration import (
+    BeadsIntegration,
+    BeadsCLINotFoundError,
+    BeadsIssueNotFoundError,
+)
+
 
 # ============================================================================
 # INVESTIGATION BACKLINK AUTOMATION
@@ -527,6 +534,24 @@ def complete_agent_async(
                 "error": str(e)
             })
 
+    # Close beads issue if agent was spawned from beads issue
+    # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
+    if agent.get('beads_id'):
+        beads_id = agent['beads_id']
+        if close_beads_issue(beads_id):
+            result['beads_closed'] = True
+            click.echo(f"🎯 Beads issue '{beads_id}' closed")
+            logger.log_event("complete", "Beads issue closed", {
+                "beads_id": beads_id,
+                "agent_id": agent_id
+            })
+        else:
+            result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
+            logger.log_event("complete", "Beads issue close failed", {
+                "beads_id": beads_id,
+                "agent_id": agent_id
+            })
+
     # Surface investigation recommendations (if applicable)
     # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
     rec_info = surface_investigation_recommendations(agent, project_dir)
@@ -797,6 +822,23 @@ def complete_agent_work(
                 "error": str(e)
             })
 
+    # Step 3.6: Close beads issue if agent was spawned from beads issue
+    if agent.get('beads_id'):
+        beads_id = agent['beads_id']
+        if close_beads_issue(beads_id):
+            result['beads_closed'] = True
+            click.echo(f"🎯 Beads issue '{beads_id}' closed")
+            logger.log_event("complete", "Beads issue closed", {
+                "beads_id": beads_id,
+                "agent_id": agent_id
+            })
+        else:
+            result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
+            logger.log_event("complete", "Beads issue close failed", {
+                "beads_id": beads_id,
+                "agent_id": agent_id
+            })
+
     # Step 4: Auto-unstash git changes if stashed during spawn
     if agent.get('stashed'):
         from orch.spawn import git_stash_pop
@@ -998,3 +1040,34 @@ def format_discovery_summary(results: List[Dict[str, Any]]) -> str:
             lines.append(f"   ✗ {r['item'][:50]}... - {r.get('error', 'Unknown error')}")
 
     return '\n'.join(lines)
+
+
+# ============================================================================
+# BEADS AUTO-CLOSE ON COMPLETE
+# ============================================================================
+# When agent was spawned from beads issue (beads_id in metadata),
+# automatically close the issue on successful completion.
+
+def close_beads_issue(beads_id: str) -> bool:
+    """
+    Close a beads issue via BeadsIntegration.
+
+    Called during agent completion when agent has beads_id metadata
+    (set when spawned from beads issue via `orch spawn --issue`).
+
+    Args:
+        beads_id: The beads issue ID to close (e.g., 'meta-orchestration-xyz')
+
+    Returns:
+        True if issue was closed successfully, False on failure
+    """
+    try:
+        beads = BeadsIntegration()
+        beads.close_issue(beads_id, reason='Resolved via orch complete')
+        return True
+    except BeadsCLINotFoundError:
+        return False
+    except BeadsIssueNotFoundError:
+        return False
+    except Exception:
+        return False
