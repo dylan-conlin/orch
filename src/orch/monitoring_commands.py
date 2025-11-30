@@ -1283,3 +1283,203 @@ def register_monitoring_commands(cli):
             # Display error
             click.echo(f"❌ Bug flagging failed: {result.get('error', 'Unknown error')}", err=True)
             raise click.Abort()
+
+    @cli.command()
+    @click.argument('agent_id')
+    @click.option('--phase', default='Complete', help='Target phase to wait for (default: Complete)')
+    @click.option('--timeout', default='30m', help='Timeout duration (e.g., 30s, 5m, 1h). Default: 30m')
+    @click.option('--interval', default=5, type=int, help='Poll interval in seconds (default: 5)')
+    @click.option('--quiet', '-q', is_flag=True, help='Suppress progress output')
+    def wait(agent_id, phase, timeout, interval, quiet):
+        """Block until agent reaches specified phase.
+
+        Waits for an agent to reach a target phase, polling at regular intervals.
+        Replaces manual 'sleep X && orch check' loops with cleaner workflow.
+
+        \b
+        Examples:
+          orch wait fix-auth-bug                    # Wait for Complete (default)
+          orch wait fix-auth-bug --phase Complete   # Explicit phase
+          orch wait fix-auth-bug --timeout 5m       # 5 minute timeout
+          orch wait fix-auth-bug -q                 # Quiet mode (no progress)
+
+        \b
+        Exit codes:
+          0 - Agent reached target phase
+          1 - Timeout reached
+          2 - Agent not found
+
+        \b
+        Timeout format:
+          30s  - 30 seconds
+          5m   - 5 minutes
+          1h   - 1 hour
+          1h30m - 1 hour 30 minutes
+        """
+        import sys
+        import re
+
+        # Initialize logger
+        orch_logger = OrchLogger()
+
+        # Start timing
+        start_time = time.time()
+
+        # Log command start
+        orch_logger.log_command_start("wait", {
+            "agent_id": agent_id,
+            "target_phase": phase,
+            "timeout": timeout,
+            "interval": interval
+        })
+
+        # Parse timeout duration
+        timeout_seconds = _parse_timeout(timeout)
+        if timeout_seconds is None:
+            click.echo(f"❌ Invalid timeout format: '{timeout}'", err=True)
+            click.echo("   Use formats like: 30s, 5m, 1h, 1h30m", err=True)
+            sys.exit(2)
+
+        # Load registry
+        registry = AgentRegistry()
+        agent = registry.find(agent_id)
+
+        if not agent:
+            orch_logger.log_error("wait", f"Agent not found: {agent_id}", {
+                "agent_id": agent_id,
+                "reason": "agent_not_found"
+            })
+            click.echo(f"❌ {_format_agent_not_found_error(agent_id, registry)}", err=True)
+            sys.exit(2)
+
+        # Initial status check
+        if not quiet:
+            click.echo(f"⏳ Waiting for agent '{agent_id}' to reach phase '{phase}'...")
+            click.echo(f"   Timeout: {timeout}, Poll interval: {interval}s")
+
+        # Polling loop
+        last_phase = None
+        while True:
+            # Check agent status
+            status_obj = check_agent_status(agent)
+            current_phase = status_obj.phase
+
+            # Log phase changes
+            if current_phase != last_phase:
+                if not quiet:
+                    click.echo(f"   Current phase: {current_phase}")
+                last_phase = current_phase
+
+            # Check if target phase reached (case-insensitive partial match)
+            if current_phase and phase.lower() in current_phase.lower():
+                # Success!
+                duration_ms = int((time.time() - start_time) * 1000)
+                orch_logger.log_command_complete("wait", duration_ms, {
+                    "agent_id": agent_id,
+                    "target_phase": phase,
+                    "final_phase": current_phase,
+                    "success": True
+                })
+
+                if not quiet:
+                    elapsed = time.time() - start_time
+                    click.echo(f"✅ Agent '{agent_id}' reached phase '{current_phase}' after {_format_duration(elapsed)}")
+
+                sys.exit(0)
+
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= timeout_seconds:
+                # Timeout reached
+                duration_ms = int(elapsed * 1000)
+                orch_logger.log_error("wait", f"Timeout waiting for agent: {agent_id}", {
+                    "agent_id": agent_id,
+                    "target_phase": phase,
+                    "final_phase": current_phase,
+                    "elapsed_seconds": elapsed,
+                    "timeout_seconds": timeout_seconds
+                })
+
+                if not quiet:
+                    click.echo(f"⏰ Timeout after {_format_duration(elapsed)}", err=True)
+                    click.echo(f"   Agent '{agent_id}' is still at phase '{current_phase}'", err=True)
+
+                sys.exit(1)
+
+            # Wait before next poll
+            time.sleep(interval)
+
+            # Reload agent info (in case registry was updated)
+            registry._load()
+            agent = registry.find(agent_id)
+            if not agent:
+                # Agent was removed during wait
+                orch_logger.log_error("wait", f"Agent disappeared: {agent_id}", {
+                    "agent_id": agent_id,
+                    "reason": "agent_removed"
+                })
+                click.echo(f"❌ Agent '{agent_id}' was removed from registry during wait", err=True)
+                sys.exit(2)
+
+
+def _parse_timeout(timeout_str: str) -> int | None:
+    """Parse timeout string like '30s', '5m', '1h', '1h30m' to seconds.
+
+    Args:
+        timeout_str: Timeout string (e.g., '30s', '5m', '1h', '1h30m')
+
+    Returns:
+        Timeout in seconds, or None if invalid format
+    """
+    import re
+
+    if not timeout_str:
+        return None
+
+    # Try to parse as integer (seconds)
+    if timeout_str.isdigit():
+        return int(timeout_str)
+
+    # Parse duration components
+    total_seconds = 0
+    pattern = r'(\d+)([smh])'
+    matches = re.findall(pattern, timeout_str.lower())
+
+    if not matches:
+        return None
+
+    for value, unit in matches:
+        value = int(value)
+        if unit == 's':
+            total_seconds += value
+        elif unit == 'm':
+            total_seconds += value * 60
+        elif unit == 'h':
+            total_seconds += value * 3600
+
+    return total_seconds if total_seconds > 0 else None
+
+
+def _format_duration(seconds: float) -> str:
+    """Format duration in seconds to human-readable string.
+
+    Args:
+        seconds: Duration in seconds
+
+    Returns:
+        Human-readable duration (e.g., '5m 30s', '1h 15m')
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if secs > 0:
+            return f"{minutes}m {secs}s"
+        return f"{minutes}m"
+    else:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        if minutes > 0:
+            return f"{hours}h {minutes}m"
+        return f"{hours}h"
