@@ -606,6 +606,8 @@ def complete(agent_id, roadmap, allow_roadmap_miss, dry_run, complete_all, proje
             else:
                 click.echo("   ✓ Ad-hoc agent (no ROADMAP update)")
             click.echo("   ✓ Agent cleaned up")
+            if result.get('beads_closed'):
+                click.echo("   ✓ Beads issue closed")
 
             # Handle investigation backlink - prompt to mark investigation resolved
             if result.get('investigation_backlink'):
@@ -2560,6 +2562,12 @@ def build_readme(dry_run, project):
             date = decision['metadata'].get('Date', 'Unknown')
             rel_path = decision['relative_path']
             readme_lines.append(f"- `{rel_path}` - [{status}] {date}\n")
+
+            # Add TLDR/Summary if available
+            tldr = extract_tldr(decision['path'])
+            if tldr:
+                tldr_short = tldr[:120] + '...' if len(tldr) > 120 else tldr
+                readme_lines.append(f"  → {tldr_short}\n")
     else:
         readme_lines.append("*No recent decisions*\n")
 
@@ -2590,6 +2598,13 @@ def build_readme(dry_run, project):
                 combined = status
             status_conf = f"[{truncate_status(combined)}]"
             readme_lines.append(f"- `{rel_path}` - {category_tag}{status_conf}\n")
+
+            # Add TLDR if available (for context continuity)
+            tldr = extract_tldr(inv['path'])
+            if tldr:
+                # Truncate TLDR to ~120 chars for readability
+                tldr_short = tldr[:120] + '...' if len(tldr) > 120 else tldr
+                readme_lines.append(f"  → {tldr_short}\n")
     else:
         readme_lines.append("*No recent investigations*\n")
 
