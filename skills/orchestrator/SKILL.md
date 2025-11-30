@@ -111,6 +111,36 @@ This:
 
 ---
 
+## Discovery Linking
+
+When agents discover work beyond their scope, track the lineage:
+
+```bash
+bd create "New issue title" --discovered-from PARENT-ID
+```
+
+**When to use:**
+- Agent punts work ("out of scope, but noticed X needs attention")
+- Investigation reveals larger problem ("iceberg" - more underneath)
+- Fix exposes related issues
+
+**Why it matters:**
+- Tracks where work came from
+- Enables convergence checking ("is all work from this spawn done?")
+- Prevents orphaned issues
+
+**Example:**
+```bash
+# Agent working on auth fix discovers logging issue
+bd create "Logging not capturing auth failures" --discovered-from meta-orchestration-abc
+
+# Later, check the tree
+bd show meta-orchestration-abc
+# Shows: Discovered → meta-orchestration-xyz (logging issue)
+```
+
+---
+
 ## Workspace Conventions
 
 Agents update their workspace as they work:
