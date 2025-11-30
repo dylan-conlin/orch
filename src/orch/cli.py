@@ -1584,7 +1584,7 @@ def build(ctx, target_skills, target_readme, dry_run, check):
 
         # Categories and their output locations
         # All skill categories deploy to global (~/.claude/skills/)
-        global_categories = ['worker', 'shared', 'utilities', 'meta', 'orchestrator']
+        global_categories = ['worker', 'shared', 'utilities', 'meta', 'policy']
         project_categories = []  # Reserved for future project-scoped skills
 
         built_count = 0
