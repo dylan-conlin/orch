@@ -24,9 +24,9 @@ def _defaults() -> Dict[str, Any]:
     home = Path.home()
     return {
         'tmux_session': 'workers',
-        'active_projects_file': str(home / 'meta-orchestration' / '.orch' / 'active-projects.md'),
-        'roadmap_paths': [str(home / 'meta-orchestration' / '.orch' / 'ROADMAP.org')],
-        'cdd_docs_path': str(home / 'meta-orchestration' / 'docs' / 'cdd-essentials.md'),
+        'active_projects_file': str(home / 'orch-config' / '.orch' / 'active-projects.md'),
+        'roadmap_paths': [str(home / 'orch-config' / '.orch' / 'ROADMAP.org')],
+        'cdd_docs_path': str(home / 'orch-config' / 'docs' / 'cdd-essentials.md'),
         'roadmap_format': 'org',
         'backend': 'claude',
     }

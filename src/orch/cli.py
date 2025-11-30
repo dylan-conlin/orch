@@ -2192,8 +2192,8 @@ def build_global(dry_run, check):
     import shutil
     from pathlib import Path
 
-    # Source directory (meta-orchestration)
-    meta_orch = Path.home() / 'meta-orchestration'
+    # Source directory (orch-config)
+    meta_orch = Path.home() / 'orch-config'
     src_templates = meta_orch / 'templates-src'
     src_patterns = meta_orch / 'patterns-src'
 
@@ -2203,13 +2203,13 @@ def build_global(dry_run, check):
 
     # Validate source exists
     if not meta_orch.exists():
-        click.echo(f"❌ meta-orchestration not found at {meta_orch}", err=True)
-        click.echo("   Expected location: ~/meta-orchestration", err=True)
+        click.echo(f"❌ orch-config not found at {meta_orch}", err=True)
+        click.echo("   Expected location: ~/orch-config", err=True)
         raise click.Abort()
 
     if not src_templates.exists():
         click.echo(f"❌ Source templates not found at {src_templates}", err=True)
-        click.echo("   Run: mkdir -p ~/meta-orchestration/templates-src", err=True)
+        click.echo("   Run: mkdir -p ~/orch-config/templates-src", err=True)
         raise click.Abort()
 
     # Create destination directories

@@ -11,8 +11,8 @@ def get_default_search_dirs() -> List[str]:
     home = Path.home()
     search_dirs = []
 
-    # Meta-orchestration itself
-    meta_orch = home / 'meta-orchestration'
+    # Orch config directory
+    meta_orch = home / 'orch-config'
     if meta_orch.exists():
         search_dirs.append(str(meta_orch.parent))
 
