@@ -1814,6 +1814,107 @@ def build_readme_cmd(ctx, dry_run, project):
     ctx.invoke(build_readme, dry_run=dry_run, project=project)
 
 
+@build.command(name='global')
+@click.option('--dry-run', is_flag=True, help='Show what would be synced without making changes')
+@click.pass_context
+def build_global_cmd(ctx, dry_run):
+    """Sync global templates to ~/.orch/templates/.
+
+    Copies templates from templates-src/ to ~/.orch/templates/, including
+    subdirectories like investigations/. This ensures orch create-investigation
+    and other template-based commands have access to current templates.
+
+    \b
+    Source: {orch-knowledge}/templates-src/
+    Target: ~/.orch/templates/
+
+    \b
+    Examples:
+      orch build global               # Sync templates
+      orch build global --dry-run     # Preview changes
+    """
+    import shutil
+    from pathlib import Path
+
+    # Find orch root (where templates-src/ lives)
+    orch_root = find_orch_root()
+    if not orch_root:
+        click.echo("❌ Not in a meta-orchestration directory", err=True)
+        raise click.Abort()
+
+    templates_src = Path(orch_root) / 'templates-src'
+    if not templates_src.exists():
+        click.echo(f"❌ Templates source not found: {templates_src}", err=True)
+        click.echo("   Expected: meta-orchestration/templates-src/", err=True)
+        raise click.Abort()
+
+    templates_dest = Path.home() / '.orch' / 'templates'
+
+    click.echo("🔨 Syncing global templates...")
+    click.echo(f"   Source: {templates_src}")
+    click.echo(f"   Target: {templates_dest}")
+    click.echo()
+
+    # Ensure destination exists
+    if not dry_run:
+        templates_dest.mkdir(parents=True, exist_ok=True)
+
+    synced_count = 0
+    skipped_count = 0
+
+    # Sync all .md files in templates-src/
+    for src_file in templates_src.glob('*.md'):
+        dest_file = templates_dest / src_file.name
+
+        # Check if sync needed
+        if dest_file.exists():
+            src_mtime = src_file.stat().st_mtime
+            dest_mtime = dest_file.stat().st_mtime
+            if dest_mtime >= src_mtime:
+                skipped_count += 1
+                continue
+
+        if dry_run:
+            click.echo(f"  Would copy: {src_file.name}")
+        else:
+            shutil.copy2(src_file, dest_file)
+            click.echo(f"  ✅ Copied: {src_file.name}")
+        synced_count += 1
+
+    # Sync subdirectories (e.g., investigations/)
+    for src_subdir in templates_src.iterdir():
+        if src_subdir.is_dir() and not src_subdir.name.startswith('.'):
+            dest_subdir = templates_dest / src_subdir.name
+
+            if not dry_run:
+                dest_subdir.mkdir(parents=True, exist_ok=True)
+
+            click.echo(f"  📁 {src_subdir.name}/")
+
+            for src_file in src_subdir.glob('*.md'):
+                dest_file = dest_subdir / src_file.name
+
+                # Check if sync needed
+                if dest_file.exists():
+                    src_mtime = src_file.stat().st_mtime
+                    dest_mtime = dest_file.stat().st_mtime
+                    if dest_mtime >= src_mtime:
+                        skipped_count += 1
+                        continue
+
+                if dry_run:
+                    click.echo(f"    Would copy: {src_file.name}")
+                else:
+                    shutil.copy2(src_file, dest_file)
+                    click.echo(f"    ✅ Copied: {src_file.name}")
+                synced_count += 1
+
+    click.echo()
+    if dry_run:
+        click.echo(f"📋 Dry-run: {synced_count} file(s) would be synced, {skipped_count} up-to-date")
+    else:
+        click.echo(f"✅ Templates: {synced_count} synced, {skipped_count} up-to-date")
+
 
 # ============================================================================
 # Projects group - hierarchical structure for project discovery
