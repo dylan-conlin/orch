@@ -201,5 +201,113 @@ class TestCheckAgentStatusFallback:
         assert "inferred" not in status.phase.lower()
 
 
+class TestTemplatePlaceholderFiltering:
+    """Tests for filtering out template placeholder values from phase detection.
+
+    Regression tests for: https://github.com/dylan-conlin/orch/issues/meta-orchestration-7xa
+    Bug: orch wait exits prematurely when investigation template contains 'Active | Complete' text
+    """
+
+    def test_is_template_placeholder_detects_pipe_separated(self):
+        """Template placeholders with pipe-separated values are detected."""
+        from orch.monitor import _is_template_placeholder
+
+        assert _is_template_placeholder('Active | Complete') is True
+        assert _is_template_placeholder('In Progress | Complete | Paused') is True
+
+    def test_is_template_placeholder_detects_brackets(self):
+        """Template placeholders with bracket notation are detected."""
+        from orch.monitor import _is_template_placeholder
+
+        assert _is_template_placeholder('[Investigating/Complete]') is True
+        assert _is_template_placeholder('[In Progress/Complete/Paused]') is True
+
+    def test_is_template_placeholder_allows_valid_phases(self):
+        """Valid phase values pass through the filter."""
+        from orch.monitor import _is_template_placeholder
+
+        assert _is_template_placeholder('Complete') is False
+        assert _is_template_placeholder('Investigating') is False
+        assert _is_template_placeholder('Implementation') is False
+
+    def test_extract_phase_from_file_filters_status_template(self, tmp_path):
+        """extract_phase_from_file returns None for investigation file with template Status."""
+        from orch.monitor import extract_phase_from_file
+
+        # SIMPLE investigation template has **Status:** Active | Complete
+        inv_file = tmp_path / "test-investigation.md"
+        inv_file.write_text("""# Test Investigation
+
+**Date:** 2025-11-30
+**Status:** Active | Complete
+
+## Question
+What is the bug?
+""")
+
+        result = extract_phase_from_file(inv_file)
+        assert result is None, "Should filter out 'Active | Complete' template placeholder"
+
+    def test_extract_phase_from_file_returns_valid_phase(self, tmp_path):
+        """extract_phase_from_file returns valid phase values."""
+        from orch.monitor import extract_phase_from_file
+
+        inv_file = tmp_path / "test-investigation.md"
+        inv_file.write_text("""# Test Investigation
+
+**Date:** 2025-11-30
+**Phase:** Complete
+
+## Conclusion
+Bug was fixed.
+""")
+
+        result = extract_phase_from_file(inv_file)
+        assert result == "Complete"
+
+    def test_check_agent_status_ignores_investigation_template_status(self, tmp_path):
+        """check_agent_status doesn't use template Status from investigation file.
+
+        This is the main regression test for the bug where orch wait would
+        detect 'Active | Complete' as the phase and exit immediately.
+        """
+        from orch.monitor import check_agent_status
+
+        # Create workspace directory (empty - no WORKSPACE.md yet, agent still initializing)
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-investigation"
+        workspace_dir.mkdir(parents=True)
+
+        # Create investigation file with template placeholder (as if agent just started)
+        inv_dir = tmp_path / ".orch" / "investigations" / "simple"
+        inv_dir.mkdir(parents=True)
+        inv_file = inv_dir / "test-investigation.md"
+        inv_file.write_text("""# Test Investigation
+
+**Date:** 2025-11-30
+**Status:** Active | Complete
+
+## Question
+What is the bug?
+""")
+
+        agent_info = {
+            'id': 'test-investigation',
+            'status': 'active',
+            'skill': 'investigation',
+            'project_dir': str(tmp_path),
+            'workspace': '.orch/workspace/test-investigation',
+            'spawned_at': datetime.now().isoformat()
+        }
+
+        status = check_agent_status(agent_info)
+
+        # Phase should NOT be 'Active | Complete' - that's a template placeholder
+        assert status.phase != 'Active | Complete', \
+            "Template placeholder 'Active | Complete' should not be used as phase"
+        # Phase should be Unknown (default) since workspace has no phase and
+        # investigation file only has template placeholder
+        assert status.phase == 'Unknown' or 'complete' not in status.phase.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

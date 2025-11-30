@@ -43,6 +43,25 @@ class AgentStatus:
     is_stale: bool = False
 
 
+def _is_template_placeholder(value: str) -> bool:
+    """
+    Check if a value looks like a template placeholder rather than an actual phase.
+
+    Template placeholders contain:
+    - Pipe characters with spaces: 'Active | Complete'
+    - Brackets: '[Investigating/Complete]'
+    """
+    if not value:
+        return True
+    # Pipe-separated choices: 'Active | Complete'
+    if ' | ' in value:
+        return True
+    # Bracket placeholders: '[Option1/Option2]'
+    if value.startswith('[') and value.endswith(']'):
+        return True
+    return False
+
+
 def extract_phase_from_file(path: Path) -> Optional[str]:
     """
     Extract Phase value from a coordination artifact (workspace or investigation file).
@@ -71,7 +90,11 @@ def extract_phase_from_file(path: Path) -> Optional[str]:
         re.MULTILINE
     )
     if match:
-        return (match.group(1) or match.group(2) or match.group(3) or match.group(4)).strip()
+        phase = (match.group(1) or match.group(2) or match.group(3) or match.group(4)).strip()
+        # Filter out template placeholder values like 'Active | Complete'
+        if _is_template_placeholder(phase):
+            return None
+        return phase
 
     return None
 
@@ -135,7 +158,10 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
                 if content:
                     phase_match = re.search(r"\*\*Phase:\*\*\s*([^\n]+)", content)
                     if phase_match:
-                        status.phase = phase_match.group(1).strip()
+                        phase = phase_match.group(1).strip()
+                        # Filter out template placeholder values like 'Active | Complete'
+                        if not _is_template_placeholder(phase):
+                            status.phase = phase
 
     # Priority 1: Explicit signals (BLOCKED/QUESTION)
     if signal.has_signal:
