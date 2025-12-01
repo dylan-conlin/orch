@@ -380,6 +380,118 @@ Agent Mail would be horizontal connections between agents at the Worker Layer - 
 
 ---
 
+## Addendum: `orch send` as Primitive Agent Mail
+
+*Added after discussion with Dylan*
+
+### Key Reframe
+
+`orch send` already IS a form of "agent mail" - just with tmux as the transport instead of MCP. The question isn't whether the concept is valid, but whether to upgrade the transport.
+
+### Current Architecture
+
+```
+orch send worker-3 "focus on auth module"
+    │
+    ▼
+tmux send-keys (types into terminal)
+    │
+    ▼
+Worker receives as stdin
+```
+
+- One-way: orchestrator → worker
+- Unstructured: raw text injection
+- Worker "replies" via workspace artifacts, not messages
+
+### Potential Evolution: Agent Mail as Transport
+
+```
+orch send worker-3 "focus on auth module"
+    │
+    ▼
+Agent Mail MCP server
+    │
+    ▼
+Worker receives structured message
+    │
+    ▼
+Worker can reply via Agent Mail
+    │
+    ▼
+Orchestrator receives reply
+```
+
+- Bidirectional: orchestrator ↔ worker
+- Structured: proper message format
+- Opens path to worker ↔ worker messaging (swarm)
+
+### Layered Architecture (Refined)
+
+```
+┌─────────────────────────────────────────┐
+│        orch-cli (Lifecycle Layer)       │
+│  spawn, monitor, complete, verify       │
+├─────────────────────────────────────────┤
+│      Messaging Layer (upgradeable)      │
+│  current: tmux send-keys               │
+│  future:  Agent Mail MCP               │
+├─────────────────────────────────────────┤
+│        tmux (Session Layer)             │
+│  persistence, attach, output capture    │
+├─────────────────────────────────────────┤
+│        beads (Memory Layer)             │
+│  issues, dependencies, status           │
+└─────────────────────────────────────────┘
+```
+
+**Key insight:** tmux and Agent Mail serve different purposes:
+- **tmux:** Session management (persistence, attach, tail)
+- **Agent Mail:** Message passing (send, receive, peer coordination)
+
+orch-cli can use both - tmux for sessions, Agent Mail for messaging.
+
+### Evolution Path
+
+| Phase | Messaging Transport | Capability |
+|-------|---------------------|------------|
+| Now | tmux send-keys | One-way intervention |
+| Next | Agent Mail (optional) | Bidirectional, structured |
+| Later | Agent Mail (default) | Peer-to-peer, swarm-ready |
+
+### Implementation Sketch
+
+```bash
+# Phase 1: Add flag
+orch send worker-3 "message" --transport mail
+
+# Phase 2: Auto-detect
+orch send worker-3 "message"
+# → uses Agent Mail if available, falls back to tmux
+
+# Phase 3: Bidirectional
+orch send worker-3 "message" --wait-reply
+# → blocks until worker responds
+```
+
+### What This Enables
+
+1. **Orchestrator as peer:** Can receive messages, not just send
+2. **Worker-to-worker:** Workers can coordinate without orchestrator mediation
+3. **Swarm mode:** Spawn group of workers with Agent Mail, let them self-organize
+4. **Richer intervention:** Structured messages instead of raw terminal input
+
+### What tmux Still Provides (Not Replaced)
+
+- Session persistence (survives disconnect)
+- Attach capability (interactive takeover)
+- Output capture for `orch tail`
+- Window management for `orch status`
+
+**Conclusion:** Agent Mail is a transport upgrade for `orch send`, not a replacement for orch-cli's tmux-based session management.
+
+---
+
 ## Notes
 
 **Jeffrey Emanuel's context differs from Dylan's:**
