@@ -106,6 +106,24 @@ Investigations and decisions stay in `.orch/` as knowledge artifacts (different 
 - Cons: Less control, harder to debug, premature for solo workflow
 - **Rejected for now:** Can add swarm as option later, not replacement
 
+## Process Note: Evolve Through Distinction
+
+This architecture wasn't designed upfront - it emerged from a series of distinctions that resolved conflations:
+
+| Question Asked | Conflation Found | Distinction Made |
+|----------------|------------------|------------------|
+| "Does orch-cli compete with Agent Mail?" | "Orchestration" meant both lifecycle AND messaging | Lifecycle layer ≠ Messaging layer |
+| "What about `orch send`?" | `orch send` is messaging disguised as lifecycle | Session management (tmux) ≠ Message transport (MCP) |
+| "Why is lifecycle creating memory artifacts?" | Workspaces duplicate beads | Task state (beads) ≠ Knowledge artifacts (.orch/) |
+
+Each distinction clarified responsibility and removed duplication. The five-layer architecture fell out naturally:
+
+```
+Lifecycle → Messaging → Sessions → Memory → Knowledge
+```
+
+**Principle applied:** "When problems recur, ask 'what are we conflating?'"
+
 ## Related
 
 - **Investigation:** `.orch/investigations/design/2025-12-01-orch-cli-role-in-agent-ecosystem.md`
