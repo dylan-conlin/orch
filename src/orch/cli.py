@@ -1945,16 +1945,12 @@ def build_global_cmd(ctx, dry_run):
     import shutil
     from pathlib import Path
 
-    # Find orch root (where templates-src/ lives)
-    orch_root = find_orch_root()
-    if not orch_root:
-        click.echo("❌ Not in a meta-orchestration directory", err=True)
-        raise click.Abort()
-
-    templates_src = Path(orch_root) / 'templates-src'
+    # Use canonical templates location (global operation → global source)
+    templates_src = Path.home() / 'orch-knowledge' / 'templates-src'
     if not templates_src.exists():
-        click.echo(f"❌ Templates source not found: {templates_src}", err=True)
-        click.echo("   Expected: meta-orchestration/templates-src/", err=True)
+        click.echo("❌ Templates source not found: ~/orch-knowledge/templates-src/", err=True)
+        click.echo("   This is the canonical location for orchestration templates.", err=True)
+        click.echo("   Ensure orch-knowledge repository exists in your home directory.", err=True)
         raise click.Abort()
 
     templates_dest = Path.home() / '.orch' / 'templates'
