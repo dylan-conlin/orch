@@ -1,8 +1,5 @@
 # orch-cli - Worker Context
 
-## Project Foundation
-@.orch/CLAUDE.md
-
 ---
 
 # orch-cli
