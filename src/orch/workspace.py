@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from jinja2 import Template
 
+from orch.frontmatter import extract_phase
+
 
 # Custom exceptions
 class WorkspaceValidationError(Exception):
@@ -474,11 +476,16 @@ def parse_workspace(workspace_path: Path) -> WorkspaceSignal:
 
     signal = WorkspaceSignal()
 
-    # Extract Phase (handles **Phase:**, Phase:, and **Status:** Phase: formats)
-    phase_match = re.search(r'^\*\*Phase:\*\*\s*(\w+)|^Phase:\s*(\w+)|^\*\*Status:\*\*\s+Phase:\s*(\w+)', content, re.MULTILINE)
-    if phase_match:
-        # Group 1: **Phase:** format, Group 2: Phase: format, Group 3: **Status:** Phase: format
-        signal.phase = phase_match.group(1) or phase_match.group(2) or phase_match.group(3)
+    # Extract Phase - try YAML frontmatter first, then fall back to inline regex
+    phase = extract_phase(content)
+    if phase:
+        signal.phase = phase
+    else:
+        # Fallback: inline format (handles **Phase:**, Phase:, and **Status:** Phase: formats)
+        phase_match = re.search(r'^\*\*Phase:\*\*\s*(\w+)|^Phase:\s*(\w+)|^\*\*Status:\*\*\s+Phase:\s*(\w+)', content, re.MULTILINE)
+        if phase_match:
+            # Group 1: **Phase:** format, Group 2: Phase: format, Group 3: **Status:** Phase: format
+            signal.phase = phase_match.group(1) or phase_match.group(2) or phase_match.group(3)
 
     # Check for BLOCKED signal
     blocked_match = re.search(r'BLOCKED:\s*(.+?)(?:\n|$)', content, re.MULTILINE)
