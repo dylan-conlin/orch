@@ -213,5 +213,185 @@ class TestTailFunction:
                 tail_agent_output(agent, lines=20)
 
 
+class TestTailOpenCode:
+    """Tests for OpenCode agent tail support."""
+
+    def test_opencode_agent_routes_to_api(self):
+        """Test that OpenCode agents use API instead of tmux."""
+        from orch.tail import tail_agent_output
+
+        opencode_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            'session_id': 'test-session-123',
+        }
+
+        # Mock the OpenCode client and server discovery
+        with patch('orch.tail.discover_server', return_value='http://127.0.0.1:4096'):
+            mock_client = Mock()
+            # Create mock messages that match the Message dataclass structure
+            mock_messages = [
+                Mock(
+                    role='user',
+                    parts=[{'type': 'text', 'text': 'Hello from user'}]
+                ),
+                Mock(
+                    role='assistant',
+                    parts=[{'type': 'text', 'text': 'Hello from assistant'}]
+                ),
+            ]
+            mock_client.get_messages.return_value = mock_messages
+            mock_client.health_check.return_value = True
+
+            with patch('orch.tail.OpenCodeClient', return_value=mock_client):
+                output = tail_agent_output(opencode_agent, lines=20)
+
+        # Should have called get_messages on the client
+        mock_client.get_messages.assert_called_once_with('test-session-123')
+
+        # Output should contain assistant message content
+        assert 'Hello from assistant' in output
+
+    def test_opencode_agent_no_session_id_raises_error(self):
+        """Test that OpenCode agent without session_id raises RuntimeError."""
+        from orch.tail import tail_agent_output
+
+        opencode_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            # Missing session_id
+        }
+
+        with pytest.raises(RuntimeError, match='no session_id'):
+            tail_agent_output(opencode_agent, lines=20)
+
+    def test_opencode_server_not_found_raises_error(self):
+        """Test that missing OpenCode server raises RuntimeError."""
+        from orch.tail import tail_agent_output
+
+        opencode_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            'session_id': 'test-session-123',
+        }
+
+        with patch('orch.tail.discover_server', return_value=None):
+            with pytest.raises(RuntimeError, match='OpenCode server not found'):
+                tail_agent_output(opencode_agent, lines=20)
+
+    def test_opencode_formats_messages_correctly(self):
+        """Test that OpenCode messages are formatted with role and content."""
+        from orch.tail import tail_agent_output
+
+        opencode_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            'session_id': 'test-session-123',
+        }
+
+        with patch('orch.tail.discover_server', return_value='http://127.0.0.1:4096'):
+            mock_client = Mock()
+            mock_messages = [
+                Mock(
+                    role='user',
+                    parts=[{'type': 'text', 'text': 'User message 1'}]
+                ),
+                Mock(
+                    role='assistant',
+                    parts=[{'type': 'text', 'text': 'Assistant response 1'}]
+                ),
+                Mock(
+                    role='user',
+                    parts=[{'type': 'text', 'text': 'User message 2'}]
+                ),
+                Mock(
+                    role='assistant',
+                    parts=[
+                        {'type': 'text', 'text': 'Part 1'},
+                        {'type': 'tool', 'tool': 'read'},  # Non-text part should be skipped
+                        {'type': 'text', 'text': 'Part 2'},
+                    ]
+                ),
+            ]
+            mock_client.get_messages.return_value = mock_messages
+            mock_client.health_check.return_value = True
+
+            with patch('orch.tail.OpenCodeClient', return_value=mock_client):
+                output = tail_agent_output(opencode_agent, lines=20)
+
+        # Output should contain role labels and content
+        assert '[user]' in output
+        assert '[assistant]' in output
+        assert 'User message 1' in output
+        assert 'Assistant response 1' in output
+        assert 'Part 1' in output
+        assert 'Part 2' in output
+
+    def test_opencode_respects_lines_limit(self):
+        """Test that lines parameter limits output for OpenCode agents."""
+        from orch.tail import tail_agent_output
+
+        opencode_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            'session_id': 'test-session-123',
+        }
+
+        with patch('orch.tail.discover_server', return_value='http://127.0.0.1:4096'):
+            mock_client = Mock()
+            # Create many messages to exceed line limit
+            mock_messages = [
+                Mock(
+                    role='assistant',
+                    parts=[{'type': 'text', 'text': f'Line {i}\nLine {i}b'}]
+                )
+                for i in range(50)
+            ]
+            mock_client.get_messages.return_value = mock_messages
+            mock_client.health_check.return_value = True
+
+            with patch('orch.tail.OpenCodeClient', return_value=mock_client):
+                output = tail_agent_output(opencode_agent, lines=10)
+
+        # Output should be limited to approximately 10 lines
+        lines = output.strip().split('\n')
+        # Allow some flexibility for formatting
+        assert len(lines) <= 15  # Some slack for headers/formatting
+
+
+class TestTailCommandOpenCode:
+    """Tests for the tail CLI command with OpenCode agents."""
+
+    def test_tail_command_handles_opencode_agent(self, cli_runner):
+        """Test that tail command works with OpenCode agents."""
+        from orch.cli import cli
+
+        mock_agent = {
+            'id': 'test-opencode-agent',
+            'backend': 'opencode',
+            'session_id': 'test-session-123',
+            'status': 'active'
+        }
+
+        with patch('orch.monitoring_commands.AgentRegistry') as MockRegistry:
+            mock_registry = Mock()
+            mock_registry.find.return_value = mock_agent
+            MockRegistry.return_value = mock_registry
+
+            with patch('orch.tail.discover_server', return_value='http://127.0.0.1:4096'):
+                mock_client = Mock()
+                mock_messages = [
+                    Mock(role='assistant', parts=[{'type': 'text', 'text': 'Test output'}])
+                ]
+                mock_client.get_messages.return_value = mock_messages
+                mock_client.health_check.return_value = True
+
+                with patch('orch.tail.OpenCodeClient', return_value=mock_client):
+                    result = cli_runner.invoke(cli, ['tail', 'test-opencode-agent'])
+
+        assert result.exit_code == 0
+        assert 'Test output' in result.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
