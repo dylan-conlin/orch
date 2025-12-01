@@ -465,3 +465,168 @@ def test_lint_skills_mode_no_skills_found(cli_runner, tmp_path, monkeypatch):
     # Should handle gracefully
     assert result.exit_code == 0
     assert "no skill" in result.output.lower() or "0 skill" in result.output.lower()
+
+
+# =============================================================================
+# REVERSE LINT TESTS
+# =============================================================================
+
+
+def test_lint_reverse_finds_skills_referencing_command(cli_runner, tmp_path, monkeypatch):
+    """Test that --reverse finds skills referencing a specific command."""
+    from orch.cli import cli
+
+    # Create mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills"
+
+    # Skill 1: references spawn
+    skill1_dir = skills_dir / "worker" / "spawn-skill"
+    skill1_dir.mkdir(parents=True)
+    (skill1_dir / "SKILL.md").write_text("""---
+name: spawn-skill
+---
+
+# Spawn Skill
+
+Use `orch spawn` to start an agent.
+Run `orch spawn --issue` for beads integration.
+""")
+
+    # Skill 2: references status, not spawn
+    skill2_dir = skills_dir / "worker" / "status-skill"
+    skill2_dir.mkdir(parents=True)
+    (skill2_dir / "SKILL.md").write_text("""---
+name: status-skill
+---
+
+# Status Skill
+
+Run `orch status` to check progress.
+""")
+
+    # Skill 3: also references spawn
+    skill3_dir = skills_dir / "shared" / "another-spawn-skill"
+    skill3_dir.mkdir(parents=True)
+    (skill3_dir / "SKILL.md").write_text("""---
+name: another-spawn-skill
+---
+
+# Another Spawn Skill
+
+Use `orch spawn` here too.
+""")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--reverse', 'spawn'])
+
+    # Should find skill1 and skill3, but not skill2
+    assert result.exit_code == 0
+    assert "spawn-skill" in result.output
+    assert "another-spawn-skill" in result.output
+    assert "status-skill" not in result.output
+
+
+def test_lint_reverse_handles_subcommands(cli_runner, tmp_path, monkeypatch):
+    """Test that --reverse finds skills referencing subcommands like 'build skills'."""
+    from orch.cli import cli
+
+    # Create mock skills directory
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "build-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("""---
+name: build-skill
+---
+
+# Build Skill
+
+Run `orch build skills` to rebuild.
+Run `orch build readme` for readme.
+""")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Search for "build skills" subcommand
+    result = cli_runner.invoke(cli, ['lint', '--reverse', 'build skills'])
+
+    assert result.exit_code == 0
+    assert "build-skill" in result.output
+
+
+def test_lint_reverse_shows_usage_count(cli_runner, tmp_path, monkeypatch):
+    """Test that --reverse shows how many times a command is used in each skill."""
+    from orch.cli import cli
+
+    # Create mock skill with multiple spawn references
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "multi-spawn"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("""---
+name: multi-spawn
+---
+
+# Multi Spawn
+
+Use `orch spawn` first.
+Then `orch spawn` again.
+And `orch spawn` once more.
+""")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--reverse', 'spawn'])
+
+    assert result.exit_code == 0
+    assert "multi-spawn" in result.output
+    # Should show count of 3 references
+    assert "3" in result.output
+
+
+def test_lint_reverse_no_matches(cli_runner, tmp_path, monkeypatch):
+    """Test graceful handling when no skills reference the command."""
+    from orch.cli import cli
+
+    # Create mock skill that doesn't reference the target command
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "other-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("""---
+name: other-skill
+---
+
+# Other Skill
+
+Run `orch status` only.
+""")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--reverse', 'nonexistent-command'])
+
+    assert result.exit_code == 0
+    assert "no skills" in result.output.lower() or "0 skills" in result.output.lower()
+
+
+def test_lint_reverse_requires_command_argument(cli_runner, tmp_path, monkeypatch):
+    """Test that --reverse requires a command argument."""
+    from orch.cli import cli
+
+    skills_dir = tmp_path / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--reverse'])
+
+    # Should fail or show usage - --reverse needs an argument
+    assert result.exit_code != 0 or "requires" in result.output.lower() or "argument" in result.output.lower()
+
+
+def test_lint_reverse_no_skills_directory(cli_runner, tmp_path, monkeypatch):
+    """Test graceful handling when skills directory doesn't exist."""
+    from orch.cli import cli
+
+    # Don't create skills directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--reverse', 'spawn'])
+
+    assert result.exit_code == 0
+    assert "no skills" in result.output.lower() or "not found" in result.output.lower()
