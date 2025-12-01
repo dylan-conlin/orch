@@ -863,11 +863,12 @@ def _lint_skills():
         return
 
     # Pattern to extract orch commands and flags
-    # Match: orch <command> [subcommand] [--flag] [--flag2]
-    # Examples: "orch spawn", "orch build skills", "orch spawn --issue"
+    # Match: `orch <command> [subcommand] [--flag] [--flag2]`
+    # Examples: "`orch spawn`", "`orch build skills`", "`orch spawn --issue`"
+    # Requires backticks to avoid matching prose like "orch overhead"
     orch_pattern = re.compile(
-        r'`?orch\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)?)'  # command + optional subcommand
-        r'((?:\s+--[a-z][a-z0-9-]*)*)',  # optional flags
+        r'`orch\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)?)'  # command + optional subcommand
+        r'((?:\s+--[a-z][a-z0-9-]*)*)`',  # optional flags, ends with backtick
         re.IGNORECASE
     )
 

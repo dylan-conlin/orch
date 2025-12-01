@@ -630,3 +630,47 @@ def test_lint_reverse_no_skills_directory(cli_runner, tmp_path, monkeypatch):
 
     assert result.exit_code == 0
     assert "no skills" in result.output.lower() or "not found" in result.output.lower()
+
+
+def test_lint_skills_mode_ignores_prose_without_backticks(cli_runner, tmp_path, monkeypatch):
+    """Test that --skills mode ignores prose like 'orch overhead' that lacks backticks.
+
+    This tests the fix for false positives where prose containing 'orch' followed
+    by words like 'overhead', 'commands', 'cli' was incorrectly flagged as invalid
+    commands.
+    """
+    from orch.cli import cli
+
+    # Create mock skills directory structure
+    skills_dir = tmp_path / ".claude" / "skills" / "worker" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    # Create a skill file with both:
+    # 1. Valid backticked commands (should be validated)
+    # 2. Prose without backticks (should be ignored)
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("""---
+name: test-skill
+---
+
+# Test Skill
+
+Use `orch spawn` to start an agent.  # Valid - should be checked
+Run `orch status` to check progress.  # Valid - should be checked
+
+This reduces orch overhead significantly.  # Prose - should be IGNORED
+For more orch commands, see the docs.  # Prose - should be IGNORED
+The orch cli command structure is simple.  # Prose - should be IGNORED
+""")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = cli_runner.invoke(cli, ['lint', '--skills'])
+
+    # Should NOT flag prose as invalid commands
+    assert "overhead" not in result.output.lower(), \
+        "Prose 'orch overhead' should not be flagged as invalid command"
+    assert "commands" not in result.output.lower() or "valid commands" in result.output.lower(), \
+        "Prose 'orch commands' should not be flagged as invalid command"
+    # The output should indicate success (valid commands found)
+    assert result.exit_code == 0
