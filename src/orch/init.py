@@ -192,7 +192,7 @@ Scope: This project ({variables['PROJECT_NAME']}). For meta-orchestration work, 
 
 ---
 
-> NOTE: Sections marked with `<!-- ORCH-TEMPLATE: ... -->` below are auto-generated from `~/.orch/templates/orchestrator/*.md` by `orch build --orchestrator`. To change those sections, edit the corresponding template files and rerun `orch build --orchestrator` instead of editing the generated content here.
+> NOTE: Sections marked with `<!-- ORCH-TEMPLATE: ... -->` below are placeholder markers. For most projects, orchestration guidance is provided by the orchestrator skill loaded at runtime. If you need to customize these sections, you can manually populate them or remove the markers and add custom content.
 
 {instruction_markers}
 """
@@ -201,39 +201,26 @@ Scope: This project ({variables['PROJECT_NAME']}). For meta-orchestration work, 
     orch_claude.write_text(content)
 
     click.echo(f"✓ Created {orch_claude} (skeleton with template markers)")
-    click.echo("  → Template content will be populated by build system")
 
 
 def build_orch_context_for_project(project_dir: Path) -> None:
     """
     Build orchestrator context by populating template markers.
 
-    Calls the build system to replace ORCH-TEMPLATE markers with actual content
-    from ~/.orch/templates/orchestrator/.
+    NOTE: Template population is currently manual. The ORCH-TEMPLATE markers
+    in .orch/CLAUDE.md serve as placeholders that can be populated by copying
+    content from ~/.orch/templates/orchestrator/ if that directory exists.
+
+    For most projects, the skeleton with markers is sufficient - the actual
+    orchestration guidance comes from the orchestrator skill loaded at runtime.
     """
-    import subprocess
-    import sys
+    templates_dir = Path.home() / ".orch" / "templates" / "orchestrator"
 
-    # Call orch build-orchestrator-context for this specific project
-    try:
-        result = subprocess.run(
-            [sys.executable, '-m', 'orch.cli', 'build-orchestrator-context', '--project', str(project_dir)],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        if result.returncode == 0:
-            click.echo("✓ Built orchestrator context from templates")
-        else:
-            click.echo(f"⚠️  Warning: Failed to build orchestrator context", err=True)
-            if result.stderr:
-                click.echo(f"   {result.stderr}", err=True)
-            click.echo("   You can manually run: orch build-orchestrator-context --project .", err=True)
-
-    except Exception as e:
-        click.echo(f"⚠️  Warning: Could not build orchestrator context: {e}", err=True)
-        click.echo("   You can manually run: orch build-orchestrator-context --project .", err=True)
+    if templates_dir.exists():
+        click.echo("✓ Template markers created (populate manually from ~/.orch/templates/orchestrator/)")
+    else:
+        click.echo("✓ Template markers created")
+        click.echo("  → Orchestration guidance will be provided by the orchestrator skill at runtime")
 
 
 def create_project_claude_md(project_dir: Path, variables: Dict[str, str], update: bool = False, yes: bool = False) -> None:

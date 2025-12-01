@@ -1,0 +1,50 @@
+# {{PROJECT_NAME}} - Worker Context
+
+---
+
+@.orch/CLAUDE.md
+
+---
+
+## Project Foundation
+
+**Purpose:** {{PROJECT_PURPOSE}}
+
+**Created:** {{DATE}}
+
+---
+
+## Implementation Details
+
+<!-- Add project-specific implementation context here:
+- Key technologies/frameworks
+- Important patterns to follow
+- Testing requirements
+- Build/deployment commands
+-->
+
+---
+
+## Development Setup
+
+<!-- Add setup instructions:
+- Prerequisites
+- Installation steps
+- Environment configuration
+-->
+
+---
+
+## Key Files
+
+<!-- Document important files for quick navigation:
+- Main entry points
+- Configuration files
+- Core business logic
+-->
+
+---
+
+## Notes
+
+<!-- Additional context for workers -->
