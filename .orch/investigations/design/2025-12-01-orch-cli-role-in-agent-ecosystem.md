@@ -492,6 +492,121 @@ orch send worker-3 "message" --wait-reply
 
 ---
 
+## Addendum: Workspaces Should Migrate to Beads
+
+*Added after further discussion with Dylan - DECISION MADE*
+
+### The Architectural Smell
+
+If beads is the memory layer, why is orch-cli (lifecycle layer) creating memory-like artifacts (workspaces)?
+
+**Current model (duplicative):**
+```
+beads issue (what to do)
+       +
+workspace file (how it's going)
+       =
+two sources of truth
+```
+
+### Beads Already Supports Execution Narrative
+
+```
+beads issue:
+  - description: context/overview
+  - design: design notes
+  - acceptance: done criteria
+  - notes: additional context
+  - comments: progress log (append-only)
+  - status: current state
+  - close reason: final summary
+```
+
+This IS what workspaces do. Workspaces are duplicating beads functionality.
+
+### Decision: Converge Workspaces into Beads
+
+**Converged model:**
+```
+beads issue = workspace
+  - description = spawn context
+  - comments = execution log
+  - status = phase (open → in_progress → closed)
+  - close --reason = final summary
+```
+
+### What Changes in orch-cli
+
+| Current | Converged |
+|---------|-----------|
+| `orch spawn` creates WORKSPACE.md | `orch spawn --issue` uses beads issue |
+| Agent updates WORKSPACE.md | Agent runs `bd comment` for progress |
+| `orch status` parses workspace files | `orch status` reads from `bd list` |
+| `orch complete` checks workspace Phase | `orch complete` runs `bd close` |
+| Workspace stays after completion | Issue closed, can be cleaned up with `bd cleanup` |
+
+### What Stays Separate from Beads
+
+- **Investigations** (.orch/investigations/) → Knowledge artifacts (what we learned)
+- **Decisions** (.orch/decisions/) → Choice records (why we chose X)
+
+These are reference material, not task state. Different category than beads.
+
+### Migration Path
+
+**Phase 1: Beads-first spawning**
+- `orch spawn --issue bd-xxx` already works
+- Make it the default/primary path
+- Agent writes progress to beads comments instead of workspace
+
+**Phase 2: Remove workspace file creation**
+- Stop creating WORKSPACE.md
+- SPAWN_CONTEXT.md can still exist (injected into agent, not persisted state)
+- Or SPAWN_CONTEXT goes into beads issue description
+
+**Phase 3: Update orch commands**
+- `orch status` reads from beads
+- `orch complete` closes beads issue
+- `orch check` shows beads issue details
+
+### Benefits
+
+1. **Single source of truth** - no workspace/beads duplication
+2. **Cleaner architecture** - lifecycle layer doesn't create memory artifacts
+3. **Aligns with Yegge's vision** - beads IS the shared memory
+4. **Simpler cleanup** - `bd cleanup` handles everything
+5. **Better collaboration** - beads syncs via git, workspaces don't
+
+### Refined Architecture
+
+```
+┌─────────────────────────────────────────┐
+│        orch-cli (Lifecycle Layer)       │
+│  spawn, monitor, complete, verify       │
+│  NO memory artifacts - reads/writes     │
+│  to layers below                        │
+├─────────────────────────────────────────┤
+│      Messaging Layer (upgradeable)      │
+│  current: tmux send-keys               │
+│  future:  Agent Mail MCP               │
+├─────────────────────────────────────────┤
+│        tmux (Session Layer)             │
+│  persistence, attach, output capture    │
+├─────────────────────────────────────────┤
+│        beads (Memory Layer)             │
+│  issues = task state + execution log    │
+│  (replaces workspace files)             │
+├─────────────────────────────────────────┤
+│     .orch/ (Knowledge Layer)            │
+│  investigations, decisions, patterns    │
+│  (reference material, not task state)   │
+└─────────────────────────────────────────┘
+```
+
+**Key change:** Lifecycle layer has NO state of its own. It orchestrates, but state lives in beads (tasks) and .orch/ (knowledge).
+
+---
+
 ## Notes
 
 **Jeffrey Emanuel's context differs from Dylan's:**
