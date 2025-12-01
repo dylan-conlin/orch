@@ -719,6 +719,103 @@ def _find_claude_files_with_depth(base_dir: Path, max_depth: int = 4, max_files:
     return results
 
 
+def _reverse_lint_skills(target_command: str):
+    """Find skills that reference a specific CLI command.
+
+    Args:
+        target_command: The command to search for (e.g., 'spawn', 'build skills')
+    """
+    import re
+    from pathlib import Path
+
+    # Find skill files
+    skills_dir = Path.home() / ".claude" / "skills"
+
+    if not skills_dir.exists():
+        click.echo(f"🔍 No skills directory found (~/.claude/skills/)")
+        click.echo(f"   Found 0 skills referencing 'orch {target_command}'")
+        return
+
+    # Discover skill files (hierarchical structure)
+    skill_files = []
+    for category_dir in skills_dir.iterdir():
+        if not category_dir.is_dir() or category_dir.name.startswith('.'):
+            continue
+        for skill_dir in category_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                skill_files.append(skill_file)
+
+    if not skill_files:
+        click.echo(f"🔍 No skill files found (0 skills scanned)")
+        click.echo(f"   Found 0 skills referencing 'orch {target_command}'")
+        return
+
+    # Pattern to extract orch commands - matches the target command specifically
+    # For "spawn", matches "orch spawn", "orch spawn --flag", etc.
+    # For "build skills", matches "orch build skills" specifically
+    target_parts = target_command.lower().split()
+
+    if len(target_parts) == 2:
+        # Subcommand pattern: "build skills" -> match "orch build skills"
+        orch_pattern = re.compile(
+            rf'`?orch\s+{re.escape(target_parts[0])}\s+{re.escape(target_parts[1])}[^`]*',
+            re.IGNORECASE
+        )
+    else:
+        # Single command pattern: "spawn" -> match "orch spawn" (not followed by another command word)
+        orch_pattern = re.compile(
+            rf'`?orch\s+{re.escape(target_command)}(?:\s+--[a-z][a-z0-9-]*|\s+[^a-z`]|`|$)',
+            re.IGNORECASE
+        )
+
+    # Track matches
+    results = {}  # skill_name -> list of (line_num, line_content)
+    total_refs = 0
+
+    for skill_file in skill_files:
+        skill_name = skill_file.parent.name
+        try:
+            lines = skill_file.read_text().splitlines()
+        except Exception:
+            continue
+
+        matches = []
+        for line_num, line in enumerate(lines, start=1):
+            if orch_pattern.search(line):
+                matches.append((line_num, line.strip()))
+                total_refs += 1
+
+        if matches:
+            results[skill_name] = {
+                'file': str(skill_file),
+                'matches': matches
+            }
+
+    # Report results
+    click.echo(f"🔍 Skills referencing 'orch {target_command}':")
+    click.echo()
+
+    if results:
+        for skill_name, data in sorted(results.items()):
+            click.echo(f"   📦 {skill_name}:")
+            click.echo(f"      {data['file']}")
+            for line_num, line_content in data['matches']:
+                # Truncate long lines
+                display_line = line_content[:80] + "..." if len(line_content) > 80 else line_content
+                click.echo(f"      - Line {line_num}: {display_line}")
+            click.echo()
+
+        skill_count = len(results)
+        click.echo(f"   Found {total_refs} references in {skill_count} skill{'s' if skill_count != 1 else ''}.")
+    else:
+        click.echo(f"   No skills reference 'orch {target_command}'")
+        click.echo()
+        click.echo(f"   Found 0 skills referencing 'orch {target_command}'")
+
+
 def _lint_skills():
     """Validate CLI command references in skill files."""
     import re
@@ -877,11 +974,101 @@ def _lint_skills():
         click.echo(f"✅ All {valid_count} command references are valid!")
 
 
+def _reverse_lint_skills(target_command: str):
+    """Find skills that reference a specific CLI command (reverse lookup)."""
+    import re
+    from pathlib import Path
+
+    # Find skill files
+    skills_dir = Path.home() / ".claude" / "skills"
+
+    if not skills_dir.exists():
+        click.echo(f"✅ No skills directory found (~/.claude/skills/)")
+        return
+
+    # Discover skill files (hierarchical structure)
+    skill_files = []
+    for category_dir in skills_dir.iterdir():
+        if not category_dir.is_dir() or category_dir.name.startswith('.'):
+            continue
+        for skill_dir in category_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                skill_files.append(skill_file)
+
+    if not skill_files:
+        click.echo("✅ No skill files found (0 skills scanned)")
+        return
+
+    # Pattern to extract orch commands
+    # Match: orch <command> [subcommand]
+    orch_pattern = re.compile(
+        r'`?orch\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)?)',
+        re.IGNORECASE
+    )
+
+    # Normalize target command (lowercase, handle both "spawn" and "build skills")
+    target_normalized = target_command.lower().strip()
+
+    # Track matches: skill_name -> count
+    matches = {}
+    total_scanned = 0
+
+    for skill_file in skill_files:
+        total_scanned += 1
+        skill_name = skill_file.parent.name
+        category = skill_file.parent.parent.name
+
+        try:
+            content = skill_file.read_text()
+        except Exception:
+            continue
+
+        # Find all orch command references
+        count = 0
+        for match in orch_pattern.finditer(content):
+            cmd_part = match.group(1).strip().lower()
+
+            # Check if this matches the target command
+            # Handle both exact match and prefix match for subcommands
+            if cmd_part == target_normalized:
+                count += 1
+            elif cmd_part.startswith(target_normalized + ' '):
+                # e.g., target "spawn" matches "spawn --issue" (after regex capture)
+                count += 1
+
+        if count > 0:
+            full_name = f"{category}/{skill_name}"
+            matches[full_name] = count
+
+    # Report results
+    click.echo(f"🔍 Reverse lint for: orch {target_command}")
+    click.echo(f"   Scanned {total_scanned} skill files")
+    click.echo()
+
+    if matches:
+        total_refs = sum(matches.values())
+        click.echo(f"📦 Found {len(matches)} skills with {total_refs} references:")
+        click.echo()
+
+        for skill_name, count in sorted(matches.items()):
+            count_str = f"({count} reference{'s' if count > 1 else ''})"
+            click.echo(f"   • {skill_name} {count_str}")
+
+        click.echo()
+        click.echo(f"💡 These skills may need updating if 'orch {target_command}' changes.")
+    else:
+        click.echo(f"✅ No skills reference 'orch {target_command}'")
+
+
 @cli.command(name='lint')
 @click.option('--file', type=click.Path(exists=True), help='Specific CLAUDE.md file to check')
 @click.option('--all', 'check_all', is_flag=True, help='Check all known CLAUDE.md files')
 @click.option('--skills', is_flag=True, help='Validate CLI command references in skill files')
-def lint(file, check_all, skills):
+@click.option('--reverse', 'reverse_cmd', help='Show skills that reference the given CLI command')
+def lint(file, check_all, skills, reverse_cmd):
     """
     Check CLAUDE.md files against token and character size limits.
 
@@ -894,14 +1081,24 @@ def lint(file, check_all, skills):
 
     With --skills, validates that skill files reference valid CLI commands and flags.
 
+    With --reverse COMMAND, shows which skills reference the given CLI command.
+    This helps understand the impact of CLI changes on skill documentation.
+
     \b
     Examples:
       orch lint                             # Check CLAUDE.md in current project
       orch lint --file ~/.claude/CLAUDE.md  # Check specific file
       orch lint --all                       # Check all known CLAUDE.md files
       orch lint --skills                    # Validate skill CLI references
+      orch lint --reverse spawn             # Show skills referencing 'orch spawn'
+      orch lint --reverse "build skills"    # Show skills referencing 'orch build skills'
     """
     from pathlib import Path
+
+    # Handle --reverse mode (reverse lint)
+    if reverse_cmd:
+        _reverse_lint_skills(reverse_cmd)
+        return
 
     # Handle --skills mode
     if skills:
