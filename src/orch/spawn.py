@@ -51,6 +51,10 @@ from orch.spawn_prompt import (
     fallback_template,
     build_spawn_prompt,
 )
+from orch.spawn_context_quality import (
+    validate_spawn_context_length,
+    SpawnContextTooShortError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +324,8 @@ class SpawnConfig:
     additional_context: Optional[str] = None
     # Parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)
     parallel: bool = False
+    # Cross-repo spawning: track origin directory to sync workspace back on completion
+    origin_dir: Optional[Path] = None
 
 
 # Constants
@@ -651,6 +657,10 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[st
         # Build spawn prompt
         prompt = build_spawn_prompt(config)
 
+        # Validate spawn context length - fail fast if context is too short
+        # This catches incomplete templates, missing skill content, etc.
+        validate_spawn_context_length(prompt, workspace_name=config.workspace_name)
+
         # Write full prompt to file (workaround for Claude Code display bug)
         # Bug: When agent loads a skill, Claude Code re-displays the initial CLI prompt
         # Solution: Write context to file, pass minimal CLI message instead
@@ -870,6 +880,10 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
         # Build spawn prompt (same as tmux path)
         prompt = build_spawn_prompt(config)
 
+        # Validate spawn context length - fail fast if context is too short
+        # This catches incomplete templates, missing skill content, etc.
+        validate_spawn_context_length(prompt, workspace_name=config.workspace_name)
+
         # Write full prompt to SPAWN_CONTEXT.md (same as tmux path)
         workspace_path = config.project_dir / ".orch" / "workspace" / config.workspace_name
         workspace_path.mkdir(parents=True, exist_ok=True)
@@ -945,7 +959,8 @@ def register_agent(
     session_id: Optional[str] = None,
     stashed: bool = False,
     feature_id: Optional[str] = None,
-    beads_id: Optional[str] = None
+    beads_id: Optional[str] = None,
+    origin_dir: Optional[Path] = None
 ) -> None:
     """
     Register agent in orch registry.
@@ -963,6 +978,7 @@ def register_agent(
         stashed: True if git changes were stashed before spawn
         feature_id: Feature ID from backlog.json for lifecycle tracking
         beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
+        origin_dir: Directory where spawn was invoked (for cross-repo workspace sync)
 
     Raises:
         ValueError: If agent_id already exists
@@ -992,7 +1008,8 @@ def register_agent(
             session_id=session_id,
             stashed=stashed,
             feature_id=feature_id,
-            beads_id=beads_id
+            beads_id=beads_id,
+            origin_dir=str(origin_dir) if origin_dir else None
         )
 
         # Log successful registration to orch logs
@@ -1189,7 +1206,8 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
                 skill_name=config.skill_name,
                 primary_artifact=str(config.primary_artifact) if config.primary_artifact else None,
                 backend="opencode",
-                session_id=spawn_info.get('session_id')
+                session_id=spawn_info.get('session_id'),
+                origin_dir=config.origin_dir
             )
 
             click.echo(f"\n✅ Spawned (OpenCode): {config.workspace_name}")
@@ -1604,6 +1622,10 @@ def spawn_interactive(
         model=model  # Model selection (e.g., "sonnet", "opus")
     )
     prompt = build_spawn_prompt(config)
+
+    # Note: Skip spawn context length validation for interactive mode
+    # Interactive mode doesn't include embedded skill content, so contexts are
+    # intentionally shorter. Validation is for skill-based spawns only.
 
     # Write full prompt to file (workaround for Claude Code display bug)
     # Bug: When agent loads a skill, Claude Code re-displays the initial CLI prompt

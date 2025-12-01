@@ -25,9 +25,10 @@ class TestSpawnContextQualityValidation:
 
     def test_complete_spawn_context_returns_no_warnings(self):
         """A complete spawn context should have no warnings."""
-        from orch.spawn_context_quality import validate_spawn_context_quality
+        from orch.spawn_context_quality import validate_spawn_context_quality, MINIMUM_LINE_COUNT
 
-        complete_context = """TASK: Implement user authentication
+        # Build a complete context with sufficient lines
+        base_context = """TASK: Implement user authentication
 
 CONTEXT: Need to add login/logout functionality to the app
 
@@ -57,7 +58,33 @@ DELIVERABLES (REQUIRED):
 VERIFICATION REQUIRED:
 - [ ] Tests pass
 - [ ] Manual verification complete
+
+## SKILL GUIDANCE (feature-impl)
+...skill content for authentication implementation...
+
+## Implementation Guide
+1. Create user model
+2. Implement login endpoint
+3. Implement logout endpoint
+4. Add session management
+5. Write tests
+
+## Testing Strategy
+- Unit tests for auth logic
+- Integration tests for endpoints
+- E2E tests for login flow
+
+## Security Considerations
+- Use bcrypt for password hashing
+- Implement rate limiting
+- Use HTTPS only cookies
 """
+        # Pad to reach minimum lines with additional skill content
+        lines = base_context.split('\n')
+        while len(lines) < MINIMUM_LINE_COUNT:
+            lines.append(f"Additional guidance line {len(lines)}")
+        complete_context = '\n'.join(lines)
+
         result = validate_spawn_context_quality(complete_context)
 
         assert result.is_complete, "Complete spawn context should be marked as complete"
@@ -229,9 +256,9 @@ class TestSpawnContextQualityIntegration:
 
     def test_feature_impl_spawn_context_quality(self):
         """Validate a typical feature-impl spawn context."""
-        from orch.spawn_context_quality import validate_spawn_context_quality
+        from orch.spawn_context_quality import validate_spawn_context_quality, MINIMUM_LINE_COUNT
 
-        feature_impl_context = """TASK: Add rate limiting to API endpoints
+        base_context = """TASK: Add rate limiting to API endpoints
 
 CONTEXT: Users are hitting rate limits inconsistently. Need standardized rate limiting.
 
@@ -266,13 +293,30 @@ VERIFICATION REQUIRED:
 - [ ] No performance regression
 
 ## SKILL GUIDANCE (feature-impl)
-...skill content...
+**IMPORTANT:** You have been spawned WITH this skill context already loaded.
+
+## Implementation Guide
+1. Create middleware function
+2. Add rate limit configuration
+3. Implement token bucket algorithm
+4. Add tests
+
+## Testing Strategy
+- Unit tests for rate limit logic
+- Integration tests for middleware
+- Load tests for validation
 
 FEATURE-IMPL CONFIGURATION:
 Phases: implementation
 Mode: tdd
 Validation: tests
 """
+        # Pad to reach minimum lines with additional skill content
+        lines = base_context.split('\n')
+        while len(lines) < MINIMUM_LINE_COUNT:
+            lines.append(f"Additional skill guidance line {len(lines)}")
+        feature_impl_context = '\n'.join(lines)
+
         result = validate_spawn_context_quality(feature_impl_context)
 
         assert result.is_complete, f"Feature-impl context should be complete. Warnings: {result.warnings}"
@@ -280,9 +324,9 @@ Validation: tests
 
     def test_investigation_spawn_context_quality(self):
         """Validate a typical investigation spawn context."""
-        from orch.spawn_context_quality import validate_spawn_context_quality
+        from orch.spawn_context_quality import validate_spawn_context_quality, MINIMUM_LINE_COUNT
 
-        investigation_context = """TASK: Investigate why webhook processing is slow
+        base_context = """TASK: Investigate why webhook processing is slow
 
 PROJECT_DIR: /Users/dev/webhook-service
 
@@ -310,7 +354,28 @@ DELIVERABLES (REQUIRED):
 VERIFICATION REQUIRED:
 - [ ] Root cause identified or narrowed down
 - [ ] Findings documented with evidence
+
+## SKILL GUIDANCE (investigation)
+**IMPORTANT:** You have been spawned WITH this skill context already loaded.
+
+## Investigation Process
+1. Gather metrics
+2. Profile endpoints
+3. Identify bottlenecks
+4. Document findings
+
+## Evidence Collection
+- Log timestamps
+- Database query times
+- Queue depths
+- Memory usage
 """
+        # Pad to reach minimum lines with additional skill content
+        lines = base_context.split('\n')
+        while len(lines) < MINIMUM_LINE_COUNT:
+            lines.append(f"Additional investigation guidance line {len(lines)}")
+        investigation_context = '\n'.join(lines)
+
         result = validate_spawn_context_quality(investigation_context)
 
         # Investigation contexts should also be complete
@@ -355,3 +420,201 @@ class TestSpawnContextQualityResult:
         assert result.score == 50
         assert "TASK" in result.sections_present
         assert "SCOPE" in result.sections_missing
+
+
+class TestSpawnContextMinimumLineCount:
+    """Tests for minimum line count validation (fail fast if context <100 lines)."""
+
+    def test_context_under_minimum_lines_returns_warning(self):
+        """Context with fewer than 100 lines should return a critical warning."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_quality,
+            MINIMUM_LINE_COUNT,
+        )
+
+        # Create a short context (< 100 lines)
+        short_context = """TASK: Do something
+
+PROJECT_DIR: /test/project
+
+SCOPE:
+- IN: This
+- OUT: That
+
+DELIVERABLES:
+1. Something
+"""
+        result = validate_spawn_context_quality(short_context)
+
+        # Should not be complete due to insufficient lines
+        assert not result.is_complete
+        assert result.line_count < MINIMUM_LINE_COUNT
+        assert any("line" in w.message.lower() for w in result.warnings)
+        assert any(w.severity == "critical" for w in result.warnings if "line" in w.message.lower())
+
+    def test_context_at_or_above_minimum_lines_passes(self):
+        """Context with 100+ lines should pass the line count check."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_quality,
+            MINIMUM_LINE_COUNT,
+        )
+
+        # Create a context with exactly 100 lines by repeating content
+        base_lines = [
+            "TASK: Implement comprehensive feature",
+            "",
+            "PROJECT_DIR: /test/project",
+            "",
+            "SESSION SCOPE: Medium (2-4h)",
+            "- Reasonable scope estimate",
+            "",
+            "SCOPE:",
+            "- IN: Feature implementation",
+            "- OUT: Other things",
+            "",
+            "AUTHORITY:",
+            "**You have authority to decide:**",
+            "- Implementation details",
+            "",
+            "DELIVERABLES (REQUIRED):",
+            "1. Implementation",
+            "2. Tests",
+            "",
+        ]
+        # Pad to reach 100 lines with skill content
+        while len(base_lines) < MINIMUM_LINE_COUNT:
+            base_lines.append(f"Additional context line {len(base_lines)}")
+
+        context = "\n".join(base_lines)
+        result = validate_spawn_context_quality(context)
+
+        # Line count should be at or above minimum
+        assert result.line_count >= MINIMUM_LINE_COUNT
+        # Should not have line count warning
+        assert not any("line" in w.message.lower() and "minimum" in w.message.lower()
+                      for w in result.warnings)
+
+    def test_line_count_is_included_in_result(self):
+        """SpawnContextQuality result should include line count."""
+        from orch.spawn_context_quality import validate_spawn_context_quality
+
+        context = "line 1\nline 2\nline 3\n"
+        result = validate_spawn_context_quality(context)
+
+        assert hasattr(result, 'line_count')
+        assert result.line_count == 4  # 3 lines + empty line at end
+
+    def test_line_count_included_in_json_format(self):
+        """JSON format should include line count."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_quality,
+            format_quality_for_json,
+        )
+
+        context = "line 1\nline 2\nline 3"
+        result = validate_spawn_context_quality(context)
+        json_output = format_quality_for_json(result)
+
+        assert "line_count" in json_output
+        assert json_output["line_count"] == 3
+
+    def test_line_count_included_in_human_format(self):
+        """Human format should include line count info."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_quality,
+            format_quality_for_human,
+        )
+
+        context = "line 1\nline 2\nline 3"
+        result = validate_spawn_context_quality(context)
+        human_output = format_quality_for_human(result)
+
+        assert "line" in human_output.lower()
+
+
+class TestValidateSpawnContextLength:
+    """Tests for validate_spawn_context_length fail-fast function."""
+
+    def test_passes_for_long_context(self):
+        """Context with 100+ lines should pass without error."""
+        from orch.spawn_context_quality import validate_spawn_context_length
+
+        # Create a context with 150 lines
+        long_context = "\n".join([f"Line {i}" for i in range(150)])
+
+        # Should not raise any exception
+        validate_spawn_context_length(long_context)
+
+    def test_raises_for_short_context(self):
+        """Context with <100 lines should raise SpawnContextTooShortError."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_length,
+            SpawnContextTooShortError
+        )
+
+        # Create a context with only 50 lines
+        short_context = "\n".join([f"Line {i}" for i in range(50)])
+
+        with pytest.raises(SpawnContextTooShortError) as exc_info:
+            validate_spawn_context_length(short_context)
+
+        assert exc_info.value.line_count == 50
+        assert exc_info.value.min_lines == 100
+        assert "50 lines" in str(exc_info.value)
+        assert "100" in str(exc_info.value)
+
+    def test_raises_for_empty_context(self):
+        """Empty context should raise SpawnContextTooShortError."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_length,
+            SpawnContextTooShortError
+        )
+
+        with pytest.raises(SpawnContextTooShortError) as exc_info:
+            validate_spawn_context_length("")
+
+        assert exc_info.value.line_count == 0
+
+    def test_custom_minimum(self):
+        """Should support custom minimum line count."""
+        from orch.spawn_context_quality import validate_spawn_context_length
+
+        # 80 line context should pass with min_lines=50
+        context_80_lines = "\n".join([f"Line {i}" for i in range(80)])
+        validate_spawn_context_length(context_80_lines, min_lines=50)
+
+    def test_custom_minimum_fails(self):
+        """Custom minimum should be enforced."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_length,
+            SpawnContextTooShortError
+        )
+
+        # 80 line context should fail with min_lines=100
+        context_80_lines = "\n".join([f"Line {i}" for i in range(80)])
+
+        with pytest.raises(SpawnContextTooShortError):
+            validate_spawn_context_length(context_80_lines, min_lines=100)
+
+    def test_exactly_minimum_passes(self):
+        """Context with exactly minimum lines should pass."""
+        from orch.spawn_context_quality import validate_spawn_context_length
+
+        # Exactly 100 lines should pass
+        context_100_lines = "\n".join([f"Line {i}" for i in range(100)])
+        validate_spawn_context_length(context_100_lines, min_lines=100)
+
+    def test_error_includes_workspace_name(self):
+        """Error message should include workspace name when provided."""
+        from orch.spawn_context_quality import (
+            validate_spawn_context_length,
+            SpawnContextTooShortError
+        )
+
+        short_context = "\n".join([f"Line {i}" for i in range(50)])
+
+        with pytest.raises(SpawnContextTooShortError) as exc_info:
+            validate_spawn_context_length(short_context, workspace_name="test-workspace")
+
+        assert exc_info.value.workspace_name == "test-workspace"
+        assert "test-workspace" in str(exc_info.value)
