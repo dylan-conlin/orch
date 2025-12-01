@@ -1129,6 +1129,11 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
     if item.description:
         roadmap_context += f"\n\n{item.description}"
 
+    # Capture origin_dir for cross-repo workspace sync
+    origin_dir = Path.cwd().resolve()
+    # Only set origin_dir if spawning to a different directory
+    cross_repo = origin_dir != project_dir.resolve()
+
     config = SpawnConfig(
         task=item.title,
         project=project,
@@ -1140,7 +1145,8 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
         skill_metadata=skill_metadata,  # Phase 3: Pass full metadata for verification
         backend=get_backend(cli_backend=backend),  # Phase 4: Backend configuration
         model=model,  # Model selection (e.g., "sonnet", "opus")
-        requires_workspace=not skip_workspace
+        requires_workspace=not skip_workspace,
+        origin_dir=origin_dir if cross_repo else None
     )
 
     workspace_path = project_dir / ".orch" / "workspace" / workspace_name
@@ -1227,7 +1233,8 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
                 project_dir=config.project_dir,
                 workspace_name=config.workspace_name,
                 skill_name=config.skill_name,
-                primary_artifact=str(config.primary_artifact) if config.primary_artifact else None
+                primary_artifact=str(config.primary_artifact) if config.primary_artifact else None,
+                origin_dir=config.origin_dir
             )
 
             click.echo(f"\n✅ Spawned: {spawn_info['window_name']}")
@@ -1609,6 +1616,10 @@ def spawn_interactive(
     # Build window name with 💬 emoji (use workspace_name for consistency with agent ID)
     window_name = f"💬 {workspace_name}"
 
+    # Capture origin_dir for cross-repo workspace sync
+    origin_dir = Path.cwd().resolve()
+    cross_repo = origin_dir != project_dir.resolve()
+
     # Build interactive prompt using standard workspace-tracked prompt
     # This ensures interactive sessions track their work in workspaces like autonomous agents
     config = SpawnConfig(
@@ -1619,7 +1630,8 @@ def spawn_interactive(
         skill_name=None,  # Interactive mode has no predefined skill
         deliverables=None,  # Will use DEFAULT_DELIVERABLES (workspace only)
         backend=get_backend(cli_backend=backend),  # Phase 4: Backend configuration
-        model=model  # Model selection (e.g., "sonnet", "opus")
+        model=model,  # Model selection (e.g., "sonnet", "opus")
+        origin_dir=origin_dir if cross_repo else None
     )
     prompt = build_spawn_prompt(config)
 
@@ -1723,7 +1735,8 @@ def spawn_interactive(
         project_dir=project_dir,
         workspace_name=workspace_name,
         is_interactive=True,
-        skill_name=None
+        skill_name=None,
+        origin_dir=config.origin_dir
     )
 
     # Auto-focus the newly spawned window
@@ -1998,6 +2011,10 @@ def spawn_with_skill(
 
     deliverables = list(skill_metadata.deliverables) if skill_metadata.deliverables else None
 
+    # Capture origin_dir for cross-repo workspace sync
+    origin_cwd = Path.cwd().resolve()
+    cross_repo = origin_cwd != project_dir.resolve()
+
     # Build config
     config = SpawnConfig(
         task=task,
@@ -2029,7 +2046,9 @@ def spawn_with_skill(
         # Beads integration
         beads_id=beads_id,
         # Parallel execution mode
-        parallel=parallel
+        parallel=parallel,
+        # Cross-repo spawning
+        origin_dir=origin_cwd if cross_repo else None
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)
@@ -2108,7 +2127,8 @@ def spawn_with_skill(
                 session_id=spawn_info.get('session_id'),
                 stashed=stashed,
                 feature_id=config.feature_id,
-                beads_id=config.beads_id
+                beads_id=config.beads_id,
+                origin_dir=config.origin_dir
             )
 
             click.echo(f"\n✅ Spawned (OpenCode): {config.workspace_name}")
@@ -2133,7 +2153,8 @@ def spawn_with_skill(
                 primary_artifact=str(config.primary_artifact) if config.primary_artifact else None,
                 stashed=stashed,
                 feature_id=config.feature_id,
-                beads_id=config.beads_id
+                beads_id=config.beads_id,
+                origin_dir=config.origin_dir
             )
 
             click.echo(f"\n✅ Spawned: {spawn_info['window_name']}")

@@ -46,6 +46,106 @@ from orch.beads_integration import (
     BeadsIssueNotFoundError,
 )
 
+import subprocess
+import shutil
+
+
+# ============================================================================
+# CROSS-REPO WORKSPACE SYNC
+# ============================================================================
+
+def sync_workspace_to_origin(
+    workspace_name: str,
+    project_dir: Path,
+    origin_dir: Path | None
+) -> bool:
+    """
+    Sync workspace from project_dir to origin_dir for cross-repo spawns.
+
+    When an agent is spawned with --project (cross-repo spawn), the workspace
+    is created in the target repo. This function copies it back to the origin
+    repo so the orchestrator has visibility into agent progress.
+
+    Args:
+        workspace_name: Name of the workspace directory
+        project_dir: Where the agent worked (target repo)
+        origin_dir: Where spawn was invoked from (origin repo)
+
+    Returns:
+        True if sync succeeded or was not needed, False on failure
+    """
+    # No-op if origin_dir is None (same-repo spawn)
+    if origin_dir is None:
+        return True
+
+    # Normalize paths
+    project_dir = Path(project_dir).resolve()
+    origin_dir = Path(origin_dir).resolve()
+
+    # No-op if same directory (same-repo spawn)
+    if project_dir == origin_dir:
+        return True
+
+    # Source workspace in project_dir
+    source_workspace = project_dir / ".orch" / "workspace" / workspace_name
+    if not source_workspace.exists():
+        click.echo(f"⚠️  Cross-repo sync: Source workspace not found: {source_workspace}", err=True)
+        return False
+
+    # Destination in origin_dir
+    dest_workspace_parent = origin_dir / ".orch" / "workspace"
+    dest_workspace = dest_workspace_parent / workspace_name
+
+    try:
+        # Create destination directory structure if needed
+        dest_workspace_parent.mkdir(parents=True, exist_ok=True)
+
+        # Copy workspace files (WORKSPACE.md, SPAWN_CONTEXT.md, etc.)
+        if dest_workspace.exists():
+            shutil.rmtree(dest_workspace)
+        shutil.copytree(source_workspace, dest_workspace)
+
+        # Check if origin_dir is a git repo
+        git_check = subprocess.run(
+            ['git', '-C', str(origin_dir), 'rev-parse', '--git-dir'],
+            capture_output=True, text=True
+        )
+        if git_check.returncode != 0:
+            # Not a git repo - just copy files
+            click.echo(f"✓ Cross-repo workspace synced to {dest_workspace}")
+            return True
+
+        # Stage and commit the synced workspace in origin repo
+        subprocess.run(
+            ['git', '-C', str(origin_dir), 'add', str(dest_workspace)],
+            check=True, capture_output=True
+        )
+
+        # Check if there are changes to commit
+        status_result = subprocess.run(
+            ['git', '-C', str(origin_dir), 'status', '--porcelain', str(dest_workspace)],
+            capture_output=True, text=True
+        )
+        if status_result.stdout.strip():
+            # There are changes to commit
+            commit_msg = f"chore: sync cross-repo workspace {workspace_name}"
+            subprocess.run(
+                ['git', '-C', str(origin_dir), 'commit', '-m', commit_msg],
+                check=True, capture_output=True
+            )
+            click.echo(f"✓ Cross-repo workspace synced and committed to {origin_dir}")
+        else:
+            click.echo(f"✓ Cross-repo workspace synced to {origin_dir} (no changes)")
+
+        return True
+
+    except subprocess.CalledProcessError as e:
+        click.echo(f"⚠️  Cross-repo sync git error: {e.stderr.decode() if e.stderr else str(e)}", err=True)
+        return False
+    except Exception as e:
+        click.echo(f"⚠️  Cross-repo sync error: {e}", err=True)
+        return False
+
 
 # ============================================================================
 # INVESTIGATION BACKLINK AUTOMATION
@@ -639,6 +739,25 @@ def complete_agent_work(
             "agent_id": agent_id,
             "investigation_path": rec_info['investigation_path']
         })
+
+    # Step 4.6: Sync workspace to origin repo for cross-repo spawns
+    if agent.get('origin_dir'):
+        workspace_name = Path(agent['workspace']).name
+        origin_dir = Path(agent['origin_dir'])
+        agent_project_dir = Path(agent['project_dir'])
+        if sync_workspace_to_origin(workspace_name, agent_project_dir, origin_dir):
+            result['cross_repo_synced'] = True
+            logger.log_event("complete", "Cross-repo workspace synced", {
+                "agent_id": agent_id,
+                "workspace_name": workspace_name,
+                "origin_dir": str(origin_dir)
+            })
+        else:
+            result['warnings'].append("Failed to sync workspace to origin repo")
+            logger.log_event("complete", "Cross-repo sync failed", {
+                "agent_id": agent_id,
+                "origin_dir": str(origin_dir)
+            })
 
     # Step 5: Clean up agent
     clean_up_agent(agent_id, force=force)

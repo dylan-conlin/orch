@@ -235,7 +235,8 @@ class AgentRegistry:
         session_id: str = None,
         stashed: bool = False,
         feature_id: str = None,
-        beads_id: str = None
+        beads_id: str = None,
+        origin_dir: str = None
     ) -> Dict[str, Any]:
         """
         Register a new agent.
@@ -251,6 +252,7 @@ class AgentRegistry:
             stashed: True if git changes were stashed before spawn (auto-unstash on complete)
             feature_id: Feature ID from backlog.json for lifecycle tracking
             beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
+            origin_dir: Directory where spawn was invoked (for cross-repo workspace sync on complete)
 
         Raises:
             ValueError: If agent_id already exists in registry
@@ -327,6 +329,9 @@ class AgentRegistry:
         # Track beads issue ID for auto-close on complete
         if beads_id:
             agent['beads_id'] = beads_id
+        # Track origin directory for cross-repo workspace sync on complete
+        if origin_dir:
+            agent['origin_dir'] = str(Path(origin_dir).expanduser())
         self._agents.append(agent)
         self.save()
 
