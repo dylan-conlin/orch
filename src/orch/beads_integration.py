@@ -127,6 +127,29 @@ class BeadsIntegration:
         notes = f"workspace: {workspace_path}"
         self.update_issue_notes(issue_id, notes)
 
+    def update_issue_status(self, issue_id: str, status: str) -> None:
+        """Update the status of a beads issue.
+
+        Args:
+            issue_id: The beads issue ID
+            status: The new status (e.g., "in_progress", "open", "closed")
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        try:
+            result = subprocess.run(
+                [self.cli_path, "update", issue_id, "--status", status],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise BeadsIssueNotFoundError(issue_id)
+
     def close_issue(self, issue_id: str, reason: Optional[str] = None) -> None:
         """Close a beads issue with an optional reason.
 

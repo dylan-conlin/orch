@@ -217,6 +217,9 @@ def register_spawn_commands(cli):
                 click.echo(f"   Skill: {skill_name}")
                 click.echo(f"   Title: {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
 
+                # Mark issue as in_progress
+                beads.update_issue_status(issue_id, "in_progress")
+
                 # Spawn with beads tracking
                 # Note: issue_context goes to additional_context (incorporated into full prompt)
                 # custom_prompt (from --prompt-file) still works as full replacement if provided
