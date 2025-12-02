@@ -3,10 +3,10 @@
 Hook: Auto-load orchestration context at session start.
 
 Triggered by: SessionStart (startup, resume)
-When: Claude Code session starts or resumes in an orch project
+When: Claude Code/OpenCode session starts or resumes in an orch project
 Action: Load orchestrator skill and show active agents
 
-Installation:
+Installation (Claude Code):
   Add to ~/.claude/settings.json:
   {
     "hooks": {
@@ -18,7 +18,22 @@ Installation:
       ]
     }
   }
+
+Installation (OpenCode):
+  Add to opencode.json in project root:
+  {
+    "experimental": {
+      "hook": {
+        "session_started": [
+          {
+            "command": ["python3", "hooks/load-orchestration-context.py", "--opencode"]
+          }
+        ]
+      }
+    }
+  }
 """
+import argparse
 import json
 import os
 import sys
@@ -97,20 +112,26 @@ def load_active_agents():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--opencode', action='store_true', 
+                        help='Run in OpenCode mode (no stdin, plain output)')
+    args = parser.parse_args()
+
     # Skip for worker agents (they have skill embedded in SPAWN_CONTEXT.md)
     if os.environ.get('ORCH_WORKER'):
         sys.exit(0)
 
-    # Read hook input
-    try:
-        input_data = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        sys.exit(0)
+    # Claude Code mode: read from stdin
+    if not args.opencode:
+        try:
+            input_data = json.load(sys.stdin)
+        except json.JSONDecodeError:
+            sys.exit(0)
 
-    # Only load on startup/resume
-    source = input_data.get('source', '')
-    if source not in ['startup', 'resume']:
-        sys.exit(0)
+        # Only load on startup/resume
+        source = input_data.get('source', '')
+        if source not in ['startup', 'resume']:
+            sys.exit(0)
 
     # Must be in an orch project
     orch_dir = find_orch_directory()
@@ -119,8 +140,9 @@ def main():
 
     # Build context
     context_parts = []
-    context_parts.append("# 🎯 Orchestration Context\n")
-    context_parts.append("*Auto-loaded via SessionStart hook*\n\n")
+    context_parts.append("# Orchestration Context\n")
+    backend = "OpenCode" if args.opencode else "Claude Code"
+    context_parts.append(f"*Auto-loaded via session hook ({backend})*\n\n")
 
     # Load orchestrator skill
     skill_content = load_orchestrator_skill()
@@ -137,13 +159,18 @@ def main():
 
     # Output if we have context
     if len(context_parts) > 2:
-        output = {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": ''.join(context_parts)
+        if args.opencode:
+            # OpenCode: just print the context directly
+            print(''.join(context_parts))
+        else:
+            # Claude Code: JSON protocol
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": ''.join(context_parts)
+                }
             }
-        }
-        print(json.dumps(output, indent=2))
+            print(json.dumps(output, indent=2))
 
     sys.exit(0)
 
