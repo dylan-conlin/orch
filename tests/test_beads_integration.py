@@ -294,3 +294,173 @@ class TestBeadsIntegrationCLIPath:
             # Verify custom path was used
             call_args = mock_run.call_args
             assert call_args[0][0][0] == "/custom/path/to/bd"
+
+
+class TestBeadsIntegrationGetPhaseFromComments:
+    """Tests for Phase 3: get_phase_from_comments()."""
+
+    def test_get_phase_from_comments_success(self):
+        """Test extracting phase from comments."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Planning - Starting work",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+            {
+                "id": 2,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Implementing - Working on feature X",
+                "created_at": "2025-12-02T11:00:00Z"
+            },
+            {
+                "id": 3,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Complete - All tests pass",
+                "created_at": "2025-12-02T12:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            phase = beads.get_phase_from_comments("test-id")
+
+            assert phase == "Complete"
+
+            # Verify subprocess was called correctly
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert "comments" in call_args[0][0]
+            assert "test-id" in call_args[0][0]
+            assert "--json" in call_args[0][0]
+
+    def test_get_phase_from_comments_no_phase_comments(self):
+        """Test when no phase comments exist."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Just a regular comment",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            phase = beads.get_phase_from_comments("test-id")
+
+            assert phase is None
+
+    def test_get_phase_from_comments_empty_comments(self):
+        """Test when no comments exist."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="[]",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            phase = beads.get_phase_from_comments("test-id")
+
+            assert phase is None
+
+    def test_get_phase_from_comments_issue_not_found(self):
+        """Test error when issue doesn't exist."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error: issue 'nonexistent' not found",
+            )
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsIssueNotFoundError):
+                beads.get_phase_from_comments("nonexistent")
+
+
+class TestBeadsIntegrationHasPhaseComplete:
+    """Tests for Phase 3: has_phase_complete()."""
+
+    def test_has_phase_complete_true(self):
+        """Test when Phase: Complete comment exists."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Complete - All done",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            assert beads.has_phase_complete("test-id") is True
+
+    def test_has_phase_complete_false_different_phase(self):
+        """Test when phase is not Complete."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Implementing - Still working",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            assert beads.has_phase_complete("test-id") is False
+
+    def test_has_phase_complete_false_no_phase(self):
+        """Test when no phase comment exists."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Regular comment",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            assert beads.has_phase_complete("test-id") is False

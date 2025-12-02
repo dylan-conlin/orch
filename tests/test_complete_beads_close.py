@@ -23,12 +23,15 @@ class TestCloseBeadsIssueFunction:
 
         with patch('orch.complete.BeadsIntegration') as MockBeads:
             mock_beads = Mock()
+            # Phase 3: Must return "Complete" phase for close to proceed
+            mock_beads.get_phase_from_comments.return_value = "Complete"
             MockBeads.return_value = mock_beads
 
             result = close_beads_issue('orch-cli-abc')
 
             # Should have created BeadsIntegration and called close_issue
             MockBeads.assert_called_once()
+            mock_beads.get_phase_from_comments.assert_called_once_with('orch-cli-abc')
             mock_beads.close_issue.assert_called_once_with(
                 'orch-cli-abc',
                 reason='Resolved via orch complete'
@@ -42,6 +45,8 @@ class TestCloseBeadsIssueFunction:
 
         with patch('orch.complete.BeadsIntegration') as MockBeads:
             mock_beads = Mock()
+            # Phase 3: Must return "Complete" phase for close to proceed
+            mock_beads.get_phase_from_comments.return_value = "Complete"
             mock_beads.close_issue.side_effect = BeadsCLINotFoundError()
             MockBeads.return_value = mock_beads
 
@@ -56,12 +61,65 @@ class TestCloseBeadsIssueFunction:
 
         with patch('orch.complete.BeadsIntegration') as MockBeads:
             mock_beads = Mock()
+            # Phase 3: Must return "Complete" phase for close to proceed
+            mock_beads.get_phase_from_comments.return_value = "Complete"
             mock_beads.close_issue.side_effect = BeadsIssueNotFoundError('orch-cli-abc')
             MockBeads.return_value = mock_beads
 
             result = close_beads_issue('orch-cli-abc')
 
             assert result is False
+
+    def test_close_beads_issue_raises_on_phase_not_complete(self):
+        """Test that close_beads_issue raises error when phase is not Complete."""
+        from orch.complete import close_beads_issue, BeadsPhaseNotCompleteError
+
+        with patch('orch.complete.BeadsIntegration') as MockBeads:
+            mock_beads = Mock()
+            # Phase 3: Return non-complete phase
+            mock_beads.get_phase_from_comments.return_value = "Implementing"
+            MockBeads.return_value = mock_beads
+
+            with pytest.raises(BeadsPhaseNotCompleteError) as exc_info:
+                close_beads_issue('orch-cli-abc')
+
+            assert 'orch-cli-abc' in str(exc_info.value)
+            assert 'Implementing' in str(exc_info.value)
+            # close_issue should NOT have been called
+            mock_beads.close_issue.assert_not_called()
+
+    def test_close_beads_issue_raises_on_no_phase(self):
+        """Test that close_beads_issue raises error when no phase exists."""
+        from orch.complete import close_beads_issue, BeadsPhaseNotCompleteError
+
+        with patch('orch.complete.BeadsIntegration') as MockBeads:
+            mock_beads = Mock()
+            # Phase 3: Return None (no phase comments)
+            mock_beads.get_phase_from_comments.return_value = None
+            MockBeads.return_value = mock_beads
+
+            with pytest.raises(BeadsPhaseNotCompleteError) as exc_info:
+                close_beads_issue('orch-cli-abc')
+
+            assert 'orch-cli-abc' in str(exc_info.value)
+            # close_issue should NOT have been called
+            mock_beads.close_issue.assert_not_called()
+
+    def test_close_beads_issue_skip_verify_phase(self):
+        """Test that close_beads_issue can skip phase verification."""
+        from orch.complete import close_beads_issue
+
+        with patch('orch.complete.BeadsIntegration') as MockBeads:
+            mock_beads = Mock()
+            MockBeads.return_value = mock_beads
+
+            result = close_beads_issue('orch-cli-abc', verify_phase=False)
+
+            # Should NOT have called get_phase_from_comments
+            mock_beads.get_phase_from_comments.assert_not_called()
+            # Should have called close_issue directly
+            mock_beads.close_issue.assert_called_once()
+            assert result is True
 
 
 class TestCompleteAgentWorkBeadsClose:

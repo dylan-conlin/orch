@@ -20,7 +20,7 @@ import functools
 import os
 import shlex
 
-from orch.workspace import create_workspace, WorkspaceValidationError, truncate_at_word_boundary
+from orch.workspace import truncate_at_word_boundary
 from orch.workspace_naming import (
     STOP_WORDS,
     SKILL_PREFIXES,
@@ -1151,29 +1151,8 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
 
     workspace_path = project_dir / ".orch" / "workspace" / workspace_name
 
-    # Create workspace using integrated function (fixes PARTIAL state bug)
-    if skip_workspace:
-        workspace_path.mkdir(parents=True, exist_ok=True)
-    else:
-        try:
-            workspace_info = create_workspace(
-                workspace_name=workspace_name,
-                project_dir=project_dir,
-                workspace_type="planning",  # ROADMAP items are typically planning work
-                owner=None,  # Auto-detect from git config
-                resume=resume  # Allow resuming existing workspace
-            )
-            workspace_file = workspace_path / "WORKSPACE.md"
-
-            # VERIFY file actually exists before proceeding (prevents race condition bug)
-            if not workspace_file.exists():
-                raise RuntimeError(
-                    f"Workspace creation claimed success but file doesn't exist: {workspace_file}\n"
-                    f"This may indicate a race condition or filesystem issue."
-                )
-        except WorkspaceValidationError as e:
-            click.echo(f"⚠️  Workspace creation failed: {e}", err=True)
-            raise
+    # Create workspace directory only (WORKSPACE.md no longer created - beads is source of truth)
+    workspace_path.mkdir(parents=True, exist_ok=True)
 
     try:
         # For investigation skill, hide workspace deliverable from preview (no-workspace path)
@@ -1581,26 +1560,9 @@ def spawn_interactive(
         date_suffix = datetime.now().strftime("%d%b").lower()
         workspace_name = f"interactive-{date_suffix}"
 
-    try:
-        workspace_info = create_workspace(
-            workspace_name=workspace_name,
-            project_dir=project_dir,
-            workspace_type="planning",  # Interactive sessions use planning template
-            owner=None,  # Auto-detect from git config
-            resume=resume  # Allow resuming existing workspace
-        )
-        workspace_path = project_dir / ".orch" / "workspace" / workspace_name
-        workspace_file = workspace_path / "WORKSPACE.md"
-
-        # VERIFY file actually exists before proceeding (prevents race condition bug)
-        if not workspace_file.exists():
-            raise RuntimeError(
-                f"Workspace creation claimed success but file doesn't exist: {workspace_file}\n"
-                f"This may indicate a race condition or filesystem issue."
-            )
-    except WorkspaceValidationError as e:
-        click.echo(f"⚠️  Workspace creation failed: {e}", err=True)
-        raise
+    # Create workspace directory only (WORKSPACE.md no longer created - beads is source of truth)
+    workspace_path = project_dir / ".orch" / "workspace" / workspace_name
+    workspace_path.mkdir(parents=True, exist_ok=True)
 
     # Check tmux availability
     if not is_tmux_available():
@@ -2080,28 +2042,8 @@ def spawn_with_skill(
 
     workspace_path = project_dir / ".orch" / "workspace" / workspace_name
 
-    if skip_workspace:
-        workspace_path.mkdir(parents=True, exist_ok=True)
-    else:
-        try:
-            workspace_info = create_workspace(
-                workspace_name=workspace_name,
-                project_dir=project_dir,
-                workspace_type=workspace_type,
-                owner=None,  # Auto-detect from git config
-                resume=resume  # Allow resuming existing workspace
-            )
-            workspace_file = workspace_path / "WORKSPACE.md"
-
-            # VERIFY file actually exists before proceeding (prevents race condition bug)
-            if not workspace_file.exists():
-                raise RuntimeError(
-                    f"Workspace creation claimed success but file doesn't exist: {workspace_file}\n"
-                    f"This may indicate a race condition or filesystem issue."
-                )
-        except WorkspaceValidationError as e:
-            click.echo(f"⚠️  Workspace creation failed: {e}", err=True)
-            raise
+    # Create workspace directory only (WORKSPACE.md no longer created - beads is source of truth)
+    workspace_path.mkdir(parents=True, exist_ok=True)
 
     try:
         # Show preview

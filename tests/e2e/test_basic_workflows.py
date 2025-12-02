@@ -66,17 +66,14 @@ def test_spawn_complete_workflow(e2e_env):
     # fails due to path comparison. This is a known limitation of the current implementation.
     # Verification will happen via the 'check' and 'complete' commands which work correctly.
 
-    # Simulate agent completing its work: Update workspace to Phase: Complete
+    # Simulate agent completing its work: Create WORKSPACE.md with Phase: Complete
+    # Note: spawn no longer creates WORKSPACE.md (Phase 2 of beads-first migration)
+    # Agents create WORKSPACE.md themselves when they need to track state
     workspace_file = project_dir / '.orch' / 'workspace' / workspace_name / 'WORKSPACE.md'
-    assert workspace_file.exists(), f"Workspace file should exist: {workspace_file}"
-
-    content = workspace_file.read_text()
-    # Update Phase field to Complete (handles various template formats)
-    if '**Phase:**' in content:
-        content = re.sub(r'\*\*Phase:\*\* .*', '**Phase:** Complete', content)
-    else:
-        content = content.replace('**Owner:**', '**Owner:** E2E Test\n**Phase:** Complete\n**Started:**')
-    workspace_file.write_text(content)
+    workspace_file.write_text("""# Test Workspace
+**Phase:** Complete
+**Status:** Active
+""")
 
     # Act: Complete the workspace
     result = subprocess.run(
@@ -234,11 +231,13 @@ def test_spawn_send_complete_workflow(e2e_env):
     assert send_result.returncode == 0, f"Send failed: {send_result.stderr}"
     assert 'sent' in send_result.stdout.lower() or 'message' in send_result.stdout.lower()
 
-    # Simulate agent completing work
+    # Simulate agent completing work: Create WORKSPACE.md with Phase: Complete
+    # Note: spawn no longer creates WORKSPACE.md (Phase 2 of beads-first migration)
     workspace_file = project_dir / '.orch' / 'workspace' / workspace_name / 'WORKSPACE.md'
-    content = workspace_file.read_text()
-    content = re.sub(r'\*\*Phase:\*\* .*', '**Phase:** Complete', content)
-    workspace_file.write_text(content)
+    workspace_file.write_text("""# Test Workspace
+**Phase:** Complete
+**Status:** Active
+""")
 
     # Act: Complete the agent
     complete_result = subprocess.run(
@@ -341,11 +340,13 @@ def test_multiple_concurrent_agents(e2e_env):
     assert check1.returncode == 0
     assert workspace1 in check1.stdout
 
-    # Complete first agent
+    # Complete first agent: Create WORKSPACE.md with Phase: Complete
+    # Note: spawn no longer creates WORKSPACE.md (Phase 2 of beads-first migration)
     workspace1_file = project_dir / '.orch' / 'workspace' / workspace1 / 'WORKSPACE.md'
-    content = workspace1_file.read_text()
-    content = re.sub(r'\*\*Phase:\*\* .*', '**Phase:** Complete', content)
-    workspace1_file.write_text(content)
+    workspace1_file.write_text("""# Test Workspace
+**Phase:** Complete
+**Status:** Active
+""")
 
     complete1 = subprocess.run(
         ['orch', 'complete', workspace1],

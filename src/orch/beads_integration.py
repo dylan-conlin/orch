@@ -175,3 +175,67 @@ class BeadsIntegration:
 
         if result.returncode != 0:
             raise BeadsIssueNotFoundError(issue_id)
+
+    def get_phase_from_comments(self, issue_id: str) -> Optional[str]:
+        """Extract the latest phase from beads issue comments.
+
+        Agents report progress via comments like:
+          bd comment <id> "Phase: Implementing - working on feature X"
+
+        This method parses comments to find the most recent "Phase: ..." line.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            The phase string (e.g., "Implementing", "Complete") or None if no phase found.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        try:
+            result = subprocess.run(
+                [self.cli_path, "comments", issue_id, "--json"],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise BeadsIssueNotFoundError(issue_id)
+
+        try:
+            comments = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+        if not comments:
+            return None
+
+        # Find the latest "Phase: ..." comment (comments are chronologically ordered)
+        import re
+        latest_phase = None
+        for comment in comments:
+            text = comment.get("text", "")
+            # Match "Phase: <phase>" at start of comment
+            match = re.match(r"Phase:\s*(\w+)", text)
+            if match:
+                latest_phase = match.group(1)
+
+        return latest_phase
+
+    def has_phase_complete(self, issue_id: str) -> bool:
+        """Check if issue has a "Phase: Complete" comment.
+
+        Used by orch complete to verify agent reported completion before closing.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            True if a "Phase: Complete" comment exists, False otherwise.
+        """
+        phase = self.get_phase_from_comments(issue_id)
+        return phase is not None and phase.lower() == "complete"

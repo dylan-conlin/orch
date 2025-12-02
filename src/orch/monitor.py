@@ -9,6 +9,7 @@ import re
 from orch.patterns import check_patterns
 from orch.context import ContextInfo
 from orch.git_utils import CommitInfo
+from orch.beads_integration import BeadsIntegration, BeadsCLINotFoundError, BeadsIssueNotFoundError
 
 
 class Scenario(Enum):
@@ -123,6 +124,16 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
     project_dir = Path(agent_info['project_dir'])
     workspace_path = agent_info['workspace']
 
+    # Phase 3: Prefer beads-based phase detection when agent has beads_id
+    beads_id = agent_info.get('beads_id')
+    beads_phase = None
+    if beads_id:
+        try:
+            beads = BeadsIntegration()
+            beads_phase = beads.get_phase_from_comments(beads_id)
+        except (BeadsCLINotFoundError, BeadsIssueNotFoundError):
+            pass  # Fallback to workspace-based detection
+
     # Parse workspace for signals (workspace_file may not exist for investigation-only agents)
     workspace_file = project_dir / workspace_path / 'WORKSPACE.md'
     signal = parse_workspace(workspace_file)
@@ -136,7 +147,10 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
 
     coordination_file = primary_artifact_path or workspace_file
 
-    if signal.phase:
+    # Determine phase: beads > workspace > fallback
+    if beads_phase:
+        status.phase = beads_phase
+    elif signal.phase:
         status.phase = signal.phase
     else:
         # Fallback completion detection when workspace phase is Unknown

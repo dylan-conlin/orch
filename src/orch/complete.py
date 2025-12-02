@@ -535,18 +535,29 @@ def complete_agent_async(
     # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
-        if close_beads_issue(beads_id):
-            result['beads_closed'] = True
-            click.echo(f"🎯 Beads issue '{beads_id}' closed")
-            logger.log_event("complete", "Beads issue closed", {
+        try:
+            if close_beads_issue(beads_id):
+                result['beads_closed'] = True
+                click.echo(f"🎯 Beads issue '{beads_id}' closed")
+                logger.log_event("complete", "Beads issue closed", {
+                    "beads_id": beads_id,
+                    "agent_id": agent_id
+                })
+            else:
+                result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
+                logger.log_event("complete", "Beads issue close failed", {
+                    "beads_id": beads_id,
+                    "agent_id": agent_id
+                })
+        except BeadsPhaseNotCompleteError as e:
+            # Agent hasn't reported Phase: Complete via beads comment
+            result['errors'].append(str(e))
+            click.echo(f"⚠️  {e}", err=True)
+            click.echo(f"   Agent must run: bd comment {beads_id} \"Phase: Complete - <summary>\"", err=True)
+            logger.log_event("complete", "Beads phase not complete", {
                 "beads_id": beads_id,
-                "agent_id": agent_id
-            })
-        else:
-            result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
-            logger.log_event("complete", "Beads issue close failed", {
-                "beads_id": beads_id,
-                "agent_id": agent_id
+                "agent_id": agent_id,
+                "current_phase": e.current_phase
             })
 
     # Surface investigation recommendations (if applicable)
@@ -698,18 +709,29 @@ def complete_agent_work(
     # Step 3: Close beads issue if agent was spawned from beads issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
-        if close_beads_issue(beads_id):
-            result['beads_closed'] = True
-            click.echo(f"🎯 Beads issue '{beads_id}' closed")
-            logger.log_event("complete", "Beads issue closed", {
+        try:
+            if close_beads_issue(beads_id):
+                result['beads_closed'] = True
+                click.echo(f"🎯 Beads issue '{beads_id}' closed")
+                logger.log_event("complete", "Beads issue closed", {
+                    "beads_id": beads_id,
+                    "agent_id": agent_id
+                })
+            else:
+                result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
+                logger.log_event("complete", "Beads issue close failed", {
+                    "beads_id": beads_id,
+                    "agent_id": agent_id
+                })
+        except BeadsPhaseNotCompleteError as e:
+            # Agent hasn't reported Phase: Complete via beads comment
+            result['errors'].append(str(e))
+            click.echo(f"⚠️  {e}", err=True)
+            click.echo(f"   Agent must run: bd comment {beads_id} \"Phase: Complete - <summary>\"", err=True)
+            logger.log_event("complete", "Beads phase not complete", {
                 "beads_id": beads_id,
-                "agent_id": agent_id
-            })
-        else:
-            result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
-            logger.log_event("complete", "Beads issue close failed", {
-                "beads_id": beads_id,
-                "agent_id": agent_id
+                "agent_id": agent_id,
+                "current_phase": e.current_phase
             })
 
     # Step 4: Auto-unstash git changes if stashed during spawn
@@ -940,26 +962,57 @@ def format_discovery_summary(results: List[Dict[str, Any]]) -> str:
 # When agent was spawned from beads issue (beads_id in metadata),
 # automatically close the issue on successful completion.
 
-def close_beads_issue(beads_id: str) -> bool:
+class BeadsPhaseNotCompleteError(Exception):
+    """Raised when trying to close a beads issue without Phase: Complete comment."""
+
+    def __init__(self, beads_id: str, current_phase: str):
+        self.beads_id = beads_id
+        self.current_phase = current_phase
+        super().__init__(
+            f"Beads issue '{beads_id}' cannot be closed: "
+            f"agent has not reported 'Phase: Complete' (current phase: {current_phase or 'none'})"
+        )
+
+
+def close_beads_issue(beads_id: str, verify_phase: bool = True) -> bool:
     """
     Close a beads issue via BeadsIntegration.
 
     Called during agent completion when agent has beads_id metadata
     (set when spawned from beads issue via `orch spawn --issue`).
 
+    Phase 3: By default, verifies that agent has reported "Phase: Complete"
+    via beads comments before closing. This ensures agents explicitly
+    report completion rather than relying on workspace files.
+
     Args:
         beads_id: The beads issue ID to close (e.g., 'orch-cli-xyz')
+        verify_phase: If True, verify "Phase: Complete" exists in comments
+                     before closing. Set to False for backwards compat.
 
     Returns:
         True if issue was closed successfully, False on failure
+
+    Raises:
+        BeadsPhaseNotCompleteError: If verify_phase=True and no "Phase: Complete"
+                                   comment exists (raised so caller can handle)
     """
     try:
         beads = BeadsIntegration()
+
+        # Phase 3: Verify agent reported completion before closing
+        if verify_phase:
+            current_phase = beads.get_phase_from_comments(beads_id)
+            if not current_phase or current_phase.lower() != "complete":
+                raise BeadsPhaseNotCompleteError(beads_id, current_phase)
+
         beads.close_issue(beads_id, reason='Resolved via orch complete')
         return True
     except BeadsCLINotFoundError:
         return False
     except BeadsIssueNotFoundError:
         return False
+    except BeadsPhaseNotCompleteError:
+        raise  # Re-raise so caller can handle
     except Exception:
         return False
