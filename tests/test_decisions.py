@@ -32,20 +32,44 @@ class TestDetectProjectDir:
             detect_project_dir(tmp_path)
         assert 'No .orch directory' in str(exc_info.value)
 
-    def test_uses_claude_project_env(self, tmp_path):
-        """Should use CLAUDE_PROJECT environment variable."""
+    def test_uses_claude_project_env_as_fallback(self, tmp_path):
+        """Should use CLAUDE_PROJECT environment variable when cwd has no .orch."""
         (tmp_path / '.orch').mkdir()
 
+        # Mock find_orch_root to return None (simulating no .orch in cwd)
         with patch.dict(os.environ, {'CLAUDE_PROJECT': str(tmp_path)}):
-            result = detect_project_dir()
-            assert result == tmp_path
+            with patch('orch.path_utils.find_orch_root', return_value=None):
+                result = detect_project_dir()
+                assert result == tmp_path
 
     def test_raises_when_env_has_no_orch(self, tmp_path):
-        """Should raise when CLAUDE_PROJECT has no .orch."""
+        """Should raise when CLAUDE_PROJECT has no .orch (and cwd has no .orch either)."""
+        # Mock find_orch_root to return None (cwd has no .orch)
         with patch.dict(os.environ, {'CLAUDE_PROJECT': str(tmp_path)}):
-            with pytest.raises(DecisionError) as exc_info:
-                detect_project_dir()
-            assert 'CLAUDE_PROJECT' in str(exc_info.value)
+            with patch('orch.path_utils.find_orch_root', return_value=None):
+                with pytest.raises(DecisionError) as exc_info:
+                    detect_project_dir()
+                assert 'CLAUDE_PROJECT' in str(exc_info.value)
+
+    def test_cwd_takes_precedence_over_claude_project(self, tmp_path):
+        """Should use cwd project even when CLAUDE_PROJECT is set.
+
+        This is the key behavior: when a user cd's to a project, they expect
+        commands to operate on that project, not on whatever CLAUDE_PROJECT was set to.
+        """
+        cwd_project = tmp_path / 'cwd-project'
+        (cwd_project / '.orch').mkdir(parents=True)
+
+        env_project = tmp_path / 'env-project'
+        (env_project / '.orch').mkdir(parents=True)
+
+        # Mock find_orch_root to return the cwd project
+        with patch.dict(os.environ, {'CLAUDE_PROJECT': str(env_project)}):
+            with patch('orch.path_utils.find_orch_root', return_value=str(cwd_project)):
+                result = detect_project_dir()
+
+        # Should use cwd project, not CLAUDE_PROJECT
+        assert result == cwd_project
 
     def test_uses_find_orch_root_fallback(self, tmp_path):
         """Should fall back to find_orch_root when no explicit dir or env."""

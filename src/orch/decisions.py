@@ -13,7 +13,16 @@ class DecisionError(Exception):
 
 def detect_project_dir(project_dir: Optional[Path] = None) -> Path:
     """
-    Detect project directory from CLAUDE_PROJECT env or find_orch_root().
+    Detect project directory from cwd, CLAUDE_PROJECT env, or explicit path.
+
+    Priority order (first match wins):
+    1. Explicit project_dir argument (--project flag)
+    2. Current working directory (via find_orch_root)
+    3. CLAUDE_PROJECT environment variable (fallback)
+
+    The cwd takes precedence over CLAUDE_PROJECT because when a user
+    explicitly cd's to another project, they expect commands to operate
+    on that project, not on whatever CLAUDE_PROJECT was set to.
 
     Args:
         project_dir: Explicit project directory (default: auto-detect)
@@ -31,26 +40,25 @@ def detect_project_dir(project_dir: Optional[Path] = None) -> Path:
             raise DecisionError(f"No .orch directory found in {project_path}")
         return project_path
 
-    # Check CLAUDE_PROJECT environment variable
+    # Try cwd-based detection first (user's current location takes priority)
+    from orch.path_utils import find_orch_root
+    orch_root = find_orch_root()
+    if orch_root:
+        return Path(orch_root)
+
+    # Fallback to CLAUDE_PROJECT environment variable
     if 'CLAUDE_PROJECT' in os.environ:
         project_path = Path(os.environ['CLAUDE_PROJECT']).resolve()
         if not (project_path / '.orch').exists():
             raise DecisionError(f"CLAUDE_PROJECT points to {project_path} but no .orch directory found")
         return project_path
 
-    # Use find_orch_root from path_utils (avoids circular dependency with cli)
-    from orch.path_utils import find_orch_root
-    orch_root = find_orch_root()
-
-    if not orch_root:
-        raise DecisionError(
-            "No .orch directory found. Either:\n"
-            "  1. Run from within a project directory containing .orch/\n"
-            "  2. Set CLAUDE_PROJECT environment variable\n"
-            "  3. Use --project flag to specify project path"
-        )
-
-    return Path(orch_root)
+    raise DecisionError(
+        "No .orch directory found. Either:\n"
+        "  1. Run from within a project directory containing .orch/\n"
+        "  2. Set CLAUDE_PROJECT environment variable\n"
+        "  3. Use --project flag to specify project path"
+    )
 
 
 def create_decision(

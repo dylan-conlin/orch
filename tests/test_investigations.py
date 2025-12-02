@@ -32,15 +32,37 @@ class TestDetectProjectDir:
         with pytest.raises(InvestigationError, match="No .orch directory found"):
             detect_project_dir(project)
 
-    def test_claude_project_env_var(self, tmp_path):
-        """Test CLAUDE_PROJECT environment variable."""
+    def test_claude_project_env_var_as_fallback(self, tmp_path):
+        """Test CLAUDE_PROJECT environment variable is used when cwd has no .orch."""
         project = tmp_path / 'test-project'
         (project / '.orch').mkdir(parents=True)
 
+        # Mock find_orch_root to return None (simulating no .orch in cwd)
         with patch.dict(os.environ, {'CLAUDE_PROJECT': str(project)}):
-            result = detect_project_dir()
+            with patch('orch.path_utils.find_orch_root', return_value=None):
+                result = detect_project_dir()
 
         assert result == project
+
+    def test_cwd_takes_precedence_over_claude_project(self, tmp_path):
+        """Test that cwd takes precedence over CLAUDE_PROJECT env var.
+
+        This is the key behavior fix: when a user cd's to a project, they expect
+        commands to operate on that project, not on whatever CLAUDE_PROJECT was set to.
+        """
+        cwd_project = tmp_path / 'cwd-project'
+        (cwd_project / '.orch').mkdir(parents=True)
+
+        env_project = tmp_path / 'env-project'
+        (env_project / '.orch').mkdir(parents=True)
+
+        # Mock find_orch_root to return the cwd project
+        with patch.dict(os.environ, {'CLAUDE_PROJECT': str(env_project)}):
+            with patch('orch.path_utils.find_orch_root', return_value=str(cwd_project)):
+                result = detect_project_dir()
+
+        # Should use cwd project, not CLAUDE_PROJECT
+        assert result == cwd_project
 
     def test_no_project_found(self):
         """Test error when no project can be detected."""
