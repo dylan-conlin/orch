@@ -1870,6 +1870,7 @@ def spawn_with_skill(
     skill_name: str,
     task: str,
     project: Optional[str] = None,
+    project_dir: Optional[Path] = None,
     workspace_name: Optional[str] = None,
     yes: bool = False,
     resume: bool = False,
@@ -1898,6 +1899,7 @@ def spawn_with_skill(
         skill_name: Name of skill to use
         task: Task description
         project: Project name (prompts if not provided)
+        project_dir: Project directory path (skips re-resolution if provided)
         workspace_name: Override workspace name (auto-generates if not provided)
         yes: Skip confirmation if True
         resume: Allow resuming existing workspace
@@ -1963,7 +1965,11 @@ def spawn_with_skill(
     skill_metadata = skills[skill_name]
 
     # Auto-detect or prompt for project if not provided
-    if not project:
+    if project and project_dir:
+        # Both project name and directory provided - use them directly
+        # This happens when caller already resolved the project (e.g., issue mode)
+        click.echo(f"📍 Using project: {project}")
+    elif not project:
         # Try auto-detection from current directory first
         detected = detect_project_from_cwd()
         if detected:
@@ -1987,7 +1993,7 @@ def spawn_with_skill(
             if not project_dir:
                 raise ValueError(format_project_not_found_error(project))
     else:
-        # Explicit project provided - resolve it
+        # Explicit project name provided without directory - resolve it
         project_dir = get_project_dir(project)
         if not project_dir:
             raise ValueError(format_project_not_found_error(project, "--project"))

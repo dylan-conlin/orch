@@ -220,10 +220,12 @@ def register_spawn_commands(cli):
                 # Spawn with beads tracking
                 # Note: issue_context goes to additional_context (incorporated into full prompt)
                 # custom_prompt (from --prompt-file) still works as full replacement if provided
+                # Pass project_dir to avoid re-resolution (fixes project not found for auto-detected projects)
                 spawn_with_skill(
                     skill_name=skill_name,
                     task=task_description,
                     project=project,
+                    project_dir=project_dir,
                     workspace_name=workspace_name,
                     yes=yes,
                     resume=resume,
