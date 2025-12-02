@@ -675,7 +675,7 @@ class TestTimestampBasedMerge:
         Registering an agent with beads_id should store it in the registry.
 
         This is required for orch complete to auto-close beads issues.
-        Reference: beads issue meta-orchestration-qrk
+        Reference: beads issue orch-cli-qrk
         """
         temp_registry.register(
             agent_id="test-agent",
@@ -684,12 +684,12 @@ class TestTimestampBasedMerge:
             window_id="@123",
             project_dir="/tmp/test",
             workspace="/tmp/workspace/WORKSPACE.md",
-            beads_id="meta-orchestration-xyz"
+            beads_id="orch-cli-xyz"
         )
 
         agent = temp_registry.find("test-agent")
         assert 'beads_id' in agent, "Agent should have beads_id field"
-        assert agent['beads_id'] == "meta-orchestration-xyz"
+        assert agent['beads_id'] == "orch-cli-xyz"
 
     def test_register_without_beads_id(self, temp_registry):
         """

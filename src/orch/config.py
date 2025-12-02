@@ -4,11 +4,13 @@ Reads optional settings from ~/.orch/config.yaml with safe defaults.
 
 Supported keys:
 - tmux_session: default tmux session name (default: 'orchestrator')
-- active_projects_file: path to active-projects.md (default: ~/meta-orchestration/.orch/active-projects.md)
-- roadmap_paths: list of paths to search for ROADMAP.org (default: [~/meta-orchestration/.orch/ROADMAP.org])
+- active_projects_file: path to active-projects.md (default: ~/orch-config/.orch/active-projects.md)
+- roadmap_paths: list of paths to search for ROADMAP.org (default: [~/orch-config/.orch/ROADMAP.org])
 - roadmap_format: preferred ROADMAP format - 'org' or 'markdown' (default: 'org')
 - cdd_docs_path: path to CDD docs (used in prompts only)
 - backend: default AI backend - 'claude' or 'codex' (default: 'claude')
+
+Note: Legacy symlink ~/meta-orchestration may exist pointing to ~/orch-knowledge.
 """
 
 from __future__ import annotations

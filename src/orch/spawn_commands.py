@@ -84,7 +84,7 @@ def register_spawn_commands(cli):
     @click.option('--type', 'investigation_type', type=click.Choice(['simple', 'systems', 'feasibility', 'audits', 'performance', 'agent-failures']), default='simple', help='Investigation type (default: simple)')
     @click.option('--backend', type=click.Choice(['claude', 'codex', 'opencode']), help='AI backend to use (default: claude)')
     @click.option('--model', help='Model to use (e.g., "sonnet", "opus", or full model name like "claude-sonnet-4-5-20250929")')
-    @click.option('--issue', 'issue_id', help='Spawn from beads issue by ID (e.g., meta-orchestration-ltv)')
+    @click.option('--issue', 'issue_id', help='Spawn from beads issue by ID (e.g., orch-cli-ltv)')
     @click.option('--stash', is_flag=True, help='Stash uncommitted changes before spawn (auto-unstash on complete)')
     @click.option('--allow-dirty/--require-clean', default=True, help='Allow spawn with uncommitted changes (default: allow)')
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')

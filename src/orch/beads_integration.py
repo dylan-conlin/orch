@@ -51,7 +51,7 @@ class BeadsIntegration:
         """Get a beads issue by ID.
 
         Args:
-            issue_id: The beads issue ID (e.g., "meta-orchestration-ltv")
+            issue_id: The beads issue ID (e.g., "orch-cli-ltv")
 
         Returns:
             BeadsIssue with the issue details

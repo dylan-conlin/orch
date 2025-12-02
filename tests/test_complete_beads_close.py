@@ -4,7 +4,7 @@ Tests for auto-close beads issue on orch complete.
 When completing an agent that has a beads_id in its metadata (spawned from beads issue),
 automatically run 'bd close <id>' to close the beads issue.
 
-Reference: beads issue meta-orchestration-y73
+Reference: beads issue orch-cli-y73
 Pattern: Similar to feature_id handling in complete_agent_work()
 """
 
@@ -25,12 +25,12 @@ class TestCloseBeadsIssueFunction:
             mock_beads = Mock()
             MockBeads.return_value = mock_beads
 
-            result = close_beads_issue('meta-orchestration-abc')
+            result = close_beads_issue('orch-cli-abc')
 
             # Should have created BeadsIntegration and called close_issue
             MockBeads.assert_called_once()
             mock_beads.close_issue.assert_called_once_with(
-                'meta-orchestration-abc',
+                'orch-cli-abc',
                 reason='Resolved via orch complete'
             )
             assert result is True
@@ -45,7 +45,7 @@ class TestCloseBeadsIssueFunction:
             mock_beads.close_issue.side_effect = BeadsCLINotFoundError()
             MockBeads.return_value = mock_beads
 
-            result = close_beads_issue('meta-orchestration-abc')
+            result = close_beads_issue('orch-cli-abc')
 
             assert result is False
 
@@ -56,10 +56,10 @@ class TestCloseBeadsIssueFunction:
 
         with patch('orch.complete.BeadsIntegration') as MockBeads:
             mock_beads = Mock()
-            mock_beads.close_issue.side_effect = BeadsIssueNotFoundError('meta-orchestration-abc')
+            mock_beads.close_issue.side_effect = BeadsIssueNotFoundError('orch-cli-abc')
             MockBeads.return_value = mock_beads
 
-            result = close_beads_issue('meta-orchestration-abc')
+            result = close_beads_issue('orch-cli-abc')
 
             assert result is False
 
@@ -104,7 +104,7 @@ Done.
                 'workspace': '.orch/workspace/test-agent',
                 'project_dir': str(tmp_path),
                 'status': 'active',
-                'beads_id': 'meta-orchestration-xyz'
+                'beads_id': 'orch-cli-xyz'
             }
 
             with patch('orch.complete.verify_agent_work') as mock_verify:
@@ -123,7 +123,7 @@ Done.
                                                             )
 
                             # Should have called close_beads_issue
-                            mock_close.assert_called_once_with('meta-orchestration-xyz')
+                            mock_close.assert_called_once_with('orch-cli-xyz')
                             assert result['success'] is True
                             assert result.get('beads_closed') is True
 
@@ -221,7 +221,7 @@ Done.
                 'workspace': '.orch/workspace/test-agent',
                 'project_dir': str(tmp_path),
                 'status': 'active',
-                'beads_id': 'meta-orchestration-xyz'
+                'beads_id': 'orch-cli-xyz'
             }
 
             with patch('orch.complete.verify_agent_work') as mock_verify:
@@ -258,7 +258,7 @@ class TestCompleteAgentAsyncBeadsClose:
                 'workspace': '.orch/workspace/test-agent',
                 'project_dir': str(tmp_path),
                 'status': 'active',
-                'beads_id': 'meta-orchestration-xyz'
+                'beads_id': 'orch-cli-xyz'
             }
             MockRegistry.return_value = mock_registry
 
@@ -274,7 +274,7 @@ class TestCompleteAgentAsyncBeadsClose:
                                             )
 
                     # Should have called close_beads_issue
-                    mock_close.assert_called_once_with('meta-orchestration-xyz')
+                    mock_close.assert_called_once_with('orch-cli-xyz')
                     assert result.get('beads_closed') is True
 
     def test_complete_agent_async_skips_beads_close_when_no_beads_id(self, tmp_path):
@@ -321,7 +321,7 @@ class TestCLIBeadsClose:
                 'workspace': '.orch/workspace/test-agent',
                 'project_dir': '/tmp/test-project',
                 'status': 'active',
-                'beads_id': 'meta-orchestration-xyz'
+                'beads_id': 'orch-cli-xyz'
             }
             MockRegistry.return_value = mock_registry
 

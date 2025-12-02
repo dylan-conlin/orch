@@ -19,13 +19,13 @@ class TestBeadsIssue:
     def test_beads_issue_creation(self):
         """Test creating a BeadsIssue from basic fields."""
         issue = BeadsIssue(
-            id="meta-orchestration-ltv",
+            id="orch-cli-ltv",
             title="Test issue title",
             description="Test description",
             status="open",
             priority=2,
         )
-        assert issue.id == "meta-orchestration-ltv"
+        assert issue.id == "orch-cli-ltv"
         assert issue.title == "Test issue title"
         assert issue.description == "Test description"
         assert issue.status == "open"
@@ -51,7 +51,7 @@ class TestBeadsIntegrationGetIssue:
     def test_get_issue_success(self):
         """Test successfully getting an issue."""
         mock_output = json.dumps([{
-            "id": "meta-orchestration-ltv",
+            "id": "orch-cli-ltv",
             "title": "Integrate orch spawn with beads",
             "description": "Detailed description here",
             "status": "open",
@@ -70,9 +70,9 @@ class TestBeadsIntegrationGetIssue:
             )
 
             beads = BeadsIntegration()
-            issue = beads.get_issue("meta-orchestration-ltv")
+            issue = beads.get_issue("orch-cli-ltv")
 
-            assert issue.id == "meta-orchestration-ltv"
+            assert issue.id == "orch-cli-ltv"
             assert issue.title == "Integrate orch spawn with beads"
             assert issue.description == "Detailed description here"
             assert issue.status == "open"
@@ -84,7 +84,7 @@ class TestBeadsIntegrationGetIssue:
             call_args = mock_run.call_args
             assert "bd" in call_args[0][0]
             assert "show" in call_args[0][0]
-            assert "meta-orchestration-ltv" in call_args[0][0]
+            assert "orch-cli-ltv" in call_args[0][0]
             assert "--json" in call_args[0][0]
 
     def test_get_issue_not_found(self):

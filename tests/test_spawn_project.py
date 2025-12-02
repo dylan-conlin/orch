@@ -25,7 +25,7 @@ class TestProjectDirectory:
     def test_get_project_dir_found(self, tmp_path):
         """Test getting project directory from active-projects.md."""
         # Create directory structure
-        meta_orch = tmp_path / "meta-orchestration" / ".orch"
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
         meta_orch.mkdir(parents=True)
 
         # Create test active-projects.md
@@ -53,7 +53,7 @@ class TestProjectDirectory:
     def test_get_project_dir_not_found(self, tmp_path):
         """Test getting project directory when project doesn't exist."""
         # Create directory structure
-        meta_orch = tmp_path / "meta-orchestration" / ".orch"
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
         meta_orch.mkdir(parents=True)
 
         # Create test active-projects.md without target project
@@ -83,7 +83,7 @@ class TestProjectAutoDetection:
         orch_dir.mkdir()
 
         # Create active-projects.md
-        meta_orch = tmp_path / "meta-orchestration" / ".orch"
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
         meta_orch.mkdir(parents=True)
         active_projects = meta_orch / "active-projects.md"
         active_projects.write_text(f"""## my-project
@@ -116,7 +116,7 @@ class TestProjectAutoDetection:
         subdir.mkdir(parents=True)
 
         # Create active-projects.md
-        meta_orch = tmp_path / "meta-orchestration" / ".orch"
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
         meta_orch.mkdir(parents=True)
         active_projects = meta_orch / "active-projects.md"
         active_projects.write_text(f"""## my-project
@@ -165,7 +165,7 @@ class TestProjectAutoDetection:
         orch_dir.mkdir()
 
         # Create empty active-projects.md (project not listed)
-        meta_orch = tmp_path / "meta-orchestration" / ".orch"
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
         meta_orch.mkdir(parents=True)
         active_projects = meta_orch / "active-projects.md"
         active_projects.write_text("# Active Projects\n")

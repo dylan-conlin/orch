@@ -72,7 +72,7 @@ def get_instruction_markers_for_profile(profile: str) -> str:
 
     Profiles:
     - core: Essential 6 templates + error-recovery (recommended for most projects)
-    - full: All available templates (meta-orchestration, advanced users)
+    - full: All available templates (orch-knowledge, advanced users)
     - minimal: Just identity/boundaries (quick setup, add more later)
 
     Returns:
@@ -143,7 +143,7 @@ def create_orch_claude_md(project_dir: Path, variables: Dict[str, str], profile:
 
 IMPORTANT: This augments `~/.claude/CLAUDE.md`. Keep this file lean; link to canonical docs for details.
 
-Scope: This project ({variables['PROJECT_NAME']}). For meta-orchestration work, delegate to meta-orchestration repo.
+Scope: This project ({variables['PROJECT_NAME']}). For orch-knowledge work, delegate to orch-knowledge repo.
 
 ---
 
@@ -429,11 +429,13 @@ def setup_git_hooks(project_dir: Path) -> None:
     """
     Install git pre-commit hook for orchestration checks.
 
-    Symlinks the hook from meta-orchestration/scripts/pre-commit to
+    Symlinks the hook from orch-knowledge/scripts/pre-commit to
     the project's .git/hooks/pre-commit. The hook checks:
     - Token/char limits when template sources change
     - CLAUDE.md/template sync
     - README auto-generation on artifact changes
+
+    Note: Legacy symlink ~/meta-orchestration may exist pointing to ~/orch-knowledge.
     """
     git_dir = project_dir / ".git"
     if not git_dir.exists():
@@ -444,7 +446,10 @@ def setup_git_hooks(project_dir: Path) -> None:
     hooks_dir.mkdir(exist_ok=True)
 
     hook_dest = hooks_dir / "pre-commit"
-    hook_source = Path.home() / "meta-orchestration" / "scripts" / "pre-commit"
+    # Try orch-knowledge first, fall back to meta-orchestration symlink
+    hook_source = Path.home() / "orch-knowledge" / "scripts" / "pre-commit"
+    if not hook_source.exists():
+        hook_source = Path.home() / "meta-orchestration" / "scripts" / "pre-commit"
 
     if not hook_source.exists():
         click.echo(f"⚠️  Hook source not found: {hook_source}")

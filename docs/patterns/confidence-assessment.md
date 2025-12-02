@@ -235,7 +235,7 @@ For decision documents, use shorter confidence section:
 **Example:**
 ```markdown
 **What would increase confidence to Very High (95%+):**
-- Test pattern across 5 more projects (currently only meta-orchestration)
+- Test pattern across 5 more projects (currently only orch-knowledge)
 - Validate with Large scope sessions (currently only Small/Medium tested)
 - Confirm behavior with Python-based agents (currently only Claude Code CLI tested)
 - Document and test failure modes (agent crash, JSONL corruption, etc.)

@@ -5,7 +5,7 @@
 
 IMPORTANT: This augments `~/.claude/CLAUDE.md`. Keep this file lean; link to canonical docs for details.
 
-Scope: This project (orch-cli). For meta-orchestration work, delegate to meta-orchestration repo.
+Scope: This project (orch-cli). For orch-knowledge work, delegate to orch-knowledge repo.
 
 ---
 

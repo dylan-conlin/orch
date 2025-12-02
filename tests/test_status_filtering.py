@@ -275,9 +275,9 @@ class TestStatusFiltering:
 
         # Mock agents from different projects
         mock_agents = [
-            {'id': 'agent-1', 'window': 'orchestrator:1', 'project_dir': '/home/user/meta-orchestration', 'workspace': '.orch/workspace/test-1'},
+            {'id': 'agent-1', 'window': 'orchestrator:1', 'project_dir': '/home/user/orch-knowledge', 'workspace': '.orch/workspace/test-1'},
             {'id': 'agent-2', 'window': 'orchestrator:2', 'project_dir': '/home/user/other-project', 'workspace': '.orch/workspace/test-2'},
-            {'id': 'agent-3', 'window': 'orchestrator:3', 'project_dir': '/home/user/meta-orchestration', 'workspace': '.orch/workspace/test-3'},
+            {'id': 'agent-3', 'window': 'orchestrator:3', 'project_dir': '/home/user/orch-knowledge', 'workspace': '.orch/workspace/test-3'},
         ]
 
         # Mock OrchLogger
@@ -297,8 +297,8 @@ class TestStatusFiltering:
                 # Mock check_agent_status
                 mock_status = Mock(priority='ok', phase='Planning', alerts=[], context_info=None, recommendation=None)
                 with patch('orch.monitoring_commands.check_agent_status', return_value=mock_status) as mock_check:
-                    # Mock get_git_root() to return meta-orchestration directory
-                    with patch('orch.monitoring_commands.get_git_root', return_value='/home/user/meta-orchestration'):
+                    # Mock get_git_root() to return orch-knowledge directory
+                    with patch('orch.monitoring_commands.get_git_root', return_value='/home/user/orch-knowledge'):
                         result = cli_runner.invoke(cli, ['status'])
 
         # Should show only 2 agents from current project (agent-1 and agent-3)
@@ -314,7 +314,7 @@ class TestStatusFiltering:
 
         # Mock agents from different projects
         mock_agents = [
-            {'id': 'agent-1', 'window': 'orchestrator:1', 'project_dir': '/home/user/meta-orchestration', 'workspace': '.orch/workspace/test-1'},
+            {'id': 'agent-1', 'window': 'orchestrator:1', 'project_dir': '/home/user/orch-knowledge', 'workspace': '.orch/workspace/test-1'},
             {'id': 'agent-2', 'window': 'orchestrator:2', 'project_dir': '/home/user/other-project', 'workspace': '.orch/workspace/test-2'},
         ]
 
@@ -335,9 +335,9 @@ class TestStatusFiltering:
                 # Mock check_agent_status
                 mock_status = Mock(priority='ok', phase='Planning', alerts=[], context_info=None, recommendation=None)
                 with patch('orch.monitoring_commands.check_agent_status', return_value=mock_status) as mock_check:
-                    # Mock os.getcwd() to return meta-orchestration
+                    # Mock os.getcwd() to return orch-knowledge
                     # But use --project to explicitly request other-project
-                    with patch('os.getcwd', return_value='/home/user/meta-orchestration'):
+                    with patch('os.getcwd', return_value='/home/user/orch-knowledge'):
                         result = cli_runner.invoke(cli, ['status', '--project', 'other-project'])
 
         # Should show only agent-2 from other-project (explicit --project overrides cwd)
@@ -368,8 +368,8 @@ class TestStatusFiltering:
                 mock_registry.list_agents.return_value = []  # Phase 2.5: No completed agents
                 MockRegistry.return_value = mock_registry
 
-                # Mock get_git_root() to return meta-orchestration (different from agent's project)
-                with patch('orch.cli.get_git_root', return_value='/home/user/meta-orchestration'):
+                # Mock get_git_root() to return orch-knowledge (different from agent's project)
+                with patch('orch.cli.get_git_root', return_value='/home/user/orch-knowledge'):
                     result = cli_runner.invoke(cli, ['status'])
 
         # Should show "No agents match" message with helpful tip

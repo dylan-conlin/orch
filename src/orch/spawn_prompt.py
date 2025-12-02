@@ -728,7 +728,7 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
     additional_parts.append("- Global: ~/.claude/CLAUDE.md")
     additional_parts.append(f"- Project: {config.project_dir}/.claude/CLAUDE.md")
     additional_parts.append(f"- Orchestrator: {config.project_dir}/.orch/CLAUDE.md")
-    additional_parts.append("- CDD: ~/meta-orchestration/docs/cdd-essentials.md")
+    additional_parts.append("- CDD: ~/orch-knowledge/docs/cdd-essentials.md")
     if config.skill_name:
         # Build hierarchical path if category known
         if config.skill_metadata and config.skill_metadata.category:

@@ -26,7 +26,7 @@ def test_defaults():
     assert 'cdd_docs_path' in defaults
 
     assert defaults['tmux_session'] == 'workers'
-    assert 'meta-orchestration' in defaults['active_projects_file']
+    assert 'orch-config' in defaults['active_projects_file']
     assert isinstance(defaults['roadmap_paths'], list)
     assert len(defaults['roadmap_paths']) > 0
 
@@ -37,7 +37,7 @@ def test_get_config_no_file():
         cfg = config.get_config()
 
         assert cfg['tmux_session'] == 'workers'
-        assert 'meta-orchestration' in cfg['active_projects_file']
+        assert 'orch-config' in cfg['active_projects_file']
         assert isinstance(cfg['roadmap_paths'], list)
 
 
@@ -78,7 +78,7 @@ def test_get_config_partial_override():
             assert cfg['tmux_session'] == 'my-session'
 
             # Defaults for non-overridden values
-            assert 'meta-orchestration' in cfg['active_projects_file']
+            assert 'orch-config' in cfg['active_projects_file']
             assert isinstance(cfg['roadmap_paths'], list)
 
 
@@ -92,7 +92,7 @@ def test_get_config_malformed_yaml():
 
             # Should fall back to defaults
             assert cfg['tmux_session'] == 'workers'
-            assert 'meta-orchestration' in cfg['active_projects_file']
+            assert 'orch-config' in cfg['active_projects_file']
 
 
 def test_get_config_non_dict_yaml():

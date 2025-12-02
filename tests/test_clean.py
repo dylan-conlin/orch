@@ -347,7 +347,7 @@ class TestCleanCommand:
         Root cause: cli.py line 92 included 'Unknown' in cleanable phases for --all mode.
         Fix: Remove 'Unknown' from that tuple - only 'Complete' and 'Abandoned' should be cleaned.
 
-        Beads issue: meta-orchestration-7pj
+        Beads issue: orch-cli-7pj
         """
         from orch.cli import cli
 

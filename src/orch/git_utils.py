@@ -354,7 +354,7 @@ def find_commits_mentioning_issue(directory: Path, issue_id: str) -> list[Commit
 
     Args:
         directory: Path to git repository
-        issue_id: Beads issue ID to search for (e.g., "meta-orchestration-qrk")
+        issue_id: Beads issue ID to search for (e.g., "orch-cli-qrk")
 
     Returns:
         List of CommitInfo for commits mentioning the issue, empty if none found

@@ -87,22 +87,22 @@ def show_unknown_topic(topic):
 def show_orchestrator_start_help():
     """Display orchestrator session start guidance.
 
-    This topic is designed for the meta-orchestration project. When
+    This topic is designed for the orch-knowledge project. When
     called from other projects, it explains that and points to local
-    CLAUDE/README docs instead of giving meta-orchestration-specific
+    CLAUDE/README docs instead of giving orch-knowledge-specific
     paths that may not exist.
     """
     from datetime import datetime
 
-    # Detect whether we're inside the meta-orchestration repo by
-    # walking up until we find docs/meta-orchestration-system-overview.md
+    # Detect whether we're inside the orch-knowledge repo by
+    # walking up until we find docs/orch-knowledge-system-overview.md
     # and a .orch directory.
     cwd = Path.cwd()
     meta_root = None
     for parent in [cwd] + list(cwd.parents):
         orch_dir = parent / ".orch"
-        overview_repo = parent / "docs" / "meta-orchestration-system-overview.md"
-        overview_orch = orch_dir / "docs" / "meta-orchestration-system-overview.md"
+        overview_repo = parent / "docs" / "orch-knowledge-system-overview.md"
+        overview_orch = orch_dir / "docs" / "orch-knowledge-system-overview.md"
         if orch_dir.is_dir() and (overview_repo.exists() or overview_orch.exists()):
             meta_root = parent
             break
@@ -113,10 +113,10 @@ def show_orchestrator_start_help():
     click.echo()
 
     if meta_root is None:
-        # Not in meta-orchestration; provide generic guidance and explain scope.
+        # Not in orch-knowledge; provide generic guidance and explain scope.
         click.echo("NOTE")
-        click.echo("  This topic is specific to the meta-orchestration project and")
-        click.echo("  expects docs/meta-orchestration-system-overview.md to exist.")
+        click.echo("  This topic is specific to the orch-knowledge project and")
+        click.echo("  expects docs/orch-knowledge-system-overview.md to exist.")
         click.echo()
         click.echo("  You are currently in:")
         click.echo(f"    {cwd}")
@@ -137,28 +137,28 @@ def show_orchestrator_start_help():
         click.echo()
         click.echo("TIP")
         click.echo("  If this project needs a deeper orchestrator overview, you can")
-        click.echo("  mirror the pattern from meta-orchestration by adding a")
+        click.echo("  mirror the pattern from orch-knowledge by adding a")
         click.echo("  project-specific system overview doc and pointing to it from")
         click.echo("  your CLAUDE.md.")
         click.echo()
         click.echo(f"Last updated: {datetime.now().strftime('%Y-%m-%d')}")
         return
 
-    # Meta-orchestration-specific guidance
+    # orch-knowledge-specific guidance
     click.echo("PURPOSE")
     click.echo("  Standardize how you (or an agent) orient at the start of an")
-    click.echo("  orchestrator session in meta-orchestration/.orch so each")
+    click.echo("  orchestrator session in orch-knowledge/.orch so each")
     click.echo("  session rebuilds the same mental model of the system.")
     click.echo()
 
-    click.echo("SESSION START STEPS (meta-orchestration/.orch)")
+    click.echo("SESSION START STEPS (orch-knowledge/.orch)")
     click.echo()
     click.echo("  1. Skim .orch/README.md")
     click.echo("     - Recent decisions, investigations, and active workspaces")
     click.echo()
     click.echo("  2. Rebuild the system model")
     click.echo("     - From the .orch/ directory, read")
-    click.echo("       docs/meta-orchestration-system-overview.md to")
+    click.echo("       docs/orch-knowledge-system-overview.md to")
     click.echo("       re-establish architecture, invariants, and workflows.")
     click.echo()
     click.echo("  3. If doing broader meta-analysis")
@@ -176,9 +176,9 @@ def show_orchestrator_start_help():
 
     click.echo("KEY FILES")
     click.echo("  - .orch/README.md                      # Artifact index")
-    click.echo("  - docs/meta-orchestration-system-overview.md")
+    click.echo("  - docs/orch-knowledge-system-overview.md")
     click.echo("  - .claude/index.md                     # Cross-project index")
-    click.echo("  - .orch/ROADMAP.org                    # Meta-orchestration work")
+    click.echo("  - .orch/ROADMAP.org                    # orch-knowledge work")
     click.echo("  - .orch/CLAUDE.md                      # Orchestrator guidance")
     click.echo()
 

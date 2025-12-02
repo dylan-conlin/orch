@@ -204,7 +204,7 @@ class TestCheckAgentStatusFallback:
 class TestTemplatePlaceholderFiltering:
     """Tests for filtering out template placeholder values from phase detection.
 
-    Regression tests for: https://github.com/dylan-conlin/orch/issues/meta-orchestration-7xa
+    Regression tests for: https://github.com/dylan-conlin/orch/issues/orch-cli-7xa
     Bug: orch wait exits prematurely when investigation template contains 'Active | Complete' text
     """
 

@@ -132,11 +132,11 @@ bd create "New issue title" --discovered-from PARENT-ID
 **Example:**
 ```bash
 # Agent working on auth fix discovers logging issue
-bd create "Logging not capturing auth failures" --discovered-from meta-orchestration-abc
+bd create "Logging not capturing auth failures" --discovered-from orch-cli-abc
 
 # Later, check the tree
-bd show meta-orchestration-abc
-# Shows: Discovered → meta-orchestration-xyz (logging issue)
+bd show orch-cli-abc
+# Shows: Discovered → orch-cli-xyz (logging issue)
 ```
 
 ---

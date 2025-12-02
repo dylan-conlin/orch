@@ -815,7 +815,7 @@ def create_beads_issue(
         discovered_from: Parent issue ID to link with --discovered-from
 
     Returns:
-        Created issue ID (e.g., 'meta-orchestration-abc') or None on failure
+        Created issue ID (e.g., 'orch-cli-abc') or None on failure
     """
     import subprocess
 
@@ -836,7 +836,7 @@ def create_beads_issue(
             click.echo(f"   ⚠️  Failed to create issue: {result.stderr.strip()}", err=True)
             return None
 
-        # Parse issue ID from output (format: "Created: meta-orchestration-abc")
+        # Parse issue ID from output (format: "Created: orch-cli-abc")
         output = result.stdout.strip()
         if 'Created:' in output:
             # Extract ID after "Created: "
@@ -948,7 +948,7 @@ def close_beads_issue(beads_id: str) -> bool:
     (set when spawned from beads issue via `orch spawn --issue`).
 
     Args:
-        beads_id: The beads issue ID to close (e.g., 'meta-orchestration-xyz')
+        beads_id: The beads issue ID to close (e.g., 'orch-cli-xyz')
 
     Returns:
         True if issue was closed successfully, False on failure

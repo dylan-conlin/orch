@@ -539,7 +539,7 @@ def show_preview(config: SpawnConfig) -> None:
     click.echo(f"│   • PROJECT_DIR: {str(config.project_dir):<49} │")
     click.echo("│   • Global: ~/.claude/CLAUDE.md" + " " * 37 + "│")
     click.echo(f"│   • Project: {config.project}/.claude/CLAUDE.md{' ' * (31 - len(config.project))}│")
-    click.echo("│   • CDD Essentials: meta-orchestration/docs/cdd-essentials.md  │")
+    click.echo("│   • CDD Essentials: orch-knowledge/docs/cdd-essentials.md      │")
 
     if config.skill_name:
         # Build hierarchical path if category known
@@ -1083,10 +1083,10 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
     # Detect project-scoped ROADMAP (check .orch/ROADMAP.org in current dir or parents)
     project_roadmap = detect_project_roadmap()
 
-    # Find ROADMAP item (use project ROADMAP if in project context, else meta-orchestration)
+    # Find ROADMAP item (use project ROADMAP if in project context, else orch-knowledge)
     item = find_roadmap_item(title, roadmap_path=project_roadmap)
     if not item:
-        roadmap_context = "project ROADMAP" if project_roadmap else "meta-orchestration ROADMAP"
+        roadmap_context = "project ROADMAP" if project_roadmap else "orch-knowledge ROADMAP"
         raise ValueError(f"ROADMAP item not found in {roadmap_context}: '{title}'")
 
     # Extract required properties
@@ -1273,7 +1273,10 @@ def _get_active_projects_file() -> Optional[Path]:
         Path to active-projects.md if found, None otherwise
     """
     # Prefer default under home (patched in tests)
-    active_projects_file = Path.home() / "meta-orchestration" / ".orch" / "active-projects.md"
+    # Try orch-knowledge first, fall back to meta-orchestration symlink
+    active_projects_file = Path.home() / "orch-knowledge" / ".orch" / "active-projects.md"
+    if not active_projects_file.exists():
+        active_projects_file = Path.home() / "meta-orchestration" / ".orch" / "active-projects.md"
     if not active_projects_file.exists():
         try:
             from orch.config import get_active_projects_file

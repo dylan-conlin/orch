@@ -1608,16 +1608,16 @@ def build(ctx, target_skills, target_readme, dry_run, check):
 
         import shutil
 
-        # Source: meta-orchestration/skills/src/
+        # Source: orch-knowledge/skills/src/
         orch_root = find_orch_root()
         if not orch_root:
-            click.echo("❌ Not in a meta-orchestration directory", err=True)
+            click.echo("❌ Not in an orch-knowledge directory", err=True)
             raise click.Abort()
 
         skills_src = Path(orch_root) / 'skills' / 'src'
         if not skills_src.exists():
             click.echo(f"❌ Skills source not found: {skills_src}", err=True)
-            click.echo("   Expected: meta-orchestration/skills/src/", err=True)
+            click.echo("   Expected: orch-knowledge/skills/src/", err=True)
             raise click.Abort()
 
         # Output locations
@@ -1713,7 +1713,7 @@ def build(ctx, target_skills, target_readme, dry_run, check):
 
                 # Output to source directory (will be deployed later)
                 output_file = skill_dir / 'SKILL.md'
-                display_path = str(output_file).replace(str(orch_root), 'meta-orchestration')
+                display_path = str(output_file).replace(str(orch_root), 'orch-knowledge')
 
                 changed = True
                 if output_file.exists():

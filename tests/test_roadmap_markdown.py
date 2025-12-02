@@ -47,7 +47,7 @@ This roadmap is priority-sorted: highest priority items first.
 **Tags:** `phase-3` `tool` `bug`
 
 **Metadata:**
-- Project: meta-orchestration
+- Project: orch-knowledge
 - Workspace: fix-critical-bug
 - Skill: systematic-debugging
 - Effort: 2-4h
@@ -65,7 +65,7 @@ Impact: Blocking all spawns requiring clean git state
 **Tags:** `phase-3` `infrastructure`
 
 **Metadata:**
-- Project: meta-orchestration
+- Project: orch-knowledge
 - Workspace: spawn-context-first-class
 - Skill: feature-impl
 - Effort: 4-6h
@@ -82,7 +82,7 @@ Elevate SPAWN_CONTEXT.md from display bug workaround to strategic orchestrator a
 **Tags:** `phase-3` `tool` `ux`
 
 **Metadata:**
-- Project: meta-orchestration
+- Project: orch-knowledge
 - Workspace: improve-error-messages
 - Skill: feature-impl
 - Effort: 1-2h
@@ -102,7 +102,7 @@ Add actionable suggestions to error messages.
 **Tags:** `phase-3` `tool` `bug`
 
 **Metadata:**
-- Project: meta-orchestration
+- Project: orch-knowledge
 - Workspace: fix-tmux-registry-tracking
 - Skill: systematic-debugging
 - Effort: 3h
@@ -171,7 +171,7 @@ def test_parse_markdown_metadata(temp_markdown_roadmap):
     items = parse_roadmap_markdown(temp_markdown_roadmap)
 
     critical_bug = next(item for item in items if "Critical bug" in item.title)
-    assert critical_bug.properties["Project"] == "meta-orchestration"
+    assert critical_bug.properties["Project"] == "orch-knowledge"
     assert critical_bug.properties["Workspace"] == "fix-critical-bug"
     assert critical_bug.properties["Skill"] == "systematic-debugging"
     assert critical_bug.properties["Effort"] == "2-4h"

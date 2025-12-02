@@ -189,7 +189,7 @@ def create_roadmap_item(synthesis_data: dict, decision_path: Path) -> str:
     roadmap_item = f"""** TODO [P1] {title} :phase-4::synthesis:
 :PROPERTIES:
 :Created: {date}
-:Project: meta-orchestration
+:Project: orch-knowledge
 :Synthesis: .orch/synthesis/[FILENAME]
 :Decision: {decision_path}
 :Priority: 1

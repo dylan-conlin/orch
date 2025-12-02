@@ -49,7 +49,7 @@ class TestNonInteractiveProjectPrompt:
     def test_spawn_interactive_fails_fast_without_project_non_tty(self, tmp_path):
         """Test that spawn_interactive fails fast when project missing in non-interactive mode."""
         # Setup: Create active-projects.md with one project
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         active_projects.write_text("""# Active Projects
@@ -92,7 +92,7 @@ class TestNonInteractiveProjectPrompt:
     def test_spawn_with_skill_fails_fast_without_project_non_tty(self, tmp_path):
         """Test that spawn_with_skill fails fast when project missing in non-interactive mode."""
         # Setup: Create active-projects.md
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         active_projects.write_text("""# Active Projects
@@ -153,7 +153,7 @@ deliverables:
     def test_error_message_lists_available_projects(self, tmp_path):
         """Test that error message includes list of available projects."""
         # Setup: Create active-projects.md with multiple projects
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         active_projects.write_text("""# Active Projects
@@ -205,7 +205,7 @@ deliverables:
         home_dir.mkdir()
 
         # Setup: Create active-projects.md
-        active_projects_dir = home_dir / "meta-orchestration" / ".orch"
+        active_projects_dir = home_dir / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = home_dir / "test-project"
@@ -284,7 +284,7 @@ class TestTTYAutoDetection:
     def test_spawn_with_skill_yes_flag_skips_confirmation(self, tmp_path):
         """Test that spawn_with_skill skips confirmation with --yes flag."""
         # Setup: Create active-projects.md
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = tmp_path / "test-project"
@@ -355,7 +355,7 @@ class TestInteractiveMode:
     def test_spawn_interactive_with_valid_project(self, tmp_path):
         """Test spawning interactive session with valid project."""
         # Setup: Create active-projects.md
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = tmp_path / "test-project"
@@ -416,7 +416,7 @@ class TestInteractiveMode:
     def test_spawn_interactive_with_invalid_project(self, tmp_path):
         """Test that spawn_interactive raises ValueError for invalid project."""
         # Setup: Create empty active-projects.md
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         active_projects.write_text("# Active Projects\n")
@@ -434,7 +434,7 @@ class TestInteractiveMode:
     def test_spawn_interactive_registers_with_flag(self, tmp_path):
         """Test that interactive mode DOES register agent with is_interactive=true."""
         # Setup: Create active-projects.md
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = tmp_path / "test-project"
@@ -521,7 +521,7 @@ class TestInteractiveMode:
         Test that interactive spawn uses slugified context for workspace naming.
         """
         # Setup: Create project with .orch directory
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = tmp_path / "test-project"
@@ -582,7 +582,7 @@ class TestInteractiveMode:
         Test that interactive spawn falls back to timestamp naming when context is empty.
         """
         # Setup: Create project with .orch directory
-        active_projects_dir = tmp_path / "meta-orchestration" / ".orch"
+        active_projects_dir = tmp_path / "orch-knowledge" / ".orch"
         active_projects_dir.mkdir(parents=True)
         active_projects = active_projects_dir / "active-projects.md"
         project_dir = tmp_path / "test-project"

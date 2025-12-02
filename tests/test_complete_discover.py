@@ -100,7 +100,7 @@ class TestDiscoverFunctionality:
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(
                 returncode=0,
-                stdout='Created: meta-orchestration-abc',
+                stdout='Created: orch-cli-abc',
                 stderr=''
             )
 
@@ -123,19 +123,19 @@ class TestDiscoverFunctionality:
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(
                 returncode=0,
-                stdout='Created: meta-orchestration-xyz',
+                stdout='Created: orch-cli-xyz',
                 stderr=''
             )
 
             result = create_beads_issue(
                 'Add caching for API calls',
-                discovered_from='meta-orchestration-4qg'
+                discovered_from='orch-cli-4qg'
             )
 
             # Should have called bd create with --discovered-from
             call_args = mock_run.call_args[0][0]
             assert '--discovered-from' in call_args
-            assert 'meta-orchestration-4qg' in call_args
+            assert 'orch-cli-4qg' in call_args
 
     def test_create_beads_issue_without_parent(self):
         """Test that create_beads_issue works without --discovered-from."""
@@ -144,7 +144,7 @@ class TestDiscoverFunctionality:
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(
                 returncode=0,
-                stdout='Created: meta-orchestration-123',
+                stdout='Created: orch-cli-123',
                 stderr=''
             )
 
@@ -166,14 +166,14 @@ class TestDiscoverIntegration:
 
         with patch('orch.complete.create_beads_issue') as mock_create:
             mock_create.side_effect = [
-                'meta-orchestration-a1',
-                'meta-orchestration-a2',
-                'meta-orchestration-a3'
+                'orch-cli-a1',
+                'orch-cli-a2',
+                'orch-cli-a3'
             ]
 
             results = process_discoveries(
                 items=items,
-                discovered_from='meta-orchestration-parent'
+                discovered_from='orch-cli-parent'
             )
 
             # Should have created 3 issues
@@ -181,7 +181,7 @@ class TestDiscoverIntegration:
 
             # All should have discovered-from link
             for call_obj in mock_create.call_args_list:
-                assert call_obj[1].get('discovered_from') == 'meta-orchestration-parent'
+                assert call_obj[1].get('discovered_from') == 'orch-cli-parent'
 
             # Should return list of created issue IDs
             assert len(results) == 3
@@ -195,9 +195,9 @@ class TestDiscoverIntegration:
         with patch('orch.complete.create_beads_issue') as mock_create:
             # Second call fails
             mock_create.side_effect = [
-                'meta-orchestration-a1',
+                'orch-cli-a1',
                 None,  # Failure
-                'meta-orchestration-a3'
+                'orch-cli-a3'
             ]
 
             results = process_discoveries(items=items)
@@ -209,8 +209,8 @@ class TestDiscoverIntegration:
             issue_ids = [r.get('issue_id') for r in results]
 
             # Should return successful ones and indicate failure
-            assert 'meta-orchestration-a1' in issue_ids
-            assert 'meta-orchestration-a3' in issue_ids
+            assert 'orch-cli-a1' in issue_ids
+            assert 'orch-cli-a3' in issue_ids
             # None represents the failure
             assert None in issue_ids
 
@@ -221,13 +221,13 @@ class TestDiscoverIntegration:
         # Agent with beads_id field
         agent = {
             'id': 'test-agent',
-            'beads_id': 'meta-orchestration-4qg',
+            'beads_id': 'orch-cli-4qg',
             'status': 'active'
         }
 
         parent_id = get_discovery_parent_id(agent)
 
-        assert parent_id == 'meta-orchestration-4qg'
+        assert parent_id == 'orch-cli-4qg'
 
     def test_discover_returns_none_when_no_parent(self):
         """Test that get_discovery_parent_id returns None when agent has no beads link."""
@@ -252,14 +252,14 @@ class TestDiscoverOutput:
         from orch.complete import format_discovery_summary
 
         results = [
-            {'item': 'Fix memory leak', 'issue_id': 'meta-orchestration-a1'},
-            {'item': 'Add caching', 'issue_id': 'meta-orchestration-a2'}
+            {'item': 'Fix memory leak', 'issue_id': 'orch-cli-a1'},
+            {'item': 'Add caching', 'issue_id': 'orch-cli-a2'}
         ]
 
         summary = format_discovery_summary(results)
 
-        assert 'meta-orchestration-a1' in summary
-        assert 'meta-orchestration-a2' in summary
+        assert 'orch-cli-a1' in summary
+        assert 'orch-cli-a2' in summary
         assert 'Fix memory leak' in summary
         assert 'Add caching' in summary
 
@@ -268,7 +268,7 @@ class TestDiscoverOutput:
         from orch.complete import format_discovery_summary
 
         results = [
-            {'item': 'Success item', 'issue_id': 'meta-orchestration-a1'},
+            {'item': 'Success item', 'issue_id': 'orch-cli-a1'},
             {'item': 'Failed item', 'issue_id': None, 'error': 'bd create failed'}
         ]
 
