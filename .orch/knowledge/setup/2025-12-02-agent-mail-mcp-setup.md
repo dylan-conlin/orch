@@ -1,7 +1,8 @@
 # Agent Mail MCP Setup
 
 **Date:** 2025-12-02
-**Status:** Installed and working
+**Updated:** 2025-12-02
+**Status:** Fully configured (launchd + spawn integration)
 
 ---
 
@@ -84,11 +85,11 @@ Configuration in `~/.claude.json`:
 | `search_messages` | Full-text search |
 | `get_directory` | List active agents/projects |
 
-## Making It Persistent
+## Persistence (Active)
 
-### Option 1: launchd (macOS)
+### launchd (macOS) - CONFIGURED
 
-Create `~/Library/LaunchAgents/com.agentmail.server.plist`:
+Plist installed at `~/Library/LaunchAgents/com.agentmail.server.plist`:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -124,9 +125,20 @@ Create `~/Library/LaunchAgents/com.agentmail.server.plist`:
 </plist>
 ```
 
-Load with: `launchctl load ~/Library/LaunchAgents/com.agentmail.server.plist`
+**Management commands:**
+```bash
+# Check status
+launchctl list | grep agentmail
 
-### Option 2: tmux
+# Restart
+launchctl stop com.agentmail.server && launchctl start com.agentmail.server
+
+# Reload config (after editing plist)
+launchctl unload ~/Library/LaunchAgents/com.agentmail.server.plist
+launchctl load ~/Library/LaunchAgents/com.agentmail.server.plist
+```
+
+### Alternative: tmux (manual)
 
 ```bash
 tmux new-session -d -s agent-mail "cd ~/.local/share/mcp_agent_mail && uv run python -m mcp_agent_mail.cli serve-http --port 8765"
@@ -160,11 +172,31 @@ curl http://127.0.0.1:8765/
 - Architecture: `.orch/investigations/design/2025-12-01-orch-cli-role-in-agent-ecosystem.md`
 - GitHub: https://github.com/Dicklesworthstone/mcp_agent_mail
 
-## Integration with orch-cli
+## Integration with orch-cli (IMPLEMENTED)
 
-Agent Mail can complement orch-cli:
-- **Current:** `orch send` uses tmux (one-way)
-- **Future:** Could use Agent Mail for bidirectional, persistent messaging
-- **File reservations:** Could prevent conflicts in multi-agent scenarios
+**Spawn context integration** (`src/orch/spawn_prompt.py`):
 
-See architecture investigation for detailed integration plans.
+Spawned agents automatically receive instructions to:
+1. Register with Agent Mail on startup (first 5 actions)
+2. Check inbox periodically (every 30 min or at phase transitions)
+3. Acknowledge urgent messages (`ack_required=true`)
+4. Message orchestrator when blocked
+
+**Commit:** `23cb4d6` - feat(spawn): add Agent Mail coordination to spawn context
+
+**Tested workflow:**
+```
+Orchestrator (ChartreuseCreek) → send_message → Worker (BlueCastle)
+Worker → acknowledge_message → Orchestrator
+Worker → reply_message → Orchestrator
+Orchestrator → fetch_inbox → sees reply
+```
+
+**Complementary to `orch send`:**
+- `orch send`: Immediate tmux injection (synchronous, ephemeral)
+- Agent Mail: Persistent messaging with history, search, threading
+
+**Future possibilities:**
+- File reservations to prevent conflicts in multi-agent scenarios
+- Orchestrator web UI for human oversight
+- Cross-project agent coordination
