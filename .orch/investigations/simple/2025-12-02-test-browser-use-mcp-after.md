@@ -67,11 +67,89 @@ The browser-use MCP was likely having issues with system Chrome's CDP implementa
 - BrowserStartEvent timeout
 - Session state inconsistency
 
+---
+
+## Session Persistence Testing
+
+After fixing CDP, tested cookie/session persistence:
+
+1. **Logged into** `https://price-watch-web.onrender.com` via browser-use
+2. **Closed all browser sessions** with `browser_close_all`
+3. **Reopened and navigated** to the same URL
+4. **Result:** Automatically logged in - session cookie was persisted
+
+**Key insight:** Browser-use already supports session persistence via `user_data_dir`. Cookies are stored in:
+`~/.config/browseruse/profiles/default/Default/Cookies`
+
+---
+
+## Final Recommended Config
+
+`~/.config/browseruse/config.json`:
+
+```json
+{
+  "browser_profile": {
+    "...uuid...": {
+      "id": "...uuid...",
+      "default": true,
+      "created_at": "...",
+      "headless": false,
+      "user_data_dir": "/Users/dylanconlin/.config/browseruse/profiles/default",
+      "allowed_domains": null,
+      "downloads_path": null,
+      "executable_path": "/Users/dylanconlin/Library/Caches/ms-playwright/chromium-1161/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+      "window_size": {"width": 1440, "height": 900},
+      "enable_default_extensions": true,
+      "wait_between_actions": 0.15
+    }
+  }
+}
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `executable_path` | Use Playwright Chromium (fixes CDP errors) |
+| `user_data_dir` | Persist cookies/sessions across browser restarts |
+| `window_size` | Consistent viewport for reliable element positioning |
+| `enable_default_extensions` | uBlock Origin, cookie auto-dismiss, ClearURLs |
+| `wait_between_actions` | Slightly slower actions for stability |
+
+---
+
+## Root Cause Analysis
+
+**Problem:** Browser-use was using system Google Chrome instead of Playwright Chromium.
+
+**Why this broke CDP:**
+- System Chrome has extra security features and background processes
+- These interfere with the Chrome DevTools Protocol (CDP) remote debugging connection
+- Playwright's Chromium is stripped down specifically for automation
+
+**GitHub reference:** Issue #3641 - multiple users reported same fix (use Chromium, not Chrome)
+
+---
+
+## Other Available Config Options
+
+For future reference, browser-use supports many additional options:
+
+- `disable_security` - Disable CORS/SSL (dev only)
+- `allowed_domains` / `prohibited_domains` - Domain whitelisting/blacklisting
+- `highlight_elements` - Visual highlighting of interactive elements
+- `record_video_dir` - Save session recordings
+- `proxy` - Proxy settings
+- `demo_mode` - Show agent logs panel in browser
+- `minimum_wait_page_load_time` - Page load wait time
+- `wait_for_network_idle_page_load_time` - Network idle timeout
+
 ## Self-Review
 
 - [x] Real test performed (not code review)
 - [x] Conclusion from evidence (not speculation)
 - [x] Question answered
+- [x] Session persistence verified
+- [x] Final config documented
 - [x] File complete
 
 **Self-Review Status:** PASSED
