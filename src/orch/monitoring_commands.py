@@ -402,15 +402,78 @@ def register_monitoring_commands(cli):
         })
 
     @cli.command()
-    @click.argument('agent_id')
+    @click.argument('agent_id', required=False)
+    @click.option('--issue', 'beads_issue', help='Inspect beads issue directly (bypass registry)')
     @click.option('--format', 'output_format', type=click.Choice(['human', 'json']), default='human', help='Output format')
     @click.option('--registry', 'registry_path', type=click.Path(exists=True), hidden=True, help='Registry path (for testing)')
-    def check(agent_id, output_format, registry_path):
-        """Detailed inspection of specific agent."""
+    def check(agent_id, beads_issue, output_format, registry_path):
+        """Detailed inspection of specific agent or beads issue."""
         from orch.json_output import serialize_agent_status, serialize_commit_info, output_json
 
         # Initialize logger
         orch_logger = OrchLogger()
+
+        # Validate: either agent_id or --issue, but not both
+        if agent_id and beads_issue:
+            click.echo("Cannot specify both agent_id and --issue. Use one or the other.", err=True)
+            raise click.Abort()
+
+        if not agent_id and not beads_issue:
+            click.echo("Must specify either agent_id or --issue.", err=True)
+            raise click.Abort()
+
+        # Handle --issue flag: inspect beads issue directly (bypass registry)
+        if beads_issue:
+            from orch.beads_integration import (
+                BeadsIntegration,
+                BeadsCLINotFoundError,
+                BeadsIssueNotFoundError,
+            )
+
+            orch_logger.log_command_start("check", {"beads_issue": beads_issue, "format": output_format})
+
+            try:
+                beads = BeadsIntegration()
+                issue = beads.get_issue(beads_issue)
+                phase = beads.get_phase_from_comments(beads_issue)
+            except BeadsCLINotFoundError:
+                click.echo("bd CLI not found. Install beads or check PATH.", err=True)
+                raise click.Abort()
+            except BeadsIssueNotFoundError:
+                click.echo(f"Beads issue '{beads_issue}' not found.", err=True)
+                raise click.Abort()
+
+            # Output based on format
+            if output_format == 'json':
+                result = {
+                    "issue": {
+                        "id": issue.id,
+                        "title": issue.title,
+                        "description": issue.description,
+                        "status": issue.status,
+                        "priority": issue.priority,
+                        "phase": phase,
+                        "notes": issue.notes,
+                    }
+                }
+                click.echo(output_json(result))
+                return
+
+            # Human format
+            click.echo()
+            click.echo(f"🔍 Beads Issue: {issue.id}")
+            click.echo("=" * 70)
+            click.echo()
+            click.echo(f"Title: {issue.title}")
+            click.echo(f"Status: {issue.status}")
+            click.echo(f"Priority: {issue.priority}")
+            click.echo(f"Phase: {phase or 'None (no phase comments)'}")
+            if issue.description:
+                click.echo(f"\nDescription:\n{issue.description}")
+            if issue.notes:
+                click.echo(f"\nNotes: {issue.notes}")
+            click.echo()
+            return
 
         # Log check start
         orch_logger.log_command_start("check", {"agent_id": agent_id, "format": output_format})

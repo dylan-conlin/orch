@@ -350,6 +350,7 @@ def abandon(agent_ids, reason, force):
 
 @cli.command()
 @click.argument('agent_id', required=False)
+@click.option('--issue', 'beads_issue', help='Close beads issue directly (bypass registry)')
 @click.option('--dry-run', is_flag=True, help='Show what would happen without executing')
 @click.option('--all', 'complete_all', is_flag=True, help='Complete all ready agents (READY_COMPLETE or READY_CLEAN scenarios)')
 @click.option('--project', help='Filter agents by project directory (used with --all)')
@@ -358,7 +359,7 @@ def abandon(agent_ids, reason, force):
 @click.option('--sync', 'sync_mode', is_flag=True, help='Run completion synchronously (blocking, wait for cleanup)')
 @click.option('--async', 'async_mode', is_flag=True, hidden=True, help='[DEPRECATED] Async is now the default. This flag has no effect.')
 @click.option('--discover', is_flag=True, help='Capture discovered/punted work items and create beads issues')
-def complete(agent_id, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
+def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
     """
     Complete agent work: verify, close beads issue, cleanup.
 
@@ -371,9 +372,61 @@ def complete(agent_id, dry_run, complete_all, project, skip_test_check, force, s
     Example:
         orch complete my-agent-workspace
         orch complete investigate-bug-123
+        orch complete --issue orch-cli-xyz
     """
     from orch.complete import complete_agent_work
     from orch.monitor import check_agent_status, Scenario
+
+    # Handle --issue flag: close beads issue directly (bypass registry)
+    if beads_issue:
+        # Validate: --issue is mutually exclusive with agent_id and --all
+        if agent_id:
+            click.echo("Cannot specify both agent_id and --issue. Use one or the other.", err=True)
+            raise click.Abort()
+        if complete_all:
+            click.echo("Cannot use --issue with --all.", err=True)
+            raise click.Abort()
+
+        from orch.beads_integration import (
+            BeadsIntegration,
+            BeadsCLINotFoundError,
+            BeadsIssueNotFoundError,
+        )
+        from orch.complete import BeadsPhaseNotCompleteError
+
+        try:
+            beads = BeadsIntegration()
+
+            # Verify Phase: Complete exists in comments
+            phase = beads.get_phase_from_comments(beads_issue)
+            if not phase or phase.lower() != "complete":
+                click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
+                click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
+                raise click.Abort()
+
+            # Handle --discover: capture punted work before closing
+            if discover:
+                from orch.complete import prompt_for_discoveries, process_discoveries, format_discovery_summary
+
+                # Prompt for discovered items
+                items = prompt_for_discoveries()
+                if items:
+                    results = process_discoveries(items, discovered_from=beads_issue)
+                    click.echo(format_discovery_summary(results))
+                    click.echo()
+
+            # Close the issue
+            beads.close_issue(beads_issue, reason='Resolved via orch complete --issue')
+            click.echo(f"Beads issue '{beads_issue}' closed successfully.")
+
+        except BeadsCLINotFoundError:
+            click.echo("bd CLI not found. Install beads or check PATH.", err=True)
+            raise click.Abort()
+        except BeadsIssueNotFoundError:
+            click.echo(f"Beads issue '{beads_issue}' not found.", err=True)
+            raise click.Abort()
+
+        return
 
     # Phase 4.5: Batch completion mode
     if complete_all:
