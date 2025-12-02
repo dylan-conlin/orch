@@ -537,6 +537,39 @@ The orchestrator may send you guidance via Agent Mail instead of tmux.
         task_short=config.task[:50] + "..." if len(config.task) > 50 else config.task
     ))
 
+    # Beads progress tracking (when spawned from a beads issue)
+    if config.beads_id:
+        additional_parts.append("""
+## BEADS PROGRESS TRACKING (PREFERRED)
+
+You were spawned from beads issue: **{beads_id}**
+
+**Use `bd comment` for progress updates instead of workspace-only tracking:**
+
+```bash
+# Report progress at phase transitions
+bd comment {beads_id} "Phase: Planning - Analyzing codebase structure"
+bd comment {beads_id} "Phase: Implementing - Adding authentication middleware"
+bd comment {beads_id} "Phase: Complete - All tests passing, ready for review"
+
+# Report blockers immediately
+bd comment {beads_id} "BLOCKED: Need clarification on API contract"
+
+# Report questions
+bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
+```
+
+**When to comment:**
+- Phase transitions (Planning → Implementing → Testing → Complete)
+- Significant milestones or findings
+- Blockers or questions requiring orchestrator input
+- Completion summary with deliverables
+
+**Why beads comments:** Creates permanent, searchable progress history linked to the issue. Orchestrator can track progress across sessions via `bd show {beads_id}`.
+
+**Note:** Workspace still tracks detailed work state. Beads comments are the primary progress log for orchestrator visibility.
+""".format(beads_id=config.beads_id))
+
     # Additional context (from beads issues, etc.) - incorporated into prompt
     if config.additional_context:
         additional_parts.append("\n## ADDITIONAL CONTEXT\n")
