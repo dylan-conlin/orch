@@ -491,6 +491,52 @@ Signal orchestrator when blocked:
     # Build additional sections that don't come from template
     additional_parts = []
 
+    # Agent Mail coordination (global MCP server for inter-agent messaging)
+    additional_parts.append("""
+## AGENT MAIL COORDINATION (REQUIRED)
+
+Agent Mail MCP is available for inter-agent messaging. On startup:
+
+1. **Register yourself** (first 5 actions):
+   ```
+   mcp__agent-mail__register_agent(
+     project_key="{project_dir}",
+     program="claude-code",
+     model="{model}",
+     task_description="{task_short}"
+   )
+   ```
+   This gives you a memorable identity (e.g., "BlueLake") for messaging.
+
+2. **Check inbox periodically** (every 30 min or at phase transitions):
+   ```
+   mcp__agent-mail__fetch_inbox(
+     project_key="{project_dir}",
+     agent_name="<your-registered-name>"
+   )
+   ```
+
+3. **Acknowledge urgent messages** immediately if `ack_required=true`
+
+4. **Message orchestrator** if blocked or need coordination:
+   ```
+   mcp__agent-mail__send_message(
+     project_key="{project_dir}",
+     sender_name="<your-name>",
+     to=["<orchestrator-name>"],
+     subject="Status update",
+     body_md="..."
+   )
+   ```
+
+**Why this matters:** Enables persistent, searchable communication between agents.
+The orchestrator may send you guidance via Agent Mail instead of tmux.
+""".format(
+        project_dir=str(config.project_dir),
+        model=config.model or "sonnet",
+        task_short=config.task[:50] + "..." if len(config.task) > 50 else config.task
+    ))
+
     # Additional context (from beads issues, etc.) - incorporated into prompt
     if config.additional_context:
         additional_parts.append("\n## ADDITIONAL CONTEXT\n")
