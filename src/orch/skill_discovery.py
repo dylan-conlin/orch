@@ -49,6 +49,7 @@ class SkillMetadata:
     deliverables: List['SkillDeliverable']
     verification: Optional[SkillVerification] = None  # Phase 3: Verification requirements
     category: Optional[str] = None  # Category (audience): worker, orchestrator, shared, meta, utilities
+    description: Optional[str] = None  # Short description of skill purpose
 
 
 # Constants
@@ -236,5 +237,6 @@ def parse_skill_metadata(content: str, skill_dir_name: str) -> SkillMetadata:
         triggers=frontmatter.get('triggers', []),
         deliverables=deliverables,
         verification=verification,
-        category=frontmatter.get('category')  # Read skill-type category from frontmatter
+        category=frontmatter.get('category'),  # Read skill-type category from frontmatter
+        description=frontmatter.get('description')  # Short description of skill purpose
     )

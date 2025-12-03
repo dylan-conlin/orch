@@ -65,6 +65,7 @@ dev = [
 
 [project.scripts]
 orch = "orch.cli:cli"
+skills = "orch.skills_cli:cli"
 
 [project.urls]
 Homepage = "https://github.com/dylanconlin/orch-cli"
