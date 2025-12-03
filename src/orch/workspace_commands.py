@@ -40,6 +40,16 @@ def register_workspace_commands(cli):
           orch search "auth" --no-refs              # Skip reference counts (faster)
           orch search "auth" --format json          # Output as JSON with metadata
         """
+        # Show deprecation warning
+        click.echo(click.style("⚠️  DEPRECATED: ", fg="yellow", bold=True) +
+                   click.style("orch search", fg="yellow") +
+                   click.style(" is deprecated. Use ", dim=True) +
+                   click.style("kb search", fg="green", bold=True) +
+                   click.style(" instead.", dim=True))
+        click.echo(click.style("   Install kb-cli: ", dim=True) +
+                   click.style("go install github.com/dylanconlin/kb-cli/cmd/kb@latest", fg="cyan"))
+        click.echo()
+
         # Interactive mode falls back to bash script (for now)
         if interactive:
             script_path = Path.home() / ".orch" / "scripts" / "search.sh"
@@ -207,6 +217,16 @@ def register_workspace_commands(cli):
           orch create-investigation auth-flow --type audits  # comprehensive review
           orch create-investigation proxy-timeout --project /path/to/project
         """
+        # Show deprecation warning
+        click.echo(click.style("⚠️  DEPRECATED: ", fg="yellow", bold=True) +
+                   click.style("orch create-investigation", fg="yellow") +
+                   click.style(" is deprecated. Use ", dim=True) +
+                   click.style("kb create investigation", fg="green", bold=True) +
+                   click.style(" instead.", dim=True))
+        click.echo(click.style("   Install kb-cli: ", dim=True) +
+                   click.style("go install github.com/dylanconlin/kb-cli/cmd/kb@latest", fg="cyan"))
+        click.echo()
+
         from orch.investigations import create_investigation, validate_investigation, InvestigationError
 
         try:
@@ -260,6 +280,16 @@ def register_workspace_commands(cli):
           orch create-decision api-versioning-strategy
           orch create-decision skill-consolidation --project /path/to/project
         """
+        # Show deprecation warning
+        click.echo(click.style("⚠️  DEPRECATED: ", fg="yellow", bold=True) +
+                   click.style("orch create-decision", fg="yellow") +
+                   click.style(" is deprecated. Use ", dim=True) +
+                   click.style("kb create decision", fg="green", bold=True) +
+                   click.style(" instead.", dim=True))
+        click.echo(click.style("   Install kb-cli: ", dim=True) +
+                   click.style("go install github.com/dylanconlin/kb-cli/cmd/kb@latest", fg="cyan"))
+        click.echo()
+
         from orch.decisions import create_decision, DecisionError
 
         try:
