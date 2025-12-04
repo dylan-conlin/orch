@@ -268,6 +268,71 @@ class TestBeadsIntegrationCloseIssue:
                 beads.close_issue("nonexistent")
 
 
+class TestBeadsIntegrationUpdateStatus:
+    """Tests for BeadsIntegration.update_issue_status()."""
+
+    def test_update_status_success(self):
+        """Test successfully updating issue status to in_progress."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.update_issue_status("test-id", "in_progress")
+
+            # Verify subprocess was called correctly
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert "bd" in call_args[0][0]
+            assert "update" in call_args[0][0]
+            assert "test-id" in call_args[0][0]
+            assert "--status" in call_args[0][0]
+            assert "in_progress" in call_args[0][0]
+
+    def test_update_status_to_open(self):
+        """Test updating issue status back to open."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.update_issue_status("test-id", "open")
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            status_idx = cmd.index("--status") + 1
+            status_value = cmd[status_idx]
+            assert status_value == "open"
+
+    def test_update_status_cli_not_found(self):
+        """Test error when bd CLI is not installed."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("bd not found")
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsCLINotFoundError):
+                beads.update_issue_status("test-id", "in_progress")
+
+    def test_update_status_issue_not_found(self):
+        """Test error when trying to update nonexistent issue."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error: issue 'nonexistent' not found",
+            )
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsIssueNotFoundError):
+                beads.update_issue_status("nonexistent", "in_progress")
+
+
 class TestBeadsIntegrationCLIPath:
     """Tests for custom CLI path support."""
 
