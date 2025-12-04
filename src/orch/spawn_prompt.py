@@ -524,6 +524,10 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
 - Completion summary with deliverables
 
 **Why beads comments:** Creates permanent, searchable progress history linked to the issue. Orchestrator can track progress across sessions via `bd show {beads_id}`.
+
+⛔ **NEVER run `bd close`** - Only the orchestrator closes issues via `orch complete`.
+   - Workers report `Phase: Complete`, orchestrator verifies and closes
+   - Running `bd close` bypasses verification and breaks tracking
 """.format(beads_id=config.beads_id))
 
     # Additional context (from beads issues, etc.) - incorporated into prompt
