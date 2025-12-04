@@ -1346,6 +1346,21 @@ def get_project_dir(project_name_or_path: str) -> Optional[Path]:
         if project_name.lower() == project_name_or_path.lower():
             return project_path
 
+    # Final fallback: check if cwd matches project name and has .orch/
+    # This ensures consistency with detect_project_from_cwd() which allows
+    # projects not in active-projects.md if they have .orch/ directory
+    try:
+        from orch.path_utils import find_orch_root
+        orch_root = find_orch_root()
+        if orch_root:
+            orch_root_path = Path(orch_root)
+            # Check if directory name matches requested project name (case-insensitive)
+            if orch_root_path.name.lower() == project_name_or_path.lower():
+                return orch_root_path
+    except Exception:
+        # Ignore errors in fallback
+        pass
+
     return None
 
 
