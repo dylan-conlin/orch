@@ -187,6 +187,124 @@ class TestProjectAutoDetection:
             os.chdir(original_cwd)
 
 
+class TestGetProjectDirCwdFallback:
+    """Tests for get_project_dir() falling back to current working directory.
+
+    When --project NAME is specified but NAME is not in active-projects.md,
+    get_project_dir() should still work if:
+    - Current directory has .orch/
+    - Current directory name matches the project name
+
+    This ensures consistency with detect_project_from_cwd() which has this fallback.
+    """
+
+    def test_get_project_dir_cwd_fallback_for_unlisted_project(self, tmp_path):
+        """Test get_project_dir() falls back to cwd when project name matches directory name."""
+        # Create project structure with .orch directory but NOT in active-projects.md
+        project_dir = tmp_path / "my-unlisted-project"
+        project_dir.mkdir()
+        orch_dir = project_dir / ".orch"
+        orch_dir.mkdir()
+
+        # Create empty active-projects.md (project not listed)
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        # Change to project directory
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+
+            with patch('orch.spawn.Path.home', return_value=tmp_path):
+                # This should work because we're IN a directory with .orch/ that matches the name
+                result = get_project_dir("my-unlisted-project")
+
+            # Should return the project directory (cwd fallback)
+            assert result is not None
+            assert result.resolve() == project_dir.resolve()
+        finally:
+            os.chdir(original_cwd)
+
+    def test_get_project_dir_cwd_fallback_case_insensitive(self, tmp_path):
+        """Test cwd fallback works with case-insensitive matching."""
+        # Create project structure
+        project_dir = tmp_path / "MyProject"
+        project_dir.mkdir()
+        orch_dir = project_dir / ".orch"
+        orch_dir.mkdir()
+
+        # Create empty active-projects.md
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+
+            with patch('orch.spawn.Path.home', return_value=tmp_path):
+                # Should work with different case
+                result = get_project_dir("myproject")
+
+            assert result is not None
+            assert result.resolve() == project_dir.resolve()
+        finally:
+            os.chdir(original_cwd)
+
+    def test_get_project_dir_cwd_fallback_no_orch_dir_fails(self, tmp_path):
+        """Test cwd fallback doesn't work if directory doesn't have .orch/."""
+        # Create directory WITHOUT .orch
+        project_dir = tmp_path / "no-orch-project"
+        project_dir.mkdir()
+
+        # Create empty active-projects.md
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+
+            with patch('orch.spawn.Path.home', return_value=tmp_path):
+                # Should return None - no .orch/ directory
+                result = get_project_dir("no-orch-project")
+
+            assert result is None
+        finally:
+            os.chdir(original_cwd)
+
+    def test_get_project_dir_cwd_fallback_name_mismatch_fails(self, tmp_path):
+        """Test cwd fallback doesn't work if project name doesn't match directory name."""
+        # Create project structure with .orch
+        project_dir = tmp_path / "actual-name"
+        project_dir.mkdir()
+        orch_dir = project_dir / ".orch"
+        orch_dir.mkdir()
+
+        # Create empty active-projects.md
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+
+            with patch('orch.spawn.Path.home', return_value=tmp_path):
+                # Should return None - name doesn't match
+                result = get_project_dir("different-name")
+
+            assert result is None
+        finally:
+            os.chdir(original_cwd)
+
+
 class TestProjectRoadmapDetection:
     """Tests for project-scoped ROADMAP detection."""
 
