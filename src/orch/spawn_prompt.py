@@ -436,14 +436,14 @@ Do NOT skip this - the orchestrator monitors Phase to track agent status.
         )
         coordination_phase = "Update workspace Phase field as you work (Planning → Implementation → Testing → Complete)"
     else:
-        # Generate slug for orch create-investigation command (same logic as render_deliverable_path)
+        # Generate slug for kb create investigation command (same logic as render_deliverable_path)
         inv_slug = '-'.join(extract_meaningful_words(config.task)[:5])
         if not inv_slug:
             inv_slug = 'investigation'
         inv_type = config.investigation_type or 'simple'
 
         coordination_check = (
-            f"**SET UP investigation file:** Run `orch create-investigation {inv_slug} --type {inv_type}` to create from template\n"
+            f"**SET UP investigation file:** Run `kb create investigation {inv_slug}` to create from template\n"
             f"   - This creates: `.orch/investigations/{inv_type}/YYYY-MM-DD-{inv_slug}.md`\n"
             "   - This file is your coordination artifact (replaces WORKSPACE.md)\n"
             "   - If command fails, report to orchestrator immediately"
