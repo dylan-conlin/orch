@@ -308,12 +308,28 @@ def register_spawn_commands(cli):
                     )
                     return
 
+            # Mode 3b: 'interactive' as alias for -i flag
+            # Example: orch spawn interactive "explore codebase" --project X
+            # Treats 'interactive' as if user had specified -i flag
+            if context_or_skill == 'interactive':
+                context = task if task else ""
+                spawn_interactive(
+                    context=context,
+                    project=project,
+                    yes=yes,
+                    resume=resume,
+                    backend=backend,
+                    model=model
+                )
+                return
+
             # Mode 2: Skill-based (with optional custom prompt)
             # Allow missing task if custom_prompt is provided
             if not context_or_skill or (not task and not custom_prompt):
                 click.echo("❌ Usage: orch spawn SKILL_NAME \"task description\"", err=True)
                 click.echo("   Or:    orch spawn --from-roadmap \"ROADMAP Item Title\"", err=True)
                 click.echo("   Or:    orch spawn -i \"context\" --project NAME", err=True)
+                click.echo("   Or:    orch spawn interactive \"context\" --project NAME", err=True)
                 click.echo("   Or:    orch spawn SKILL_NAME --project NAME --prompt-file FILE", err=True)
                 raise click.Abort()
 
