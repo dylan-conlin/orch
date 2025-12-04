@@ -1252,10 +1252,7 @@ def _get_active_projects_file() -> Optional[Path]:
         Path to active-projects.md if found, None otherwise
     """
     # Prefer default under home (patched in tests)
-    # Try orch-knowledge first, fall back to meta-orchestration symlink
     active_projects_file = Path.home() / "orch-knowledge" / ".orch" / "active-projects.md"
-    if not active_projects_file.exists():
-        active_projects_file = Path.home() / "meta-orchestration" / ".orch" / "active-projects.md"
     if not active_projects_file.exists():
         try:
             from orch.config import get_active_projects_file

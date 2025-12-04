@@ -9,8 +9,6 @@ Supported keys:
 - roadmap_format: preferred ROADMAP format - 'org' or 'markdown' (default: 'org')
 - cdd_docs_path: path to CDD docs (used in prompts only)
 - backend: default AI backend - 'claude' or 'codex' (default: 'claude')
-
-Note: Legacy symlink ~/meta-orchestration may exist pointing to ~/orch-knowledge.
 """
 
 from __future__ import annotations

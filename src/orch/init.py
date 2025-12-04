@@ -434,8 +434,6 @@ def setup_git_hooks(project_dir: Path) -> None:
     - Token/char limits when template sources change
     - CLAUDE.md/template sync
     - README auto-generation on artifact changes
-
-    Note: Legacy symlink ~/meta-orchestration may exist pointing to ~/orch-knowledge.
     """
     git_dir = project_dir / ".git"
     if not git_dir.exists():
@@ -446,10 +444,7 @@ def setup_git_hooks(project_dir: Path) -> None:
     hooks_dir.mkdir(exist_ok=True)
 
     hook_dest = hooks_dir / "pre-commit"
-    # Try orch-knowledge first, fall back to meta-orchestration symlink
     hook_source = Path.home() / "orch-knowledge" / "scripts" / "pre-commit"
-    if not hook_source.exists():
-        hook_source = Path.home() / "meta-orchestration" / "scripts" / "pre-commit"
 
     if not hook_source.exists():
         click.echo(f"⚠️  Hook source not found: {hook_source}")
