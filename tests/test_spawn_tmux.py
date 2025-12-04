@@ -123,39 +123,36 @@ class TestTmuxSpawning:
         assert "systematic-debugging" in prompt
         assert "DELIVERABLES (REQUIRED):" in prompt
         assert "investigation:" in prompt
-        assert "WORKSPACE:" in prompt
+        assert "WORKSPACE DIR:" in prompt  # Updated: now shows workspace dir, not WORKSPACE.md
         assert "STATUS UPDATES (CRITICAL):" in prompt
         assert "CONTEXT AVAILABLE:" in prompt
 
-    def test_build_spawn_prompt_includes_workspace_population(self):
-        """Test that spawn prompt includes workspace population instructions."""
+    def test_build_spawn_prompt_includes_beads_tracking(self):
+        """Test that spawn prompt includes beads tracking instructions (not workspace population)."""
         config = SpawnConfig(
             task="Implement user authentication",
             project="test-project",
             project_dir=Path("/home/user/test-project"),
-            workspace_name="feature-auth"
+            workspace_name="feature-auth",
+            beads_id="test-beads-123"
         )
 
         prompt = build_spawn_prompt(config)
 
-        # Verify coordination artifact population section is present (workspace-based spawns)
-        assert "COORDINATION ARTIFACT POPULATION (REQUIRED):" in prompt
+        # Verify beads progress tracking is present (beads is source of truth)
+        assert "BEADS PROGRESS TRACKING" in prompt
+        assert "bd comment test-beads-123" in prompt
 
-        # Verify planning phase instructions
-        assert "Immediately after planning phase:" in prompt
-        assert "Fill TLDR / summary section (problem, status, next)" in prompt
-        assert "Capture Session Scope (validate scope estimate, mark checkpoint points)" in prompt
-        assert "Fill Progress Tracking (tasks with time estimates)" in prompt
-        assert "Update metadata fields (Owner, Started, Phase, Status)" in prompt
+        # Verify phase tracking via beads
+        assert "Phase: Planning" in prompt
+        assert "Phase: Implementing" in prompt
+        assert "Phase: Complete" in prompt
 
-        # Verify during execution instructions
-        assert "During execution:" in prompt
-        assert "Update Last Activity after each completed task" in prompt
-        assert "Update Phase field at workflow transitions" in prompt
-        assert "Mark checkpoint opportunities in Progress Tracking" in prompt
-
-        # Verify reference to documentation
-        assert ".orch/docs/workspace-conventions.md" in prompt
+        # Verify coordination artifact population section is NOT present
+        # (replaced by beads tracking - orch-cli-30j)
+        assert "COORDINATION ARTIFACT POPULATION (REQUIRED):" not in prompt
+        assert "Fill TLDR / summary section (problem, status, next)" not in prompt
+        assert ".orch/docs/workspace-conventions.md for details" not in prompt
 
     def test_spawn_in_tmux_success(self, tmp_path):
         """Test successful tmux spawn."""

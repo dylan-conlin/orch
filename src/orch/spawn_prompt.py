@@ -306,8 +306,8 @@ CONTEXT: [Minimal background needed]
 PROJECT_DIR: [Absolute path to project]
 
 SESSION SCOPE: Medium (estimated 2-4h)
-- Default estimation. Please update in WORKSPACE.md based on your analysis.
-- Recommend checkpoint every 2 hours.
+- Default estimation
+- Recommend checkpoint every 2 hours
 
 SCOPE:
 - IN: [Agent to define based on task]
@@ -326,21 +326,19 @@ AUTHORITY:
 
 DELIVERABLES (REQUIRED):
 1. **FIRST:** Verify project location: pwd (must be PROJECT_DIR)
-2. **UPDATE workspace** (created for you)
-3. Update workspace Phase field as you work
-4. [Task-specific deliverables]
+2. [Task-specific deliverables]
 
-STATUS UPDATES (CRITICAL):
-Update Phase: field in WORKSPACE.md at transitions:
+STATUS UPDATES:
+Report progress via `bd comment <beads-id>`:
 - Phase: Planning
 - Phase: Implementing
 - Phase: Complete → then call /exit to close agent session
 
 Signal orchestrator when blocked:
-- Add '**Status:** BLOCKED - [reason]' to workspace Summary section
-- Add '**Status:** QUESTION - [question]' when needing input
+- bd comment <beads-id> "BLOCKED: [reason]"
+- bd comment <beads-id> "QUESTION: [question]"
 
-Orchestrator monitors via 'orch status' (reads workspace Phase field)"""
+Orchestrator monitors via beads comments"""
 
 
 # ========== Main Prompt Building ==========
@@ -373,16 +371,16 @@ def build_spawn_prompt(config: "SpawnConfig") -> str:
     prompt = prompt.replace("[One sentence description]", config.task)
 
     # Insert CRITICAL instruction right after TASK section
-    # This prevents "Phase: Unknown" from persisting - agents MUST set Phase: Planning early
+    # This prevents agents from skipping the planning phase
     critical_instruction = """
 🚨 CRITICAL - FIRST 3 ACTIONS:
 You MUST do these within your first 3 tool calls:
-1. Read your coordination artifact (WORKSPACE.md or create investigation file)
-2. Set Phase: Planning in the artifact
+1. Report via `bd comment <beads-id> "Phase: Planning - [brief description]"`
+2. Read relevant codebase context for your task
 3. Begin planning
 
-If Phase is not set to Planning within first 3 actions, you will be flagged as unresponsive.
-Do NOT skip this - the orchestrator monitors Phase to track agent status.
+If Phase is not reported within first 3 actions, you will be flagged as unresponsive.
+Do NOT skip this - the orchestrator monitors via beads comments.
 """
     # Find end of TASK line and insert critical instruction after it
     task_end = prompt.find('\n', prompt.find('TASK:'))
@@ -396,8 +394,8 @@ Do NOT skip this - the orchestrator monitors Phase to track agent status.
     prompt = prompt.replace("[Small/Medium/Large]", "Medium")
     prompt = prompt.replace("[estimated [duration]]", "(estimated 2-4h)")
     prompt = prompt.replace("[estimated [1-2h / 2-4h / 4-6h+]]", "(estimated 2-4h)")
-    prompt = prompt.replace("[Brief justification]", "Default estimation. Please update in WORKSPACE.md based on your analysis.")
-    prompt = prompt.replace("[Brief justification: task count, complexity, unknowns]", "Default estimation. Please update in WORKSPACE.md based on your analysis.")
+    prompt = prompt.replace("[Brief justification]", "Default estimation")
+    prompt = prompt.replace("[Brief justification: task count, complexity, unknowns]", "Default estimation")
     prompt = prompt.replace("[specific phase/task]", "Phase 1")
     prompt = prompt.replace("[X]", "2")
     prompt = prompt.replace("after [timing]", "every 2 hours")
@@ -420,21 +418,19 @@ Do NOT skip this - the orchestrator monitors Phase to track agent status.
     coordination_artifact_path = str(config.primary_artifact) if config.primary_artifact else "your investigation file deliverable"
 
     if config.requires_workspace:
+        # Beads is now source of truth - simplified coordination without WORKSPACE.md instructions
         coordination_check = (
-            f"**VERIFY workspace exists:** Run `ls -la {workspace_check_path}`\n"
-            "   - File exists (created by orchestrator before you started)\n"
-            "   - If not found: Report error to orchestrator (workspace creation failed)"
+            "**REPORT phase via beads:** `bd comment <beads-id> \"Phase: Planning - [task description]\"`\n"
+            "   - This is your primary progress tracking mechanism\n"
+            "   - Orchestrator monitors via `bd show <beads-id>`"
         )
         coordination_update = (
-            "**UPDATE workspace** (created for you, don't create new one):\n"
-            "   - Write TLDR section at top (30-second resumption test - see .orch/docs/workspace-conventions.md)\n"
-            "   - Fill Session Scope section with estimated duration and checkpoint plan\n"
-            "   - Mark planned checkpoint points in Progress Tracking during planning phase\n"
-            "   - Update Last Activity timestamp after each completed task\n"
-            "   - Track actual time spent per task (add to completed task line)\n"
-            "   - Follow amnesia-resilient standards (docs/amnesia-compensation-checklist.md)"
+            "**REPORT progress via beads:**\n"
+            "   - Use `bd comment <beads-id>` for phase transitions and milestones\n"
+            "   - Report blockers immediately: `bd comment <beads-id> \"BLOCKED: [reason]\"`\n"
+            "   - Report questions: `bd comment <beads-id> \"QUESTION: [question]\"`"
         )
-        coordination_phase = "Update workspace Phase field as you work (Planning → Implementation → Testing → Complete)"
+        coordination_phase = "Report phase transitions via `bd comment <beads-id> \"Phase: [phase] - [details]\"`"
     else:
         # Generate slug for kb create investigation command (same logic as render_deliverable_path)
         inv_slug = '-'.join(extract_meaningful_words(config.task)[:5])
@@ -457,21 +453,21 @@ Do NOT skip this - the orchestrator monitors Phase to track agent status.
         coordination_phase = "Update Status: field when done (Active → Complete)"
 
     # Build STATUS UPDATES section based on requires_workspace
-    coordination_artifact_name = "investigation file" if not config.requires_workspace else "WORKSPACE.md"
-    blocked_location = "investigation file" if not config.requires_workspace else "workspace Summary section"
+    coordination_artifact_name = "investigation file" if not config.requires_workspace else "beads comments"
+    blocked_location = "investigation file" if not config.requires_workspace else "beads comments"
 
     if config.requires_workspace:
-        status_updates = f"""STATUS UPDATES (CRITICAL):
-Update Phase: field in your coordination artifact ({coordination_artifact_name}) at transitions:
+        status_updates = """STATUS UPDATES (CRITICAL):
+Report phase transitions via `bd comment <beads-id>`:
 - Phase: Planning
 - Phase: Implementing
 - Phase: Complete → then call /exit to close agent session
 
 Signal orchestrator when blocked:
-- Add '**Status:** BLOCKED - [reason]' to {blocked_location}
-- Add '**Status:** QUESTION - [question]' when needing input
+- `bd comment <beads-id> "BLOCKED: [reason]"`
+- `bd comment <beads-id> "QUESTION: [question]"`
 
-Orchestrator monitors via 'orch status' (reads coordination artifact Phase field)"""
+Orchestrator monitors via `bd show <beads-id>` (reads beads comments)"""
     else:
         # Simplified status for investigations (no Phase field, just Status)
         status_updates = f"""STATUS UPDATES:
@@ -520,8 +516,6 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
 - Completion summary with deliverables
 
 **Why beads comments:** Creates permanent, searchable progress history linked to the issue. Orchestrator can track progress across sessions via `bd show {beads_id}`.
-
-**Note:** Workspace still tracks detailed work state. Beads comments are the primary progress log for orchestrator visibility.
 """.format(beads_id=config.beads_id))
 
     # Additional context (from beads issues, etc.) - incorporated into prompt
@@ -636,11 +630,9 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
 
     # Coordination artifact note
     if config.requires_workspace:
-        additional_parts.append(f"\nWORKSPACE: {workspace_path}/WORKSPACE.md")
-        if workspace_file.exists():
-            additional_parts.append("(Workspace created automatically - WORKSPACE.md exists)\n")
-        else:
-            additional_parts.append("(WARNING: Workspace file not found - may need manual creation)\n")
+        # Beads is source of truth - no workspace file needed
+        additional_parts.append(f"\nWORKSPACE DIR: {workspace_path}")
+        additional_parts.append("(Use `bd comment <beads-id>` for progress tracking)\n")
     else:
         additional_parts.append(f"\nCOORDINATION ARTIFACT: {coordination_artifact_path}")
         additional_parts.append("(Investigation file is your deliverable - update Status when complete)\n")
@@ -651,31 +643,11 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
         additional_parts.append("\nVERIFICATION REQUIRED:")
         additional_parts.append(verification_reqs)
         additional_parts.append("")
-        if config.requires_workspace:
-            additional_parts.append("IMPORTANT: Copy the verification requirements above to your workspace 'Verification Required' section.")
-            additional_parts.append("When you mark Phase: Complete, ensure all verification items are checked off.")
-            additional_parts.append("Mark items complete as you verify them: - [x] Item description")
-            additional_parts.append("  Result: (Add test results or verification evidence here)")
-        else:
-            # For investigations: verification is inline, no separate section
-            additional_parts.append("IMPORTANT: Ensure these requirements are met before marking Status: Complete.")
+        additional_parts.append("IMPORTANT: Ensure these requirements are met before reporting Phase: Complete via `bd comment`.")
         additional_parts.append("")
 
     # Status updates guidance - now handled by [STATUS_UPDATES] placeholder in template
-
-    # Coordination artifact population guidance (only for workspaces)
-    if config.requires_workspace:
-        additional_parts.append("COORDINATION ARTIFACT POPULATION (REQUIRED):")
-        additional_parts.append("Immediately after planning phase:")
-        additional_parts.append("1. Fill TLDR / summary section (problem, status, next)")
-        additional_parts.append("2. Capture Session Scope (validate scope estimate, mark checkpoint points)")
-        additional_parts.append("3. Fill Progress Tracking (tasks with time estimates)")
-        additional_parts.append("4. Update metadata fields (Owner, Started, Phase, Status)")
-        additional_parts.append("\nDuring execution:")
-        additional_parts.append("- Update Last Activity after each completed task")
-        additional_parts.append("- Update Phase field at workflow transitions")
-        additional_parts.append("- Mark checkpoint opportunities in Progress Tracking")
-        additional_parts.append("\nSee: .orch/docs/workspace-conventions.md for details\n")
+    # Note: COORDINATION ARTIFACT POPULATION section removed - beads is source of truth
 
     # Available context
     additional_parts.append("CONTEXT AVAILABLE:")

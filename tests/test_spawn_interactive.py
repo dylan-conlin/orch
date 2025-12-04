@@ -487,12 +487,13 @@ class TestInteractiveMode:
             call_kwargs = mock_register.call_args.kwargs
             assert call_kwargs.get('is_interactive') is True
 
-    def test_interactive_mode_includes_workspace_tracking(self):
+    def test_interactive_mode_includes_beads_tracking(self):
         """
-        Test that interactive mode prompt includes workspace tracking instructions.
+        Test that interactive mode prompt includes beads tracking instructions.
+        (orch-cli-30j: beads is now source of truth, not WORKSPACE.md)
         """
         # Test that when we create a SpawnConfig for interactive mode,
-        # build_spawn_prompt produces a prompt with workspace tracking
+        # build_spawn_prompt produces a prompt with beads tracking
         project_dir = Path("/home/user/test-project")
         workspace_name = "interactive-20251116-120000"
 
@@ -502,19 +503,22 @@ class TestInteractiveMode:
             project_dir=project_dir,
             workspace_name=workspace_name,
             skill_name=None,  # Interactive mode has no skill
-            deliverables=None  # Uses DEFAULT_DELIVERABLES
+            deliverables=None,  # Uses DEFAULT_DELIVERABLES
+            beads_id="test-beads-456"  # Beads tracking enabled
         )
 
         prompt = build_spawn_prompt(config)
 
-        # Assert: Prompt includes workspace tracking instructions
-        assert "WORKSPACE:" in prompt, "Prompt should include WORKSPACE path"
+        # Assert: Prompt includes beads tracking instructions
+        assert "WORKSPACE DIR:" in prompt, "Prompt should include WORKSPACE DIR path"
         assert "STATUS UPDATES (CRITICAL):" in prompt, "Prompt should include status update instructions"
-        assert "COORDINATION ARTIFACT POPULATION (REQUIRED):" in prompt
+        assert "bd comment" in prompt, "Prompt should include beads comment instructions"
         assert "Phase: Planning" in prompt, "Prompt should include phase transition instructions"
-        assert "Fill TLDR" in prompt, "Prompt should include TLDR population instructions"
         assert "TASK: Explore authentication system" in prompt, "Prompt should include the task"
         assert "DELIVERABLES (REQUIRED):" in prompt, "Prompt should include deliverables section"
+        # Assert: Prompt does NOT include legacy workspace population instructions
+        assert "COORDINATION ARTIFACT POPULATION (REQUIRED):" not in prompt, \
+            "Prompt should NOT include workspace population instructions (beads is source of truth)"
 
     def test_interactive_naming_uses_slugified_context(self, tmp_path):
         """

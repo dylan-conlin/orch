@@ -1,10 +1,10 @@
 """
-Tests for spawn prompt documentation drift in orch spawn.
+Tests for spawn prompt generation in orch spawn.
 
-Tests that spawn.py implementation matches SPAWN_PROMPT.md documentation.
-Prevents drift where documentation describes ideal behavior but code doesn't implement it.
+Tests that spawn prompts use beads as the source of truth for progress tracking,
+not WORKSPACE.md files.
 
-Related: .orch/investigations/2025-11-16-workspace-population-pattern-violation.md
+Related: orch-cli-30j (Remove legacy WORKSPACE.md instructions)
 """
 
 import pytest
@@ -17,97 +17,141 @@ from orch.spawn import (
 )
 
 
-class TestSpawnPromptDocumentationDrift:
+class TestSpawnPromptBeadsFirst:
     """
-    Validates that spawn.py implementation matches SPAWN_PROMPT.md documentation.
+    Validates that spawn prompts use beads for progress tracking.
 
-    Prevents drift where documentation describes ideal behavior but code doesn't implement it.
-    Related: .orch/investigations/2025-11-16-workspace-population-pattern-violation.md
+    Beads (`bd comment`) is the source of truth for agent progress.
+    WORKSPACE.md instructions should not be included in spawn prompts.
+    Related: orch-cli-30j
     """
 
-    def test_spawn_prompt_includes_required_sections(self):
-        """Verify spawn prompts include all required sections from SPAWN_PROMPT.md."""
-        # Create minimal config for prompt generation
+    def test_spawn_prompt_does_not_include_workspace_instructions(self):
+        """Verify spawn prompts do NOT include WORKSPACE.md creation/update instructions."""
         config = SpawnConfig(
             task="Test task",
             project="test-project",
             project_dir=Path("/test/project"),
             workspace_name="test-workspace",
-            skill_name="test-skill",
+            skill_name="feature-impl",
+            beads_id="test-123",
             deliverables=DEFAULT_DELIVERABLES
         )
 
-        # Generate spawn prompt
         prompt = build_spawn_prompt(config)
 
-        # Required sections that must exist in spawn prompts for workspace-based spawns
-        # (extracted from .orch/templates/SPAWN_PROMPT.md and investigation findings)
-        required_sections = [
-            # STATUS UPDATES section
-            "STATUS UPDATES (CRITICAL):",
+        # These WORKSPACE.md-specific instructions should NOT appear
+        # (beads is now source of truth)
+        legacy_sections = [
+            "COORDINATION ARTIFACT POPULATION (REQUIRED):",
+            "Fill TLDR / summary section (problem, status, next)",
+            "Capture Session Scope (validate scope estimate, mark checkpoint points)",
+            "Fill Progress Tracking (tasks with time estimates)",
+            "Update metadata fields (Owner, Started, Phase, Status)",
+            "Update Last Activity after each completed task",
+            ".orch/docs/workspace-conventions.md for details",
+            "Workspace still tracks detailed work state",
+            "VERIFY workspace exists",
+            "UPDATE workspace",
+            "Update workspace Phase field",
+        ]
+
+        found_legacy = []
+        for section in legacy_sections:
+            if section in prompt:
+                found_legacy.append(section)
+
+        assert not found_legacy, (
+            f"Spawn prompt contains legacy WORKSPACE.md instructions:\n"
+            f"{chr(10).join('- ' + s for s in found_legacy)}\n\n"
+            f"Beads is now the source of truth for progress tracking.\n"
+            f"Remove workspace-specific instructions from spawn_prompt.py.\n"
+            f"Reference: orch-cli-30j"
+        )
+
+    def test_spawn_prompt_includes_beads_tracking_when_beads_id_provided(self):
+        """Verify spawn prompts include beads tracking when beads_id is provided."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Beads progress tracking should be present
+        required_beads_sections = [
+            "BEADS PROGRESS TRACKING",
+            "bd comment test-123",
             "Phase: Planning",
             "Phase: Implementing",
             "Phase: Complete",
-
-            # COORDINATION ARTIFACT POPULATION section (for workspace-based spawns)
-            "COORDINATION ARTIFACT POPULATION (REQUIRED):",
-            "Immediately after planning phase:",
-            "Fill TLDR",
-            "Capture Session Scope",
-            "Fill Progress Tracking",
-            "Update metadata fields",
-            "During execution:",
-            "Update Last Activity after each completed task",
-            "Update Phase field at workflow transitions",
-            "Mark checkpoint opportunities",
         ]
 
-        # Validate all required sections are present
         missing_sections = []
-        for section in required_sections:
+        for section in required_beads_sections:
             if section not in prompt:
                 missing_sections.append(section)
 
         assert not missing_sections, (
-            f"Spawn prompt missing required sections (documentation drift detected):\n"
+            f"Spawn prompt missing beads tracking sections:\n"
             f"{chr(10).join('- ' + s for s in missing_sections)}\n\n"
-            f"This indicates spawn.py has drifted from SPAWN_PROMPT.md template.\n"
-            f"Update build_spawn_prompt() to include missing sections.\n"
-            f"Reference: .orch/templates/SPAWN_PROMPT.md"
+            f"Beads is the source of truth for progress tracking.\n"
+            f"Reference: orch-cli-30j"
         )
 
-    def test_spawn_prompt_workspace_population_details(self):
-        """Verify workspace population instructions include specific guidance."""
+    def test_spawn_prompt_status_updates_use_beads_not_workspace(self):
+        """Verify STATUS UPDATES section references beads, not workspace."""
         config = SpawnConfig(
             task="Test task",
             project="test-project",
             project_dir=Path("/test/project"),
             workspace_name="test-workspace",
-            skill_name="test-skill",
+            skill_name="feature-impl",
+            beads_id="test-123",
             deliverables=DEFAULT_DELIVERABLES
         )
 
         prompt = build_spawn_prompt(config)
 
-        # Detailed coordination artifact population requirements
-        # (prevents agents from skipping workspace fields)
-        required_details = [
-            "TLDR / summary section (problem, status, next)",
-            "Capture Session Scope (validate scope estimate, mark checkpoint points)",
-            "Progress Tracking (tasks with time estimates)",
-            "Owner, Started, Phase, Status",
-            ".orch/docs/workspace-conventions.md",
-        ]
+        # Should NOT reference workspace for status updates
+        assert "Update Phase: field in your coordination artifact (WORKSPACE.md)" not in prompt, \
+            "STATUS UPDATES should not reference WORKSPACE.md"
+        assert "Update Phase: field in WORKSPACE.md" not in prompt, \
+            "STATUS UPDATES should not reference WORKSPACE.md"
+        assert "reads workspace Phase field" not in prompt, \
+            "Monitoring should not reference workspace Phase field"
 
-        missing_details = []
-        for detail in required_details:
-            if detail not in prompt:
-                missing_details.append(detail)
-
-        assert not missing_details, (
-            f"Coordination artifact population instructions missing specific details:\n"
-            f"{chr(10).join('- ' + d for d in missing_details)}\n\n"
-            f"These details are critical for preventing workspace population violations.\n"
-            f"Update COORDINATION ARTIFACT POPULATION section in build_spawn_prompt().\n"
-            f"Reference: .orch/investigations/2025-11-16-workspace-population-pattern-violation.md"
+    def test_spawn_prompt_verification_does_not_reference_workspace(self):
+        """Verify verification guidance does not tell agents to copy to workspace."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
         )
+
+        prompt = build_spawn_prompt(config)
+
+        # Should NOT tell agents to copy verification requirements to workspace
+        assert "Copy the verification requirements above to your workspace" not in prompt, \
+            "Verification should not reference copying to workspace"
+
+    def test_fallback_template_does_not_reference_workspace(self):
+        """Verify fallback template does not contain WORKSPACE.md references."""
+        from orch.spawn_prompt import fallback_template
+
+        template = fallback_template()
+
+        # Fallback should not reference WORKSPACE.md
+        assert "WORKSPACE.md" not in template, \
+            "Fallback template should not reference WORKSPACE.md"
+        assert "Update workspace" not in template, \
+            "Fallback template should not reference updating workspace"
