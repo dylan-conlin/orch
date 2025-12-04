@@ -370,8 +370,8 @@ def build_spawn_prompt(config: "SpawnConfig") -> str:
     prompt = template
     prompt = prompt.replace("[One sentence description]", config.task)
 
-    # Insert CRITICAL instruction right after TASK section
-    # This prevents agents from skipping the planning phase
+    # Insert CRITICAL instructions right after TASK section
+    # This prevents agents from skipping the planning phase AND the completion protocol
     critical_instruction = """
 🚨 CRITICAL - FIRST 3 ACTIONS:
 You MUST do these within your first 3 tool calls:
@@ -381,6 +381,14 @@ You MUST do these within your first 3 tool calls:
 
 If Phase is not reported within first 3 actions, you will be flagged as unresponsive.
 Do NOT skip this - the orchestrator monitors via beads comments.
+
+🚨 SESSION COMPLETE PROTOCOL (READ NOW, DO AT END):
+After your final commit, BEFORE typing anything else:
+1. Run: `bd comment <beads-id> "Phase: Complete - [1-2 sentence summary of deliverables]"`
+2. Run: `/exit` to close the agent session
+
+⚠️ Work is NOT complete until Phase: Complete is reported.
+⚠️ The orchestrator cannot close this issue until you report Phase: Complete.
 """
     # Find end of TASK line and insert critical instruction after it
     task_end = prompt.find('\n', prompt.find('TASK:'))

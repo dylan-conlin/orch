@@ -155,3 +155,82 @@ class TestSpawnPromptBeadsFirst:
             "Fallback template should not reference WORKSPACE.md"
         assert "Update workspace" not in template, \
             "Fallback template should not reference updating workspace"
+
+
+class TestSpawnPromptCompletionProtocol:
+    """
+    Validates that spawn prompts include prominent completion protocol instructions.
+
+    Agents were completing work but not following completion protocol (no Phase: Complete,
+    no /exit). This adds prominent instructions at the start of the prompt.
+    Related: orch-cli-bha
+    """
+
+    def test_spawn_prompt_includes_session_complete_protocol_block(self):
+        """Verify spawn prompts include SESSION COMPLETE PROTOCOL block prominently."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # SESSION COMPLETE PROTOCOL should be present
+        assert "SESSION COMPLETE PROTOCOL" in prompt, \
+            "Spawn prompt must include SESSION COMPLETE PROTOCOL block"
+
+        # Should include the key completion instructions
+        assert "Phase: Complete" in prompt, \
+            "Spawn prompt must mention Phase: Complete in completion protocol"
+        assert "/exit" in prompt, \
+            "Spawn prompt must mention /exit command"
+
+    def test_session_complete_protocol_appears_early_in_prompt(self):
+        """Verify SESSION COMPLETE PROTOCOL appears before skill content (early visibility)."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Find positions of key sections
+        protocol_pos = prompt.find("SESSION COMPLETE PROTOCOL")
+        skill_pos = prompt.find("## SKILL GUIDANCE")
+
+        assert protocol_pos > 0, "SESSION COMPLETE PROTOCOL should be in prompt"
+        assert skill_pos > 0, "SKILL GUIDANCE should be in prompt"
+
+        # Protocol should appear BEFORE skill guidance (early in prompt)
+        assert protocol_pos < skill_pos, (
+            f"SESSION COMPLETE PROTOCOL (pos {protocol_pos}) should appear "
+            f"before SKILL GUIDANCE (pos {skill_pos}) for early visibility"
+        )
+
+    def test_completion_protocol_warns_about_consequences(self):
+        """Verify completion protocol explains consequences of not following it."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Should warn agents about consequences
+        assert "Work is NOT complete" in prompt or "cannot close" in prompt.lower(), \
+            "Completion protocol should warn about consequences of not completing"
