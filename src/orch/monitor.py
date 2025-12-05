@@ -165,26 +165,31 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
         if artifact_phase:
             status.phase = artifact_phase
     elif skill_name in ("investigation", "systematic-debugging", "codebase-audit"):
-        investigations_dir = project_dir / ".orch" / "investigations"
-        if investigations_dir.exists():
-            workspace_name = Path(workspace_path).name
-            try:
-                matches = list(investigations_dir.rglob(f"{workspace_name}.md"))
-            except Exception:
-                matches = []
-            if matches:
-                inv_file = matches[0]
+        # Check .kb/ first (new location), then .orch/ (legacy fallback)
+        workspace_name = Path(workspace_path).name
+        matches = []
+        for base_dir in [".kb", ".orch"]:
+            investigations_dir = project_dir / base_dir / "investigations"
+            if investigations_dir.exists():
                 try:
-                    content = inv_file.read_text(encoding="utf-8")
+                    matches = list(investigations_dir.rglob(f"{workspace_name}.md"))
                 except Exception:
-                    content = ""
-                if content:
-                    phase_match = re.search(r"\*\*Phase:\*\*\s*([^\n]+)", content)
-                    if phase_match:
-                        phase = phase_match.group(1).strip()
-                        # Filter out template placeholder values like 'Active | Complete'
-                        if not _is_template_placeholder(phase):
-                            status.phase = phase
+                    matches = []
+                if matches:
+                    break
+        if matches:
+            inv_file = matches[0]
+            try:
+                content = inv_file.read_text(encoding="utf-8")
+            except Exception:
+                content = ""
+            if content:
+                phase_match = re.search(r"\*\*Phase:\*\*\s*([^\n]+)", content)
+                if phase_match:
+                    phase = phase_match.group(1).strip()
+                    # Filter out template placeholder values like 'Active | Complete'
+                    if not _is_template_placeholder(phase):
+                        status.phase = phase
 
     # Priority 1: Explicit signals (BLOCKED/QUESTION)
     if signal.has_signal:
@@ -410,8 +415,9 @@ def detect_completion_scenario(
     project_dir = Path(agent_info['project_dir'])
     workspace_path = agent_info['workspace']
 
-    # Look for investigation files
+    # Look for investigation files (check .kb/ first, then .orch/)
     investigation_patterns = [
+        project_dir / ".kb" / "investigations" / "*.md",
         project_dir / ".orch" / "investigations" / "*.md",
         project_dir / workspace_path / "investigation.md"
     ]
@@ -484,26 +490,25 @@ def _detect_completion_fallback(agent_info: Dict[str, Any], project_dir: Path) -
 
     # Signal 2: Check for deliverable based on skill type
     if skill_name == 'investigation':
-        # Look for investigation file in .orch/investigations/
-        investigations_dir = project_dir / ".orch" / "investigations"
-        if investigations_dir.exists():
-            # Check for matching investigation file based on workspace name or date
-            workspace_name = Path(workspace_path).name if workspace_path else ''
-
-            # Try to find investigation files that match workspace pattern
-            # Workspace names often follow: YYYY-MM-DD-inv-topic or inv-topic
-            try:
-                for inv_type_dir in investigations_dir.iterdir():
-                    if inv_type_dir.is_dir():
-                        for inv_file in inv_type_dir.glob("*.md"):
-                            # Check if investigation file matches workspace name
-                            if workspace_name and workspace_name in inv_file.stem:
-                                # Found matching investigation - check its phase
-                                phase = extract_phase_from_file(inv_file)
-                                if phase and phase.lower() == 'complete':
-                                    return "Complete (inferred)"
-            except (OSError, PermissionError):
-                pass  # Ignore file system errors
+        # Look for investigation file (check .kb/ first, then .orch/)
+        workspace_name = Path(workspace_path).name if workspace_path else ''
+        for base_dir in [".kb", ".orch"]:
+            investigations_dir = project_dir / base_dir / "investigations"
+            if investigations_dir.exists():
+                # Try to find investigation files that match workspace pattern
+                # Workspace names often follow: YYYY-MM-DD-inv-topic or inv-topic
+                try:
+                    for inv_type_dir in investigations_dir.iterdir():
+                        if inv_type_dir.is_dir():
+                            for inv_file in inv_type_dir.glob("*.md"):
+                                # Check if investigation file matches workspace name
+                                if workspace_name and workspace_name in inv_file.stem:
+                                    # Found matching investigation - check its phase
+                                    phase = extract_phase_from_file(inv_file)
+                                    if phase and phase.lower() == 'complete':
+                                        return "Complete (inferred)"
+                except (OSError, PermissionError):
+                    pass  # Ignore file system errors
 
     # Signal 3: Check for commits since spawn (indicates work was done)
     spawn_time_str = agent_info.get('spawned_at')

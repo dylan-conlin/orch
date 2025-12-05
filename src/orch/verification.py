@@ -80,28 +80,37 @@ def _check_deliverable_exists(
                 primary_path = (project_dir / primary_path).resolve()
             return primary_path.exists()
 
-        investigations_dir = project_dir / ".orch" / "investigations"
+        # Check .kb/ first (new location), then .orch/ (legacy fallback)
+        for base_dir in [".kb", ".orch"]:
+            investigations_dir = project_dir / base_dir / "investigations"
+            if investigations_dir.exists():
+                # Search recursively in investigation subdirectories
+                pattern = f"**/{workspace_name}.md"
+                matching_files = list(investigations_dir.glob(pattern))
+                if matching_files:
+                    return True
 
-        if not investigations_dir.exists():
-            return False
+        return False
 
-        # Search recursively in investigation subdirectories
-        # Subdirectories: systems/, feasibility/, audits/, agent-failures/, performance/
-        pattern = f"**/{workspace_name}.md"
-        matching_files = list(investigations_dir.glob(pattern))
+    # Skip workspace deliverable check - beads is now source of truth
+    # WORKSPACE.md is no longer created (see investigation 2025-12-05-investigate-where-workspace-files-still.md)
+    if deliverable == 'workspace':
+        return True  # Always pass - workspace tracking replaced by beads
 
-        return len(matching_files) > 0
-
-    # Deliverable types and their expected locations (flat structure)
-    deliverable_paths = {
-        'workspace': workspace_path / "WORKSPACE.md",
-        'decision': project_dir / ".orch" / "decisions" / f"{workspace_name}.md",
-        'knowledge': project_dir / ".orch" / "knowledge" / f"{workspace_name}.md",
+    # Deliverable types and their expected locations
+    # Check .kb/ first (new location), then .orch/ (legacy fallback)
+    deliverable_subdirs = {
+        'decision': 'decisions',
+        'knowledge': 'knowledge',
     }
 
-    # Check specific deliverable type
-    if deliverable in deliverable_paths:
-        return deliverable_paths[deliverable].exists()
+    if deliverable in deliverable_subdirs:
+        subdir = deliverable_subdirs[deliverable]
+        for base_dir in [".kb", ".orch"]:
+            path = project_dir / base_dir / subdir / f"{workspace_name}.md"
+            if path.exists():
+                return True
+        return False
 
     # For 'commits', check git log (special case)
     if deliverable == 'commits':
@@ -197,6 +206,26 @@ def verify_agent_work(
                 agent_info
             )
 
+        # WORKSPACE.md not required when beads is source of truth
+        # Beads phase verification happens separately in close_beads_issue()
+        if agent_info and agent_info.get('beads_id'):
+            logger.log_event("verify", "Workspace missing - using beads as source of truth", {
+                "workspace": str(workspace_path),
+                "beads_id": agent_info.get('beads_id')
+            }, level="INFO")
+            warnings.append("WORKSPACE.md not found - relying on beads phase verification")
+            # Skip workspace-based checks, just verify deliverables
+            if agent_info.get('skill'):
+                skill_name = agent_info['skill']
+                deliverables = _get_skill_deliverables(skill_name)
+                for deliverable in deliverables:
+                    if not _check_deliverable_exists(deliverable, workspace_path, project_dir, agent_info):
+                        errors.append(f"Missing deliverable: {deliverable}")
+            if errors:
+                return VerificationResult(passed=False, errors=errors, warnings=warnings)
+            return VerificationResult(passed=True, errors=[], warnings=warnings)
+
+        # No beads_id and no workspace - cannot verify
         errors.append(f"Workspace file not found: {workspace_file}")
         return VerificationResult(passed=False, errors=errors, warnings=warnings)
 
