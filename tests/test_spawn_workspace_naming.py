@@ -140,6 +140,39 @@ class TestWorkspaceNaming:
         assert "configuration" not in name
         assert "authentication" not in name
 
+    def test_create_workspace_adhoc_no_duplicate_prefix(self):
+        """Test that workspace names don't have duplicate prefixes like inv-inv-.
+
+        When spawning an investigation with task "investigate tmux config",
+        the word "investigate" becomes "inv" via abbreviation, and the skill
+        prefix is also "inv". Without filtering, this produces "inv-inv-tmux-config".
+
+        Regression test for orch-cli-916.
+        """
+        # Investigation skill: task contains "investigate" which abbreviates to "inv"
+        task = "investigate tmux ghostty config"
+        name = create_workspace_adhoc(task, skill_name="investigation")
+
+        # Should start with single "inv-", not "inv-inv-"
+        assert name.startswith("inv-")
+        assert not name.startswith("inv-inv-")
+
+        # Debugging skill: task contains "debug"
+        task = "debug sendcutsend issue"
+        name = create_workspace_adhoc(task, skill_name="systematic-debugging")
+
+        # Should start with single "debug-", not "debug-debug-"
+        assert name.startswith("debug-")
+        assert not name.startswith("debug-debug-")
+
+        # Feature-impl skill: task contains "implement" which abbreviates to "impl"
+        # (but prefix is "feat", so no collision expected)
+        task = "implement new feature"
+        name = create_workspace_adhoc(task, skill_name="feature-impl")
+        assert name.startswith("feat-")
+        # This one should still have "impl" after "feat-" since they don't collide
+        assert "impl" in name
+
     def test_create_workspace_adhoc_truncates_at_word_boundaries(self):
         """Test that truncation happens at word boundaries, not mid-word."""
         task = "Implement comprehensive authentication system with OAuth2 JWT tokens multifactor biometric verification passwordless"

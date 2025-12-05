@@ -100,7 +100,11 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     # Build name with skill prefix if provided
     if skill_name and skill_name in SKILL_PREFIXES:
         prefix = SKILL_PREFIXES[skill_name]
-        slug_words = [prefix] + words
+        # Filter out words that match the prefix to avoid duplicates like "inv-inv-"
+        # This handles cases where task contains "investigate" which abbreviates to "inv"
+        # and skill is "investigation" which also has prefix "inv"
+        filtered_words = [w for w in words if w != prefix]
+        slug_words = [prefix] + filtered_words
     else:
         slug_words = words if words else ['workspace']
 
