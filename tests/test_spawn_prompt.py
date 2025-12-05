@@ -402,3 +402,140 @@ class TestSpawnPromptNoUnfilledPlaceholders:
             "When scope is not provided, omit the SCOPE section entirely.\n"
             "Reference: orch-cli-tmb"
         )
+
+
+class TestSpawnPromptAgentMail:
+    """
+    Validates that Agent Mail section is conditionally included based on scope.
+
+    Agent Mail coordination (~35 lines) should only be included when:
+    - Explicit flag: include_agent_mail=True
+    - Medium/Large session scope (>= 3 phases configured)
+
+    This reduces overhead for simple tasks and short-lived agents.
+    Related: orch-cli-ibc
+    """
+
+    def test_agent_mail_not_included_by_default(self):
+        """Verify Agent Mail section is NOT included by default (Small scope)."""
+        config = SpawnConfig(
+            task="Fix typo in README",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            # No include_agent_mail flag, no phases (Small scope)
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Agent Mail section should NOT appear for Small scope tasks
+        assert "AGENT MAIL COORDINATION" not in prompt, \
+            "Agent Mail section should not appear for Small scope tasks by default"
+        assert "mcp__agent-mail__register_agent" not in prompt, \
+            "Agent Mail registration instructions should not appear by default"
+
+    def test_agent_mail_included_when_flag_true(self):
+        """Verify Agent Mail section IS included when include_agent_mail=True."""
+        config = SpawnConfig(
+            task="Fix typo in README",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            include_agent_mail=True,  # Explicit flag
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Agent Mail section should appear when explicitly requested
+        assert "AGENT MAIL COORDINATION" in prompt, \
+            "Agent Mail section should appear when include_agent_mail=True"
+        assert "mcp__agent-mail__register_agent" in prompt, \
+            "Agent Mail registration instructions should appear"
+        assert "mcp__agent-mail__fetch_inbox" in prompt, \
+            "Agent Mail inbox check instructions should appear"
+        assert "mcp__agent-mail__send_message" in prompt, \
+            "Agent Mail send message instructions should appear"
+
+    def test_agent_mail_included_for_medium_scope(self):
+        """Verify Agent Mail section IS included for Medium scope (3+ phases)."""
+        config = SpawnConfig(
+            task="Implement authentication flow",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            # Medium scope: 3+ phases
+            phases="investigation,design,implementation,validation",
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Agent Mail section should appear for Medium/Large scope
+        assert "AGENT MAIL COORDINATION" in prompt, \
+            "Agent Mail section should appear for Medium scope (3+ phases)"
+
+    def test_agent_mail_not_included_for_small_scope_with_few_phases(self):
+        """Verify Agent Mail section NOT included for Small scope (1-2 phases)."""
+        config = SpawnConfig(
+            task="Quick fix",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            # Small scope: 1-2 phases
+            phases="implementation,validation",
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Agent Mail section should NOT appear for Small scope
+        assert "AGENT MAIL COORDINATION" not in prompt, \
+            "Agent Mail section should not appear for Small scope (1-2 phases)"
+
+    def test_agent_mail_includes_project_dir(self):
+        """Verify Agent Mail section includes correct project directory."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/my/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            include_agent_mail=True,
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Project directory should be in the Agent Mail registration
+        assert "/my/test/project" in prompt, \
+            "Agent Mail section should include project directory"
+
+    def test_agent_mail_includes_task_description(self):
+        """Verify Agent Mail section includes task description (truncated if long)."""
+        config = SpawnConfig(
+            task="Implement user authentication with OAuth2 support and remember me functionality",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES,
+            include_agent_mail=True,
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Task should be included (truncated)
+        assert "Implement user authentication" in prompt, \
+            "Agent Mail section should include task description"

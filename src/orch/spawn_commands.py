@@ -90,7 +90,8 @@ def register_spawn_commands(cli):
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')
     @click.option('--context-ref', help='Path to context file (design doc, investigation) to include in spawn prompt')
     @click.option('--parallel', is_flag=True, help='Use parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel):
+    @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
+    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail):
         """
         Spawn a new worker agent or interactive session.
 
@@ -245,7 +246,8 @@ def register_spawn_commands(cli):
                     stash=stash,
                     allow_dirty=allow_dirty,
                     beads_id=issue_id,
-                    context_ref=context_ref
+                    context_ref=context_ref,
+                    include_agent_mail=agent_mail
                 )
                 return
 
@@ -291,7 +293,8 @@ def register_spawn_commands(cli):
                         stash=stash,
                         allow_dirty=allow_dirty,
                         interactive=True,  # Key difference: interactive mode
-                        context_ref=context_ref
+                        context_ref=context_ref,
+                        include_agent_mail=agent_mail
                     )
                     return
                 else:
@@ -457,7 +460,8 @@ def register_spawn_commands(cli):
                 stash=stash,
                 allow_dirty=allow_dirty,
                 context_ref=context_ref,
-                parallel=parallel
+                parallel=parallel,
+                include_agent_mail=agent_mail
             )
 
         except ValueError as e:

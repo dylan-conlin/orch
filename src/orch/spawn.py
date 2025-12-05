@@ -326,6 +326,8 @@ class SpawnConfig:
     parallel: bool = False
     # Cross-repo spawning: track origin directory to sync workspace back on completion
     origin_dir: Optional[Path] = None
+    # Agent Mail coordination (scope-aware: only included for Medium/Large scope or explicit flag)
+    include_agent_mail: bool = False
 
 
 # Constants
@@ -1867,7 +1869,8 @@ def spawn_with_skill(
     interactive: bool = False,
     context_ref: Optional[str] = None,
     beads_id: Optional[str] = None,
-    parallel: bool = False
+    parallel: bool = False,
+    include_agent_mail: bool = False
 ) -> Dict[str, str]:
     """
     Spawn agent with specific skill.
@@ -2031,7 +2034,9 @@ def spawn_with_skill(
         # Parallel execution mode
         parallel=parallel,
         # Cross-repo spawning
-        origin_dir=origin_cwd if cross_repo else None
+        origin_dir=origin_cwd if cross_repo else None,
+        # Agent Mail coordination (scope-aware)
+        include_agent_mail=include_agent_mail
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)
