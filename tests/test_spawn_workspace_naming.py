@@ -18,6 +18,7 @@ from orch.spawn import (
     extract_meaningful_words,
     create_workspace_adhoc,
     get_emoji_for_skill,
+    build_window_name,
 )
 
 
@@ -215,3 +216,104 @@ class TestEmojiDetection:
     def test_get_emoji_for_none(self):
         """Test fallback emoji when skill_name is None."""
         assert get_emoji_for_skill(None) == '⚙️'
+
+
+class TestBuildWindowName:
+    """Tests for build_window_name functionality."""
+
+    def test_build_window_name_with_beads_id(self, tmp_path):
+        """Test window name includes project and beads ID."""
+        project_dir = tmp_path / "orch-cli"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="debug-fix-prefixes-05dec",
+            project_dir=project_dir,
+            skill_name="systematic-debugging",
+            beads_id="orch-cli-916"
+        )
+
+        # Should have format: emoji project: id: task
+        assert "🔍" in name  # debugging emoji
+        assert "orch-cli:" in name
+        assert "916:" in name
+        assert "fix-prefixes" in name
+        # Should NOT have skill prefix or date suffix
+        assert "debug-" not in name.split(": ")[-1]  # task slug shouldn't start with debug-
+        assert "05dec" not in name
+
+    def test_build_window_name_without_beads_id(self, tmp_path):
+        """Test window name without beads ID."""
+        project_dir = tmp_path / "price-watch"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="feat-config-parts-05dec",
+            project_dir=project_dir,
+            skill_name="feature-impl",
+            beads_id=None
+        )
+
+        # Should have format: emoji project: task
+        assert "✨" in name  # feature-impl emoji
+        assert "price-watch:" in name
+        assert "config-parts" in name
+        # Should NOT have colons for ID
+        assert name.count(":") == 1  # Only one colon (after project)
+
+    def test_build_window_name_strips_date_suffix(self, tmp_path):
+        """Test that date suffix is removed from task slug."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="inv-something-30nov",
+            project_dir=project_dir,
+            skill_name="investigation"
+        )
+
+        assert "30nov" not in name
+        assert "something" in name
+
+    def test_build_window_name_strips_skill_prefix(self, tmp_path):
+        """Test that skill prefix is removed from task slug."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="debug-fix-bug-05dec",
+            project_dir=project_dir,
+            skill_name="systematic-debugging"
+        )
+
+        # The task slug should be "fix-bug", not "debug-fix-bug"
+        task_part = name.split(": ")[-1]
+        assert task_part == "fix-bug"
+
+    def test_build_window_name_respects_max_length(self, tmp_path):
+        """Test that window names are truncated to max_length."""
+        project_dir = tmp_path / "very-long-project-name"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="feat-very-long-task-description-here-05dec",
+            project_dir=project_dir,
+            skill_name="feature-impl",
+            max_length=35
+        )
+
+        assert len(name) <= 35
+
+    def test_build_window_name_with_none_skill(self, tmp_path):
+        """Test window name with no skill (interactive mode)."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        name = build_window_name(
+            workspace_name="interactive-explore-05dec",
+            project_dir=project_dir,
+            skill_name=None
+        )
+
+        assert "⚙️" in name  # fallback emoji
+        assert "myproject:" in name

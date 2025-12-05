@@ -27,7 +27,8 @@ from orch.workspace_naming import (
     SKILL_EMOJIS,
     extract_meaningful_words,
     create_workspace_adhoc,
-    get_emoji_for_skill
+    get_emoji_for_skill,
+    build_window_name
 )
 from orch.logging import OrchLogger
 from orch.roadmap import RoadmapItem, find_roadmap_item, parse_roadmap_file_cached
@@ -652,9 +653,13 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[st
             })
             raise RuntimeError(f"Tmux session '{session_name}' not found.")
 
-        # Build window name with emoji
-        emoji = get_emoji_for_skill(config.skill_name)
-        window_name = f"{emoji} worker: {config.workspace_name}"
+        # Build window name with project context and optional beads ID
+        window_name = build_window_name(
+            workspace_name=config.workspace_name,
+            project_dir=config.project_dir,
+            skill_name=config.skill_name,
+            beads_id=config.beads_id
+        )
 
         # Build spawn prompt
         prompt = build_spawn_prompt(config)
@@ -1592,8 +1597,15 @@ def spawn_interactive(
     if not session:
         raise RuntimeError(f"Tmux session '{session_name}' not found.")
 
-    # Build window name with 💬 emoji (use workspace_name for consistency with agent ID)
-    window_name = f"💬 {workspace_name}"
+    # Build window name with project context (interactive uses 💬 emoji via skill_name=None)
+    window_name = build_window_name(
+        workspace_name=workspace_name,
+        project_dir=project_dir,
+        skill_name=None,  # Uses default ⚙️ emoji, but we override to 💬 below
+        beads_id=None
+    )
+    # Override emoji for interactive mode
+    window_name = f"💬{window_name[1:]}"  # Replace first emoji with 💬
 
     # Capture origin_dir for cross-repo workspace sync
     origin_dir = Path.cwd().resolve()

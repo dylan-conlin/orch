@@ -166,3 +166,79 @@ def get_emoji_for_skill(skill_name: Optional[str]) -> str:
         return '⚙️'
 
     return SKILL_EMOJIS.get(skill_name, '⚙️')
+
+
+def build_window_name(
+    workspace_name: str,
+    project_dir: Path,
+    skill_name: Optional[str] = None,
+    beads_id: Optional[str] = None,
+    max_length: int = 35
+) -> str:
+    """
+    Build tmux window name with project context and optional beads ID.
+
+    Format:
+        With beads:    "{emoji} {project}: {short_id}: {task_slug}"
+        Without beads: "{emoji} {project}: {task_slug}"
+
+    Args:
+        workspace_name: Full workspace name (e.g., "debug-fix-prefixes-05dec")
+        project_dir: Project directory path
+        skill_name: Optional skill name for emoji selection
+        beads_id: Optional beads issue ID (e.g., "orch-cli-916")
+        max_length: Maximum window name length (default 35)
+
+    Returns:
+        Formatted window name for tmux
+
+    Example:
+        >>> build_window_name("debug-fix-prefixes-05dec", Path("/projects/orch-cli"),
+        ...                   skill_name="systematic-debugging", beads_id="orch-cli-916")
+        '🔍 orch-cli: 916: fix-prefixes'
+    """
+    emoji = get_emoji_for_skill(skill_name)
+    project_name = project_dir.name
+
+    # Extract task slug from workspace name (remove skill prefix and date suffix)
+    # Format: "debug-fix-prefixes-05dec" -> "fix-prefixes"
+    parts = workspace_name.split('-')
+
+    # Remove date suffix (last part, e.g., "05dec")
+    if parts and re.match(r'^\d{2}[a-z]{3}$', parts[-1]):
+        parts = parts[:-1]
+
+    # Remove skill prefix if present (first part matches a known prefix)
+    if parts and parts[0] in SKILL_PREFIXES.values():
+        parts = parts[1:]
+
+    task_slug = '-'.join(parts) if parts else workspace_name
+
+    # Extract short beads ID (e.g., "orch-cli-916" -> "916")
+    short_id = None
+    if beads_id:
+        id_parts = beads_id.split('-')
+        if id_parts:
+            short_id = id_parts[-1]
+
+    # Build window name
+    if short_id:
+        window_name = f"{emoji} {project_name}: {short_id}: {task_slug}"
+    else:
+        window_name = f"{emoji} {project_name}: {task_slug}"
+
+    # Truncate if too long (preserve emoji and project)
+    if len(window_name) > max_length:
+        # Calculate available space for task_slug
+        prefix = f"{emoji} {project_name}: "
+        if short_id:
+            prefix += f"{short_id}: "
+        available = max_length - len(prefix)
+        if available > 3:
+            task_slug = task_slug[:available-2] + ".."
+            if short_id:
+                window_name = f"{emoji} {project_name}: {short_id}: {task_slug}"
+            else:
+                window_name = f"{emoji} {project_name}: {task_slug}"
+
+    return window_name
