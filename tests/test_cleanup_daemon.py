@@ -113,6 +113,35 @@ class TestGracefulShutdownWindow:
                 result = graceful_shutdown_window('@123')
                 assert result is False
 
+    def test_polls_and_returns_early_when_processes_exit(self):
+        """Should poll every 0.5s and return immediately when processes exit."""
+        with patch('orch.cleanup_daemon.has_active_processes') as mock_has_active:
+            # First check: has processes
+            # After Ctrl+C: still active for 2 polls, then exits
+            mock_has_active.side_effect = [True, True, True, False]
+            with patch('subprocess.run'):
+                with patch('time.sleep') as mock_sleep:
+                    result = graceful_shutdown_window('@123', wait_seconds=30)
+                    assert result is True
+                    # Should have slept 3 times at 0.5s each (not once for 30s)
+                    assert mock_sleep.call_count == 3
+                    for call in mock_sleep.call_args_list:
+                        assert call[0][0] == 0.5
+
+    def test_polls_until_timeout_if_processes_never_exit(self):
+        """Should poll until timeout (60 iterations at 0.5s for 30s total)."""
+        with patch('orch.cleanup_daemon.has_active_processes') as mock_has_active:
+            # First check: has processes, then always returns True (never exits)
+            mock_has_active.return_value = True
+            with patch('subprocess.run'):
+                with patch('time.sleep') as mock_sleep:
+                    result = graceful_shutdown_window('@123', wait_seconds=30)
+                    assert result is False
+                    # Should have polled 60 times (30s / 0.5s)
+                    assert mock_sleep.call_count == 60
+                    for call in mock_sleep.call_args_list:
+                        assert call[0][0] == 0.5
+
 
 class TestSendExitCommand:
     """Tests for send_exit_command function."""
@@ -144,6 +173,32 @@ class TestSendExitCommand:
             mock_run.side_effect = Exception('tmux error')
             result = send_exit_command('@123')
             assert result is False
+
+    def test_polls_and_returns_early_when_claude_exits(self):
+        """Should poll every 0.5s and return immediately when Claude exits."""
+        with patch('subprocess.run'):
+            with patch('time.sleep') as mock_sleep:
+                with patch('orch.cleanup_daemon.has_active_processes') as mock_has_active:
+                    # Still active for 4 polls, then exits
+                    mock_has_active.side_effect = [True, True, True, True, False]
+                    result = send_exit_command('@123', wait_seconds=30)
+                    assert result is True
+                    # Should have slept 4 times at 0.5s each (not once for 30s)
+                    assert mock_sleep.call_count == 4
+                    for call in mock_sleep.call_args_list:
+                        assert call[0][0] == 0.5
+
+    def test_polls_until_timeout_if_claude_never_exits(self):
+        """Should poll until timeout (60 iterations at 0.5s for 30s total)."""
+        with patch('subprocess.run'):
+            with patch('time.sleep') as mock_sleep:
+                with patch('orch.cleanup_daemon.has_active_processes', return_value=True):
+                    result = send_exit_command('@123', wait_seconds=30)
+                    assert result is False
+                    # Should have polled 60 times (30s / 0.5s)
+                    assert mock_sleep.call_count == 60
+                    for call in mock_sleep.call_args_list:
+                        assert call[0][0] == 0.5
 
 
 class TestForceKillWindow:
