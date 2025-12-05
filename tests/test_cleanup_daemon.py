@@ -84,15 +84,16 @@ class TestGracefulShutdownWindow:
                 )
 
     def test_sends_ctrl_c_and_waits(self):
-        """Should send Ctrl+C and wait for processes to terminate."""
+        """Should send Ctrl+C and poll for processes to terminate."""
         with patch('orch.cleanup_daemon.has_active_processes') as mock_has_active:
-            # First check: has processes, after wait: no processes
+            # First check: has processes, first poll: no processes (immediate exit)
             mock_has_active.side_effect = [True, False]
             with patch('subprocess.run') as mock_run:
                 with patch('time.sleep') as mock_sleep:
                     result = graceful_shutdown_window('@123', wait_seconds=5)
                     assert result is True
-                    mock_sleep.assert_called_once_with(5)
+                    # With polling, exits immediately on first check (no sleep)
+                    assert mock_sleep.call_count == 0
                     # Check Ctrl+C was sent
                     mock_run.assert_called()
 
@@ -123,8 +124,9 @@ class TestGracefulShutdownWindow:
                 with patch('time.sleep') as mock_sleep:
                     result = graceful_shutdown_window('@123', wait_seconds=30)
                     assert result is True
-                    # Should have slept 3 times at 0.5s each (not once for 30s)
-                    assert mock_sleep.call_count == 3
+                    # Should have slept 2 times at 0.5s each (not once for 30s)
+                    # Exits on 3rd poll check, so no 3rd sleep
+                    assert mock_sleep.call_count == 2
                     for call in mock_sleep.call_args_list:
                         assert call[0][0] == 0.5
 
@@ -147,13 +149,14 @@ class TestSendExitCommand:
     """Tests for send_exit_command function."""
 
     def test_sends_exit_and_waits(self):
-        """Should send /exit command and wait."""
+        """Should send /exit command and poll for completion."""
         with patch('subprocess.run') as mock_run:
             with patch('time.sleep') as mock_sleep:
                 with patch('orch.cleanup_daemon.has_active_processes', return_value=False):
                     result = send_exit_command('@123', wait_seconds=5)
                     assert result is True
-                    mock_sleep.assert_called_once_with(5)
+                    # With polling, exits immediately on first check (no sleep)
+                    assert mock_sleep.call_count == 0
                     # Verify /exit was sent
                     call_args = mock_run.call_args_list[0]
                     assert '/exit' in call_args[0][0]
@@ -184,6 +187,7 @@ class TestSendExitCommand:
                     result = send_exit_command('@123', wait_seconds=30)
                     assert result is True
                     # Should have slept 4 times at 0.5s each (not once for 30s)
+                    # Exits on 5th poll check, so only 4 sleeps
                     assert mock_sleep.call_count == 4
                     for call in mock_sleep.call_args_list:
                         assert call[0][0] == 0.5

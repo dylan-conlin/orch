@@ -91,10 +91,16 @@ def graceful_shutdown_window(window_id: str, wait_seconds: int = 30) -> bool:
             stderr=subprocess.DEVNULL
         )
 
-        # Wait for processes to terminate
-        time.sleep(wait_seconds)
+        # Poll for process termination instead of fixed sleep
+        poll_interval = 0.5
+        max_iterations = int(wait_seconds / poll_interval)
 
-        # Check if processes are gone
+        for _ in range(max_iterations):
+            if not has_active_processes(window_id):
+                return True  # Processes gone, return immediately
+            time.sleep(poll_interval)
+
+        # Timeout reached, check one final time
         return not has_active_processes(window_id)
 
     except Exception:
@@ -121,10 +127,16 @@ def send_exit_command(window_id: str, wait_seconds: int = 30) -> bool:
             stderr=subprocess.DEVNULL
         )
 
-        # Wait for exit to complete
-        time.sleep(wait_seconds)
+        # Poll for exit completion instead of fixed sleep
+        poll_interval = 0.5
+        max_iterations = int(wait_seconds / poll_interval)
 
-        # Check if processes are gone
+        for _ in range(max_iterations):
+            if not has_active_processes(window_id):
+                return True  # Claude exited, return immediately
+            time.sleep(poll_interval)
+
+        # Timeout reached, check one final time
         return not has_active_processes(window_id)
 
     except Exception:
