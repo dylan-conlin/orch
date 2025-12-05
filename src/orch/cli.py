@@ -537,7 +537,8 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
 
         result = complete_agent_async(
             agent_id=agent_id,
-            project_dir=project_dir
+            project_dir=project_dir,
+            skip_test_check=skip_test_check
         )
     else:
         # Opt-in: sync mode (blocking)

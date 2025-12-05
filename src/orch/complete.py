@@ -455,7 +455,8 @@ def clean_up_agent(agent_id: str, force: bool = False) -> None:
 def complete_agent_async(
     agent_id: str,
     project_dir: Path,
-    registry_path: Path | None = None
+    registry_path: Path | None = None,
+    skip_test_check: bool = False
 ) -> dict[str, Any]:
     """
     Start async agent completion: verify, spawn background daemon.
@@ -467,6 +468,7 @@ def complete_agent_async(
         agent_id: Agent identifier (workspace name)
         project_dir: Project directory
         registry_path: Optional path to registry (for testing)
+        skip_test_check: Skip test verification check
 
     Returns:
         Dictionary with:
@@ -502,6 +504,26 @@ def complete_agent_async(
         result['errors'].append(f"Agent '{agent_id}' not found in registry")
         return result
 
+    # Step 1: Verify agent work BEFORE closing beads issue
+    # This prevents closing issues when work wasn't actually done
+    workspace_rel = agent['workspace']  # e.g., ".orch/workspace/test-workspace"
+    workspace_dir = project_dir / workspace_rel
+
+    verification = verify_agent_work(workspace_dir, project_dir, agent_info=agent, skip_test_check=skip_test_check)
+    result['verified'] = verification.passed
+
+    if not verification.passed:
+        result['errors'].extend(verification.errors)
+        result['warnings'].extend(verification.warnings)
+        click.echo("❌ Verification failed:", err=True)
+        for error in verification.errors:
+            click.echo(f"   • {error}", err=True)
+        logger.log_event("complete", "Async verification failed", {
+            "agent_id": agent_id,
+            "errors": verification.errors
+        })
+        return result
+
     now = datetime.now().isoformat()
     agent['status'] = 'completing'
     agent['updated_at'] = now  # For timestamp-based merge conflict resolution
@@ -533,6 +555,7 @@ def complete_agent_async(
 
     # Close beads issue if agent was spawned from beads issue
     # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
+    # Note: Verification already passed above, so we can safely close the issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
         try:

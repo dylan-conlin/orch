@@ -308,6 +308,7 @@ class TestCompleteAgentAsyncBeadsClose:
     def test_complete_agent_async_closes_beads_issue(self, tmp_path):
         """Test that complete_agent_async closes beads issue when agent has beads_id."""
         from orch.complete import complete_agent_async
+        from orch.verification import VerificationResult
 
         with patch('orch.registry.AgentRegistry') as MockRegistry:
             mock_registry = Mock()
@@ -320,24 +321,29 @@ class TestCompleteAgentAsyncBeadsClose:
             }
             MockRegistry.return_value = mock_registry
 
-            with patch('orch.complete.close_beads_issue') as mock_close:
-                mock_close.return_value = True
+            # Mock verification to pass (required before beads close)
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = VerificationResult(passed=True)
 
-                with patch('subprocess.Popen') as mock_popen:
-                    mock_popen.return_value = Mock(pid=12345)
+                with patch('orch.complete.close_beads_issue') as mock_close:
+                    mock_close.return_value = True
 
-                    result = complete_agent_async(
-                        agent_id='test-agent',
-                        project_dir=tmp_path,
-                                            )
+                    with patch('subprocess.Popen') as mock_popen:
+                        mock_popen.return_value = Mock(pid=12345)
 
-                    # Should have called close_beads_issue
-                    mock_close.assert_called_once_with('orch-cli-xyz')
-                    assert result.get('beads_closed') is True
+                        result = complete_agent_async(
+                            agent_id='test-agent',
+                            project_dir=tmp_path,
+                        )
+
+                        # Should have called close_beads_issue
+                        mock_close.assert_called_once_with('orch-cli-xyz')
+                        assert result.get('beads_closed') is True
 
     def test_complete_agent_async_skips_beads_close_when_no_beads_id(self, tmp_path):
         """Test that complete_agent_async doesn't close beads when agent has no beads_id."""
         from orch.complete import complete_agent_async
+        from orch.verification import VerificationResult
 
         with patch('orch.registry.AgentRegistry') as MockRegistry:
             mock_registry = Mock()
@@ -350,17 +356,57 @@ class TestCompleteAgentAsyncBeadsClose:
             }
             MockRegistry.return_value = mock_registry
 
-            with patch('orch.complete.close_beads_issue') as mock_close:
-                with patch('subprocess.Popen') as mock_popen:
-                    mock_popen.return_value = Mock(pid=12345)
+            # Mock verification to pass
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = VerificationResult(passed=True)
 
+                with patch('orch.complete.close_beads_issue') as mock_close:
+                    with patch('subprocess.Popen') as mock_popen:
+                        mock_popen.return_value = Mock(pid=12345)
+
+                        result = complete_agent_async(
+                            agent_id='test-agent',
+                            project_dir=tmp_path,
+                        )
+
+                        # Should NOT have called close_beads_issue
+                        mock_close.assert_not_called()
+
+    def test_complete_agent_async_skips_beads_close_when_verification_fails(self, tmp_path):
+        """Test that beads issue is NOT closed when verification fails (the key fix for orch-cli-avs)."""
+        from orch.complete import complete_agent_async
+        from orch.verification import VerificationResult
+
+        with patch('orch.registry.AgentRegistry') as MockRegistry:
+            mock_registry = Mock()
+            mock_registry.find.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': str(tmp_path),
+                'status': 'active',
+                'beads_id': 'orch-cli-xyz'  # Has beads_id
+            }
+            MockRegistry.return_value = mock_registry
+
+            # Mock verification to FAIL (simulating missing WORKSPACE.md)
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = VerificationResult(
+                    passed=False,
+                    errors=['Workspace file not found: /path/to/WORKSPACE.md']
+                )
+
+                with patch('orch.complete.close_beads_issue') as mock_close:
                     result = complete_agent_async(
                         agent_id='test-agent',
                         project_dir=tmp_path,
-                                            )
+                    )
 
-                    # Should NOT have called close_beads_issue
+                    # Should NOT have called close_beads_issue because verification failed
                     mock_close.assert_not_called()
+                    # Result should indicate failure
+                    assert result['success'] is False
+                    assert result['verified'] is False
+                    assert 'Workspace file not found' in str(result['errors'])
 
 
 class TestCLIBeadsClose:
