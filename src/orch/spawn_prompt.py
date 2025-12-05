@@ -60,6 +60,101 @@ DEFAULT_VERIFICATION = {
 
 # ========== Helper Functions ==========
 
+def filter_skill_phases(
+    skill_content: Optional[str],
+    phases: List[str],
+    mode: Optional[str] = None
+) -> Optional[str]:
+    """
+    Filter skill content to only include configured phases.
+
+    When spawning feature-impl with --phases="implementation,validation",
+    we don't need all 8 phases (1490 lines). This filters to only the
+    configured phases, reducing context by ~60%.
+
+    Args:
+        skill_content: Full skill content from SKILL.md
+        phases: List of phase names to include (e.g., ["implementation", "validation"])
+        mode: Implementation mode ("tdd" or "direct"). Defaults to "tdd".
+              Determines which implementation-* phase to include.
+
+    Returns:
+        Filtered skill content, or None if skill_content is None.
+
+    Phase markers in skill content:
+        <!-- SKILL-TEMPLATE: phase-name -->
+        Content here
+        <!-- /SKILL-TEMPLATE -->
+
+    Special handling for "implementation" phase:
+        - If mode="tdd": includes "implementation-tdd" section
+        - If mode="direct": includes "implementation-direct" section
+        - If mode=None: defaults to "implementation-tdd"
+    """
+    # Handle edge cases
+    if skill_content is None:
+        return None
+    if skill_content == "":
+        return ""
+
+    # If no phases configured, return header and footer only (no phase content)
+    # If content has no markers, return unchanged
+    if "<!-- SKILL-TEMPLATE:" not in skill_content:
+        return skill_content
+
+    # Default mode to tdd
+    effective_mode = mode or "tdd"
+
+    # Build set of phase markers to include
+    # Map "implementation" to specific variant based on mode
+    phase_markers_to_include = set()
+    for phase in phases:
+        if phase == "implementation":
+            # Map to specific implementation variant
+            if effective_mode == "direct":
+                phase_markers_to_include.add("implementation-direct")
+            else:
+                phase_markers_to_include.add("implementation-tdd")
+        else:
+            phase_markers_to_include.add(phase)
+
+    # Parse skill content into sections
+    # Pattern: <!-- SKILL-TEMPLATE: phase-name --> ... <!-- /SKILL-TEMPLATE -->
+    pattern = r'(<!-- SKILL-TEMPLATE: (\S+) -->.*?<!-- /SKILL-TEMPLATE -->)'
+
+    # Find all phase sections
+    sections = list(re.finditer(pattern, skill_content, re.DOTALL))
+
+    if not sections:
+        # No phase markers found, return unchanged
+        return skill_content
+
+    # Extract header (content before first marker)
+    first_section_start = sections[0].start()
+    header = skill_content[:first_section_start]
+
+    # Extract footer (content after last marker)
+    last_section_end = sections[-1].end()
+    footer = skill_content[last_section_end:]
+
+    # Build filtered content
+    filtered_sections = []
+    for match in sections:
+        full_section = match.group(1)
+        phase_name = match.group(2)
+
+        if phase_name in phase_markers_to_include:
+            filtered_sections.append(full_section)
+
+    # Combine header + filtered sections + footer
+    result = header + "\n\n".join(filtered_sections) + footer
+
+    # Clean up excessive newlines (more than 3 consecutive)
+    result = re.sub(r'\n{4,}', '\n\n\n', result)
+
+    return result
+
+
 def render_deliverable_path(template: str, config: "SpawnConfig") -> str:
     """
     Render deliverable path template with variables.
@@ -341,6 +436,149 @@ Signal orchestrator when blocked:
 Orchestrator monitors via beads comments"""
 
 
+# ========== Meta-Orchestration Boilerplate ==========
+
+# List of project path patterns that should include meta-orchestration boilerplate
+META_ORCHESTRATION_PROJECTS = ['orch-cli', 'orch-knowledge']
+
+
+def is_meta_orchestration_project(project_dir: Path) -> bool:
+    """
+    Check if project is a meta-orchestration project that needs template system warnings.
+
+    Meta-orchestration projects (orch-cli, orch-knowledge) deal with orchestration
+    templates and need the ~45 lines of template system warnings. Other projects
+    don't need this irrelevant content.
+
+    Args:
+        project_dir: Path to the project directory
+
+    Returns:
+        True if project needs meta-orchestration boilerplate
+    """
+    project_path_str = str(project_dir).lower()
+    return any(project in project_path_str for project in META_ORCHESTRATION_PROJECTS)
+
+
+def strip_meta_orchestration_boilerplate(template: str) -> str:
+    """
+    Remove meta-orchestration template system warnings from spawn prompt.
+
+    The ~45 lines of META-ORCHESTRATION TEMPLATE SYSTEM warnings are only
+    relevant for projects that deal with orchestration templates (orch-cli,
+    orch-knowledge). This function removes that section for other projects.
+
+    Args:
+        template: The spawn prompt template
+
+    Returns:
+        Template with meta-orchestration section removed
+    """
+    # Markers for the meta-orchestration section
+    start_marker = "⚠️ **META-ORCHESTRATION TEMPLATE SYSTEM**"
+    end_marker = "**Reference:** .orch/CLAUDE.md lines 77-125 for template system documentation"
+
+    start_idx = template.find(start_marker)
+    if start_idx == -1:
+        return template  # No meta-orchestration section found
+
+    end_idx = template.find(end_marker)
+    if end_idx == -1:
+        return template  # End marker not found, don't strip
+
+    # Find the end of the end marker line
+    end_of_line = template.find('\n', end_idx)
+    if end_of_line == -1:
+        end_of_line = len(template)
+
+    # Strip the section (including trailing newline)
+    return template[:start_idx] + template[end_of_line + 1:]
+
+
+def strip_unfilled_scope_section(template: str) -> str:
+    """
+    Remove SCOPE section when it contains unfilled placeholder text.
+
+    When no explicit scope is provided, the SCOPE section with placeholder text
+    "[Agent to define based on task]" confuses workers. Better to omit entirely.
+
+    Args:
+        template: The spawn prompt template
+
+    Returns:
+        Template with unfilled SCOPE section removed
+    """
+    # Check if template contains the unfilled placeholder
+    if "[What's in scope]" not in template and "[What's explicitly out of scope]" not in template:
+        return template  # No unfilled placeholders, keep SCOPE section
+
+    # Find and remove the SCOPE section
+    # Pattern: "SCOPE:\n- IN: ...\n- OUT: ...\n"
+    start_marker = "SCOPE:\n- IN:"
+    start_idx = template.find(start_marker)
+    if start_idx == -1:
+        return template  # No SCOPE section found
+
+    # Find the end of the OUT line (next section starts with a capital letter or is empty line followed by section)
+    end_idx = start_idx
+    lines = template[start_idx:].split('\n')
+    for i, line in enumerate(lines[2:], 2):  # Skip "SCOPE:" and "- IN:" lines
+        # Stop at empty line or next section (line starting with capital letter or **
+        if not line.strip() or (line and line[0].isupper()) or line.startswith('**'):
+            end_idx = start_idx + sum(len(l) + 1 for l in lines[:i])
+            break
+    else:
+        # Reached end of template
+        end_idx = len(template)
+
+    # Strip the section
+    return template[:start_idx] + template[end_idx:]
+
+
+def strip_prior_work_placeholder(template: str) -> str:
+    """
+    Remove [OPTIONAL] Context from Prior Work section with placeholder paths.
+
+    This section contains example paths like "previous-agent/WORKSPACE.md" that
+    don't exist and confuse workers. Should only be included when actual prior
+    work reference is provided.
+
+    Args:
+        template: The spawn prompt template
+
+    Returns:
+        Template with placeholder Prior Work section removed
+    """
+    start_marker = "[OPTIONAL] Context from Prior Work:"
+    start_idx = template.find(start_marker)
+    if start_idx == -1:
+        return template  # No Prior Work section found
+
+    # Find the end of this section (next line that starts a new section)
+    lines = template[start_idx:].split('\n')
+    end_idx = start_idx
+    for i, line in enumerate(lines[1:], 1):  # Skip the header line
+        # Stop at empty line followed by section header, or a line starting with uppercase/section marker
+        if not line.strip():
+            # Check if next line starts a new section
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                if next_line and (next_line[0].isupper() or next_line.startswith('**') or next_line.startswith('-')):
+                    continue  # This empty line is within the section
+            end_idx = start_idx + sum(len(l) + 1 for l in lines[:i])
+            break
+        # Check if line starts new section (uppercase start, not a bullet point continuation)
+        if line and line[0].isupper() and not line.startswith('- '):
+            end_idx = start_idx + sum(len(l) + 1 for l in lines[:i])
+            break
+    else:
+        # Section continues to end of template
+        end_idx = len(template)
+
+    # Strip the section
+    return template[:start_idx] + template[end_idx:]
+
+
 # ========== Main Prompt Building ==========
 
 def build_spawn_prompt(config: "SpawnConfig") -> str:
@@ -361,6 +599,12 @@ def build_spawn_prompt(config: "SpawnConfig") -> str:
 
     # Load template from SPAWN_PROMPT.md
     template = load_spawn_prompt_template()
+
+    # Strip meta-orchestration boilerplate for non-meta projects (orch-cli-1b5)
+    # The ~45 lines of template system warnings are only relevant for projects
+    # that deal with orchestration templates (orch-cli, orch-knowledge)
+    if not is_meta_orchestration_project(config.project_dir):
+        template = strip_meta_orchestration_boilerplate(template)
 
     # Prepare context text
     context_text = config.roadmap_context if config.roadmap_context else "[See task description]"
@@ -408,9 +652,11 @@ After your final commit, BEFORE typing anything else:
     prompt = prompt.replace("[X]", "2")
     prompt = prompt.replace("after [timing]", "every 2 hours")
 
-    # Scope defaults
-    prompt = prompt.replace("[What's in scope]", "[Agent to define based on task]")
-    prompt = prompt.replace("[What's explicitly out of scope]", "[Agent to define based on task]")
+    # Strip unfilled placeholder sections (orch-cli-tmb)
+    # When scope or prior work references are not provided, remove the sections
+    # entirely rather than leaving confusing placeholder text
+    prompt = strip_unfilled_scope_section(prompt)
+    prompt = strip_prior_work_placeholder(prompt)
 
     # Deliverables substitutions
     # Replace literal PROJECT_DIR references in instructions (but not "PROJECT_DIR:" label)
@@ -552,6 +798,17 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
             additional_parts.append(f"**Source:** {config.context_ref}\n")
             additional_parts.append("(Warning: Context file not found or unreadable)\n")
 
+    # Feature-impl configuration - apply defaults when skill is feature-impl
+    # Determine phases/mode BEFORE loading skill content so we can filter phases
+    # Default phases/mode/validation: implementation+validation, tdd, tests
+    is_feature_impl = config.skill_name == 'feature-impl'
+
+    # Apply defaults for feature-impl if not explicitly specified
+    # Default includes validation phase to ensure agents verify their work
+    phases = config.phases or ('implementation,validation' if is_feature_impl else None)
+    mode = config.mode or ('tdd' if is_feature_impl else None)
+    validation = config.validation or ('tests' if is_feature_impl else None)
+
     # Skill instruction (if skill-based)
     if config.skill_name:
         additional_parts.append(f"\n## SKILL GUIDANCE ({config.skill_name})\n")
@@ -567,22 +824,19 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
 
         # Load and include skill content
         skill_content = load_skill_content(config.skill_name, config.skill_metadata)
+
+        # Filter skill phases for feature-impl to reduce context size
+        # Only include phase sections that match configured phases
+        if skill_content and is_feature_impl and phases:
+            phases_list = [p.strip() for p in phases.split(',')]
+            skill_content = filter_skill_phases(skill_content, phases_list, mode)
+
         if skill_content:
             additional_parts.append("---\n")
             additional_parts.append(skill_content)
             additional_parts.append("\n---\n")
         else:
             additional_parts.append(f"(Skill content not found - follow {config.skill_name} skill principles)\n")
-
-    # Feature-impl configuration - apply defaults when skill is feature-impl
-    # Default phases/mode/validation: implementation+validation, tdd, tests
-    is_feature_impl = config.skill_name == 'feature-impl'
-
-    # Apply defaults for feature-impl if not explicitly specified
-    # Default includes validation phase to ensure agents verify their work
-    phases = config.phases or ('implementation,validation' if is_feature_impl else None)
-    mode = config.mode or ('tdd' if is_feature_impl else None)
-    validation = config.validation or ('tests' if is_feature_impl else None)
 
     if any([phases, mode, validation, config.phase_id, config.depends_on]):
         additional_parts.append("FEATURE-IMPL CONFIGURATION:")

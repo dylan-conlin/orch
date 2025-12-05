@@ -234,3 +234,171 @@ class TestSpawnPromptCompletionProtocol:
         # Should warn agents about consequences
         assert "Work is NOT complete" in prompt or "cannot close" in prompt.lower(), \
             "Completion protocol should warn about consequences of not completing"
+
+
+class TestMetaOrchestrationBoilerplateConditional:
+    """
+    Validates that meta-orchestration boilerplate is only included for meta-orchestration projects.
+
+    The ~45 lines of META-ORCHESTRATION TEMPLATE SYSTEM warnings should only appear
+    for projects that deal with orchestration templates (orch-cli, orch-knowledge).
+    Other projects like price-watch should not see this irrelevant content.
+
+    Related: orch-cli-1b5
+    """
+
+    def test_meta_orchestration_boilerplate_included_for_orch_cli(self):
+        """Verify meta-orchestration boilerplate IS included for orch-cli project."""
+        config = SpawnConfig(
+            task="Test task",
+            project="orch-cli",
+            project_dir=Path("/Users/dylan/Documents/personal/orch-cli"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Meta-orchestration boilerplate SHOULD be present for orch-cli
+        assert "META-ORCHESTRATION TEMPLATE SYSTEM" in prompt, (
+            "Meta-orchestration boilerplate should be included for orch-cli projects"
+        )
+
+    def test_meta_orchestration_boilerplate_included_for_orch_knowledge(self):
+        """Verify meta-orchestration boilerplate IS included for orch-knowledge project."""
+        config = SpawnConfig(
+            task="Test task",
+            project="orch-knowledge",
+            project_dir=Path("/Users/dylan/orch-knowledge"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Meta-orchestration boilerplate SHOULD be present for orch-knowledge
+        assert "META-ORCHESTRATION TEMPLATE SYSTEM" in prompt, (
+            "Meta-orchestration boilerplate should be included for orch-knowledge projects"
+        )
+
+    def test_meta_orchestration_boilerplate_excluded_for_other_projects(self):
+        """Verify meta-orchestration boilerplate is NOT included for non-meta projects."""
+        config = SpawnConfig(
+            task="Test task",
+            project="price-watch",
+            project_dir=Path("/Users/dylan/Documents/personal/price-watch"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Meta-orchestration boilerplate should NOT be present for price-watch
+        assert "META-ORCHESTRATION TEMPLATE SYSTEM" not in prompt, (
+            "Meta-orchestration boilerplate should NOT be included for non-meta projects.\n"
+            "This 45-line section about template systems is irrelevant for projects\n"
+            "like price-watch that never edit orchestration templates.\n"
+            "Reference: orch-cli-1b5"
+        )
+
+    def test_meta_orchestration_boilerplate_excluded_for_generic_project(self):
+        """Verify meta-orchestration boilerplate is NOT included for generic projects."""
+        config = SpawnConfig(
+            task="Test task",
+            project="my-app",
+            project_dir=Path("/home/user/projects/my-app"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Meta-orchestration boilerplate should NOT be present for generic projects
+        assert "META-ORCHESTRATION TEMPLATE SYSTEM" not in prompt, (
+            "Meta-orchestration boilerplate should NOT be included for generic projects.\n"
+            "Reference: orch-cli-1b5"
+        )
+
+
+class TestSpawnPromptNoUnfilledPlaceholders:
+    """
+    Validates that spawn prompts do not contain unfilled placeholder text.
+
+    Placeholder text like "[Agent to define based on task]" or "previous-agent/WORKSPACE.md"
+    confuses workers. When no explicit value is provided, these sections should be omitted.
+    Related: orch-cli-tmb
+    """
+
+    def test_spawn_prompt_does_not_include_agent_to_define_placeholder(self):
+        """Verify spawn prompts do NOT include '[Agent to define based on task]' placeholder."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # This placeholder should NOT appear - it confuses workers
+        assert "[Agent to define based on task]" not in prompt, (
+            "Spawn prompt should not contain '[Agent to define based on task]' placeholder.\n"
+            "When scope is not provided, omit the SCOPE section entirely.\n"
+            "Reference: orch-cli-tmb"
+        )
+
+    def test_spawn_prompt_does_not_include_previous_agent_placeholder(self):
+        """Verify spawn prompts do NOT include placeholder prior work paths."""
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # These placeholder paths should NOT appear - they don't exist
+        placeholder_paths = [
+            "previous-agent/WORKSPACE.md",
+            "[OPTIONAL] Context from Prior Work",
+            "YYYY-MM-DD-topic.md (where {type}",
+        ]
+
+        found_placeholders = []
+        for placeholder in placeholder_paths:
+            if placeholder in prompt:
+                found_placeholders.append(placeholder)
+
+        assert not found_placeholders, (
+            f"Spawn prompt contains placeholder prior work text:\n"
+            f"{chr(10).join('- ' + p for p in found_placeholders)}\n\n"
+            "When no prior work reference is provided, omit this section entirely.\n"
+            "Reference: orch-cli-tmb"
+        )
+
+    def test_fallback_template_does_not_include_agent_to_define_placeholder(self):
+        """Verify fallback template does not contain '[Agent to define based on task]' placeholder."""
+        from orch.spawn_prompt import fallback_template
+
+        template = fallback_template()
+
+        assert "[Agent to define based on task]" not in template, (
+            "Fallback template should not contain '[Agent to define based on task]' placeholder.\n"
+            "When scope is not provided, omit the SCOPE section entirely.\n"
+            "Reference: orch-cli-tmb"
+        )
