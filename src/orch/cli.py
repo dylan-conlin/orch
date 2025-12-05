@@ -576,22 +576,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
             if result.get('beads_closed'):
                 click.echo("   ✓ Beads issue closed")
 
-            # Handle investigation backlink - prompt to mark investigation resolved
-            if result.get('investigation_backlink'):
-                backlink = result['investigation_backlink']
-                click.echo()
-                click.echo(f"   📋 Investigation backlink detected:")
-                click.echo(f"      All {backlink['feature_count']} feature(s) from this investigation are complete.")
-                click.echo(f"      Investigation: {backlink['investigation_path']}")
-                if click.confirm("      Mark investigation as resolved?", default=True):
-                    from orch.investigations import mark_investigation_resolved, InvestigationError
-                    inv_path = project_dir / backlink['investigation_path']
-                    try:
-                        mark_investigation_resolved(inv_path)
-                        click.echo("   ✓ Investigation marked as Resolved")
-                    except InvestigationError as e:
-                        click.echo(f"   ⚠️  Could not update investigation: {e}")
-
             # Show warnings if any
             if result.get('warnings'):
                 click.echo()
