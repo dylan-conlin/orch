@@ -692,7 +692,7 @@ After your final commit, BEFORE typing anything else:
 
         coordination_check = (
             f"**SET UP investigation file:** Run `kb create investigation {inv_slug}` to create from template\n"
-            f"   - This creates: `.orch/investigations/{inv_type}/YYYY-MM-DD-{inv_slug}.md`\n"
+            f"   - This creates: `.kb/investigations/{inv_type}/YYYY-MM-DD-{inv_slug}.md`\n"
             "   - This file is your coordination artifact (replaces WORKSPACE.md)\n"
             "   - If command fails, report to orchestrator immediately"
         )
@@ -911,7 +911,7 @@ The orchestrator may send you guidance via Agent Mail instead of tmux.
         additional_parts.append("INVESTIGATION CONFIGURATION:")
         additional_parts.append(f"Type: {config.investigation_type}")
         additional_parts.append("")
-        additional_parts.append(f"Create investigation file in .orch/investigations/{config.investigation_type}/ subdirectory.")
+        additional_parts.append(f"Create investigation file in .kb/investigations/{config.investigation_type}/ subdirectory.")
         additional_parts.append(f"Follow investigation skill guidance for {config.investigation_type} investigations.\n")
 
     # Parallel execution mode (codebase-audit specific)

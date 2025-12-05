@@ -159,11 +159,12 @@ def is_investigation_ref(context_ref: str | None) -> bool:
         context_ref: The context_ref value to check
 
     Returns:
-        True if context_ref points to .orch/investigations/
+        True if context_ref points to .kb/investigations/ or .orch/investigations/
     """
     if not context_ref:
         return False
-    return ".orch/investigations/" in context_ref
+    # Check .kb/ (new canonical) or .orch/ (legacy fallback)
+    return ".kb/investigations/" in context_ref or ".orch/investigations/" in context_ref
 
 
 def check_investigation_backlink(
@@ -246,9 +247,11 @@ def find_investigation_file(
     """
     Find investigation file for a workspace.
 
-    Searches in:
-    - .orch/investigations/simple/
-    - .orch/investigations/design/
+    Searches in (priority order):
+    - .kb/investigations/ (new canonical location)
+    - .orch/investigations/ (legacy fallback)
+
+    Within each location, searches subdirectories (simple/, design/, etc.)
 
     Looks for files matching workspace name (workspace name typically matches
     investigation file name without .md extension).
@@ -260,20 +263,22 @@ def find_investigation_file(
     Returns:
         Path to investigation file, or None if not found
     """
-    investigations_dir = project_dir / ".orch" / "investigations"
+    # Check .kb/ first (new canonical), then .orch/ (legacy fallback)
+    for base_dir in [".kb", ".orch"]:
+        investigations_dir = project_dir / base_dir / "investigations"
 
-    if not investigations_dir.exists():
-        return None
-
-    # Search in subdirectories: simple, design, etc.
-    for subdir in investigations_dir.iterdir():
-        if not subdir.is_dir():
+        if not investigations_dir.exists():
             continue
 
-        # Look for exact match first
-        exact_match = subdir / f"{workspace_name}.md"
-        if exact_match.exists():
-            return exact_match
+        # Search in subdirectories: simple, design, etc.
+        for subdir in investigations_dir.iterdir():
+            if not subdir.is_dir():
+                continue
+
+            # Look for exact match first
+            exact_match = subdir / f"{workspace_name}.md"
+            if exact_match.exists():
+                return exact_match
 
     return None
 
@@ -330,16 +335,18 @@ def surface_investigation_recommendations(
         if date_match:
             date_prefix = date_match.group(1)
             # Search investigations for files with same date
-            investigations_dir = project_dir / ".orch" / "investigations"
-            if investigations_dir.exists():
-                for subdir in investigations_dir.iterdir():
-                    if not subdir.is_dir():
-                        continue
-                    for f in subdir.glob(f"{date_prefix}*.md"):
-                        # Check if file contains task-related keywords
-                        # Use the most recently modified file matching the date
-                        if inv_path is None or f.stat().st_mtime > inv_path.stat().st_mtime:
-                            inv_path = f
+            # Check .kb/ first (new canonical), then .orch/ (legacy fallback)
+            for base_dir in [".kb", ".orch"]:
+                investigations_dir = project_dir / base_dir / "investigations"
+                if investigations_dir.exists():
+                    for subdir in investigations_dir.iterdir():
+                        if not subdir.is_dir():
+                            continue
+                        for f in subdir.glob(f"{date_prefix}*.md"):
+                            # Check if file contains task-related keywords
+                            # Use the most recently modified file matching the date
+                            if inv_path is None or f.stat().st_mtime > inv_path.stat().st_mtime:
+                                inv_path = f
 
     if not inv_path:
         return None
