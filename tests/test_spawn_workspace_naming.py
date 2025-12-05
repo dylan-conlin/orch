@@ -19,6 +19,7 @@ from orch.spawn import (
     create_workspace_adhoc,
     get_emoji_for_skill,
     build_window_name,
+    abbreviate_project_name,
 )
 
 
@@ -218,11 +219,36 @@ class TestEmojiDetection:
         assert get_emoji_for_skill(None) == '⚙️'
 
 
+class TestAbbreviateProjectName:
+    """Tests for project name abbreviation."""
+
+    def test_abbreviate_hyphenated_project(self):
+        """Test abbreviating hyphen-separated project names."""
+        assert abbreviate_project_name("price-watch") == "pw"
+        assert abbreviate_project_name("orch-cli") == "oc"
+        assert abbreviate_project_name("kb-cli") == "kc"
+        assert abbreviate_project_name("orch-knowledge") == "ok"
+
+    def test_abbreviate_short_single_word(self):
+        """Test that short single words are kept as-is."""
+        assert abbreviate_project_name("beads") == "beads"
+        assert abbreviate_project_name("foo") == "foo"
+
+    def test_abbreviate_long_single_word(self):
+        """Test that long single words are truncated."""
+        assert abbreviate_project_name("authentication") == "aut"
+        assert abbreviate_project_name("orchestration") == "orc"
+
+    def test_abbreviate_three_part_name(self):
+        """Test abbreviating project with three parts."""
+        assert abbreviate_project_name("my-cool-project") == "mcp"
+
+
 class TestBuildWindowName:
     """Tests for build_window_name functionality."""
 
     def test_build_window_name_with_beads_id(self, tmp_path):
-        """Test window name includes project and beads ID."""
+        """Test window name uses full beads ID (already contains project)."""
         project_dir = tmp_path / "orch-cli"
         project_dir.mkdir()
 
@@ -230,20 +256,20 @@ class TestBuildWindowName:
             workspace_name="debug-fix-prefixes-05dec",
             project_dir=project_dir,
             skill_name="systematic-debugging",
-            beads_id="orch-cli-916"
+            beads_id="orch-cli-06j"
         )
 
-        # Should have format: emoji project: id: task
+        # Should have format: emoji beads_id: task
         assert "🔍" in name  # debugging emoji
-        assert "orch-cli:" in name
-        assert "916:" in name
+        assert "orch-cli-06j:" in name  # full beads ID
         assert "fix-prefixes" in name
-        # Should NOT have skill prefix or date suffix
-        assert "debug-" not in name.split(": ")[-1]  # task slug shouldn't start with debug-
+        # Should NOT have skill prefix or date suffix in task
         assert "05dec" not in name
+        # Only one colon (after beads_id)
+        assert name.count(":") == 1
 
     def test_build_window_name_without_beads_id(self, tmp_path):
-        """Test window name without beads ID."""
+        """Test window name uses abbreviated project when no beads ID."""
         project_dir = tmp_path / "price-watch"
         project_dir.mkdir()
 
@@ -254,12 +280,12 @@ class TestBuildWindowName:
             beads_id=None
         )
 
-        # Should have format: emoji project: task
+        # Should have format: emoji abbrev: task
         assert "✨" in name  # feature-impl emoji
-        assert "price-watch:" in name
+        assert "pw:" in name  # abbreviated project name
         assert "config-parts" in name
-        # Should NOT have colons for ID
-        assert name.count(":") == 1  # Only one colon (after project)
+        # Only one colon (after abbreviated project)
+        assert name.count(":") == 1
 
     def test_build_window_name_strips_date_suffix(self, tmp_path):
         """Test that date suffix is removed from task slug."""
@@ -316,4 +342,4 @@ class TestBuildWindowName:
         )
 
         assert "⚙️" in name  # fallback emoji
-        assert "myproject:" in name
+        assert "myp:" in name  # abbreviated (myproject -> myp)

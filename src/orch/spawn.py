@@ -28,7 +28,8 @@ from orch.workspace_naming import (
     extract_meaningful_words,
     create_workspace_adhoc,
     get_emoji_for_skill,
-    build_window_name
+    abbreviate_project_name,
+    build_window_name,
 )
 from orch.logging import OrchLogger
 from orch.roadmap import RoadmapItem, find_roadmap_item, parse_roadmap_file_cached

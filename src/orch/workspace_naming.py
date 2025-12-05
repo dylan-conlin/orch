@@ -168,34 +168,70 @@ def get_emoji_for_skill(skill_name: Optional[str]) -> str:
     return SKILL_EMOJIS.get(skill_name, '⚙️')
 
 
+def abbreviate_project_name(project_name: str) -> str:
+    """
+    Create human-readable abbreviation from project name.
+
+    Takes first letter of each hyphen-separated segment.
+    For single words, takes first 2-3 chars.
+
+    Args:
+        project_name: Full project name (e.g., "price-watch", "orch-cli")
+
+    Returns:
+        Abbreviated name (e.g., "pw", "oc")
+
+    Examples:
+        >>> abbreviate_project_name("price-watch")
+        'pw'
+        >>> abbreviate_project_name("orch-cli")
+        'oc'
+        >>> abbreviate_project_name("beads")
+        'beads'
+        >>> abbreviate_project_name("kb-cli")
+        'kc'
+    """
+    parts = project_name.split('-')
+
+    if len(parts) == 1:
+        # Single word: keep as-is if short, otherwise first 3 chars
+        return project_name if len(project_name) <= 5 else project_name[:3]
+
+    # Multiple segments: first letter of each
+    return ''.join(p[0] for p in parts if p)
+
+
 def build_window_name(
     workspace_name: str,
     project_dir: Path,
     skill_name: Optional[str] = None,
     beads_id: Optional[str] = None,
-    max_length: int = 35
+    max_length: int = 40
 ) -> str:
     """
     Build tmux window name with project context and optional beads ID.
 
     Format:
-        With beads:    "{emoji} {project}: {short_id}: {task_slug}"
-        Without beads: "{emoji} {project}: {task_slug}"
+        With beads:    "{emoji} {beads_id}: {task_slug}"
+        Without beads: "{emoji} {abbrev_project}: {task_slug}"
 
     Args:
         workspace_name: Full workspace name (e.g., "debug-fix-prefixes-05dec")
         project_dir: Project directory path
         skill_name: Optional skill name for emoji selection
-        beads_id: Optional beads issue ID (e.g., "orch-cli-916")
-        max_length: Maximum window name length (default 35)
+        beads_id: Optional beads issue ID (e.g., "orch-cli-06j")
+        max_length: Maximum window name length (default 40)
 
     Returns:
         Formatted window name for tmux
 
     Example:
         >>> build_window_name("debug-fix-prefixes-05dec", Path("/projects/orch-cli"),
-        ...                   skill_name="systematic-debugging", beads_id="orch-cli-916")
-        '🔍 orch-cli: 916: fix-prefixes'
+        ...                   skill_name="systematic-debugging", beads_id="orch-cli-06j")
+        '🔍 orch-cli-06j: fix-prefixes'
+        >>> build_window_name("feat-config-parts-05dec", Path("/projects/price-watch"),
+        ...                   skill_name="feature-impl")
+        '✨ pw: config-parts'
     """
     emoji = get_emoji_for_skill(skill_name)
     project_name = project_dir.name
@@ -214,31 +250,22 @@ def build_window_name(
 
     task_slug = '-'.join(parts) if parts else workspace_name
 
-    # Extract short beads ID (e.g., "orch-cli-916" -> "916")
-    short_id = None
+    # Build window name based on whether we have beads ID
     if beads_id:
-        id_parts = beads_id.split('-')
-        if id_parts:
-            short_id = id_parts[-1]
-
-    # Build window name
-    if short_id:
-        window_name = f"{emoji} {project_name}: {short_id}: {task_slug}"
+        # With beads: use full beads_id (already contains project context)
+        prefix = f"{emoji} {beads_id}: "
     else:
-        window_name = f"{emoji} {project_name}: {task_slug}"
+        # Without beads: use abbreviated project name
+        abbrev = abbreviate_project_name(project_name)
+        prefix = f"{emoji} {abbrev}: "
 
-    # Truncate if too long (preserve emoji and project)
+    window_name = f"{prefix}{task_slug}"
+
+    # Truncate task_slug if too long (preserve prefix)
     if len(window_name) > max_length:
-        # Calculate available space for task_slug
-        prefix = f"{emoji} {project_name}: "
-        if short_id:
-            prefix += f"{short_id}: "
         available = max_length - len(prefix)
         if available > 3:
             task_slug = task_slug[:available-2] + ".."
-            if short_id:
-                window_name = f"{emoji} {project_name}: {short_id}: {task_slug}"
-            else:
-                window_name = f"{emoji} {project_name}: {task_slug}"
+            window_name = f"{prefix}{task_slug}"
 
     return window_name
