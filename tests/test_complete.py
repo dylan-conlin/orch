@@ -105,6 +105,67 @@ class TestVerification:
         # Check specific error message
         assert any("Complete" in error for error in result.errors)
 
+    def test_verify_adhoc_spawn_passes_with_commits_but_no_workspace(self, tmp_path):
+        """Test that ad-hoc spawns (no beads_id, no WORKSPACE.md) can complete when commits exist.
+
+        Bug: When agents are spawned ad-hoc (without --issue), there's no beads_id.
+        Verification currently requires either WORKSPACE.md OR beads_id to verify completion.
+        Since WORKSPACE.md is no longer created (Dec 4 fix), ad-hoc spawns can't complete
+        even when commits exist.
+
+        Fix: Allow completion when commits exist since spawn time, regardless of beads_id.
+        """
+        import subprocess
+        from datetime import datetime, timedelta
+
+        # Setup: Create a git repo with at least one commit
+        project_dir = tmp_path
+        (project_dir / ".git").mkdir()
+
+        # Initialize git repo properly
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], cwd=project_dir, check=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], cwd=project_dir, check=True)
+
+        # Create initial commit (before agent spawn)
+        test_file = project_dir / "initial.txt"
+        test_file.write_text("initial content")
+        subprocess.run(['git', 'add', 'initial.txt'], cwd=project_dir, check=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=project_dir, check=True)
+
+        # Simulate agent spawn time (1 minute ago)
+        spawn_time = datetime.now() - timedelta(minutes=1)
+
+        # Create workspace directory but NO WORKSPACE.md (Dec 4 fix - no longer created)
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-adhoc-agent"
+        workspace_dir.mkdir(parents=True)
+        # Explicitly NOT creating WORKSPACE.md
+
+        # Create agent info (ad-hoc spawn - no beads_id)
+        agent_info = {
+            'id': 'test-adhoc-agent',
+            'workspace': str(workspace_dir.relative_to(project_dir)),
+            'spawned_at': spawn_time.isoformat(),
+            'status': 'active'
+            # NO beads_id - this is an ad-hoc spawn
+        }
+
+        # Make a commit AFTER spawn time (simulating agent work)
+        work_file = project_dir / "work.txt"
+        work_file.write_text("agent work")
+        subprocess.run(['git', 'add', 'work.txt'], cwd=project_dir, check=True)
+        subprocess.run(['git', 'commit', '-m', 'feat: implement feature'], cwd=project_dir, check=True)
+
+        # Verify should PASS because commits exist since spawn time
+        result = verify_agent_work(
+            workspace_path=workspace_dir,
+            project_dir=project_dir,
+            agent_info=agent_info
+        )
+
+        assert result.passed is True, f"Expected verification to pass with commits. Errors: {result.errors}"
+        assert len(result.errors) == 0
+
 
 class TestCompleteIntegration:
     """Integration tests for complete_agent_work function."""
