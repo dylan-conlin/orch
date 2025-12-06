@@ -1126,8 +1126,12 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
             skill_metadata = skills[skill_name]  # Phase 3: Get full metadata
             deliverables = skill_metadata.deliverables
 
-    # Skip workspace for investigation-category skills (investigation, systematic-debugging, codebase-audit)
-    skip_workspace = skill_metadata and skill_metadata.category == "investigation"
+    # Skip workspace for skills that produce investigation deliverables
+    # (investigation, systematic-debugging, codebase-audit, etc.)
+    has_investigation_deliverable = skill_metadata and any(
+        d.type == "investigation" for d in (skill_metadata.deliverables or [])
+    )
+    skip_workspace = has_investigation_deliverable
 
     deliverables_list = list(deliverables) if deliverables else None
 
@@ -2010,8 +2014,12 @@ def spawn_with_skill(
     if not workspace_name:
         workspace_name = create_workspace_adhoc(task, skill_name, project_dir)
 
-    # Skip workspace for investigation-category skills (investigation, systematic-debugging, codebase-audit)
-    skip_workspace = skill_metadata and skill_metadata.category == "investigation"
+    # Skip workspace for skills that produce investigation deliverables
+    # (investigation, systematic-debugging, codebase-audit, etc.)
+    has_investigation_deliverable = skill_metadata and any(
+        d.type == "investigation" for d in (skill_metadata.deliverables or [])
+    )
+    skip_workspace = has_investigation_deliverable
 
     deliverables = list(skill_metadata.deliverables) if skill_metadata.deliverables else None
 
