@@ -16,6 +16,7 @@ from orch.spawn import (
     render_deliverable_path,
     _wrap_text,
     show_preview,
+    determine_primary_artifact,
     SpawnConfig,
     SkillDeliverable,
 )
@@ -103,3 +104,110 @@ class TestPreviewDisplay:
         assert "Deliverables:" in output
         assert "Context:" in output
         assert "PROJECT_DIR" in output
+
+
+class TestDeterminePrimaryArtifact:
+    """Tests for determine_primary_artifact function."""
+
+    def test_returns_none_when_no_deliverables(self):
+        """Test returns None when config has no deliverables."""
+        config = SpawnConfig(
+            task="Some task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            deliverables=[]
+        )
+
+        result = determine_primary_artifact(config)
+        assert result is None
+
+    def test_returns_path_for_required_investigation(self):
+        """Test returns path when investigation deliverable is required."""
+        config = SpawnConfig(
+            task="Fix database issue",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="debug-db",
+            deliverables=[
+                SkillDeliverable(
+                    type="investigation",
+                    path=".orch/investigations/{date}-{slug}.md",
+                    required=True
+                )
+            ]
+        )
+
+        result = determine_primary_artifact(config)
+        assert result is not None
+        assert "investigations" in str(result)
+        assert "-fix-database-issue.md" in str(result)
+
+    def test_returns_none_for_non_required_investigation(self):
+        """Test returns None when investigation deliverable is not required."""
+        config = SpawnConfig(
+            task="Some task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            deliverables=[
+                SkillDeliverable(
+                    type="investigation",
+                    path=".orch/investigations/{date}-{slug}.md",
+                    required=False  # Not required
+                )
+            ]
+        )
+
+        result = determine_primary_artifact(config)
+        assert result is None
+
+    def test_skips_non_required_finds_required(self):
+        """Test skips non-required investigations and finds required one."""
+        config = SpawnConfig(
+            task="Some task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            deliverables=[
+                SkillDeliverable(
+                    type="investigation",
+                    path=".orch/optional/{date}.md",
+                    required=False  # Skip this
+                ),
+                SkillDeliverable(
+                    type="investigation",
+                    path=".orch/required/{date}-{slug}.md",
+                    required=True  # Find this
+                )
+            ]
+        )
+
+        result = determine_primary_artifact(config)
+        assert result is not None
+        assert "required" in str(result)
+        assert "optional" not in str(result)
+
+    def test_ignores_non_investigation_deliverables(self):
+        """Test ignores deliverables that are not investigations."""
+        config = SpawnConfig(
+            task="Some task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            deliverables=[
+                SkillDeliverable(
+                    type="workspace",
+                    path=".orch/workspace/{workspace-name}/WORKSPACE.md",
+                    required=True
+                ),
+                SkillDeliverable(
+                    type="commit",
+                    path="",
+                    required=False
+                )
+            ]
+        )
+
+        result = determine_primary_artifact(config)
+        assert result is None

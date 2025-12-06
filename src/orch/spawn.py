@@ -476,7 +476,7 @@ def determine_primary_artifact(config: SpawnConfig) -> Optional[Path]:
         return None
 
     for deliverable in config.deliverables:
-        if deliverable.type == "investigation":
+        if deliverable.type == "investigation" and deliverable.required:
             rendered = render_deliverable_path(deliverable.path, config)
             return Path(rendered)
 
