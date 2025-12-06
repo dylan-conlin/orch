@@ -141,13 +141,24 @@ def register_spawn_commands(cli):
                     depends_on=depends_on
                 )
 
-            # Read custom prompt if provided
+            # Read custom prompt or stdin context
+            # - --prompt-file: Replace entire prompt (power user feature)
+            # - --from-stdin: Add to ADDITIONAL CONTEXT section (not replace)
+            # - Piped stdin (auto-detected): Add to ADDITIONAL CONTEXT section
             custom_prompt = None
+            stdin_context = None
+
             if prompt_file:
+                # --prompt-file replaces entire prompt (full control mode)
                 with open(prompt_file, 'r') as f:
                     custom_prompt = f.read().strip()
             elif from_stdin:
-                custom_prompt = sys.stdin.read().strip()
+                # --from-stdin flag: read stdin as context (not prompt replacement)
+                stdin_context = sys.stdin.read().strip()
+            elif not sys.stdin.isatty():
+                # Auto-detect piped stdin (heredoc or pipe without explicit flag)
+                # This enables: orch spawn skill "task" << 'CONTEXT' ... CONTEXT
+                stdin_context = sys.stdin.read().strip()
 
             # Mode 4: Issue mode (from beads)
             if issue_id:
@@ -235,6 +246,7 @@ def register_spawn_commands(cli):
                     resume=resume,
                     custom_prompt=custom_prompt,  # Only used if --prompt-file provided
                     additional_context=issue_context,  # Beads context added to full prompt
+                    stdin_context=stdin_context,  # Heredoc/pipe context (added to ADDITIONAL CONTEXT)
                     phases=phases,
                     mode=mode,
                     validation=validation,
@@ -282,6 +294,7 @@ def register_spawn_commands(cli):
                         workspace_name=workspace_name,
                         yes=yes,
                         resume=resume,
+                        stdin_context=stdin_context,  # Heredoc/pipe context
                         phases=phases,
                         mode=mode,
                         validation=validation,
@@ -449,6 +462,7 @@ def register_spawn_commands(cli):
                 yes=yes,
                 resume=resume,
                 custom_prompt=custom_prompt,
+                stdin_context=stdin_context,  # Heredoc/pipe context (added to ADDITIONAL CONTEXT)
                 phases=phases,
                 mode=mode,
                 validation=validation,

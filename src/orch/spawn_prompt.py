@@ -829,10 +829,17 @@ The orchestrator may send you guidance via Agent Mail instead of tmux.
             task_short=task_short
         ))
 
-    # Additional context (from beads issues, etc.) - incorporated into prompt
+    # Additional context (from beads issues, stdin/heredoc, etc.) - incorporated into prompt
+    # Combine additional_context (from beads) with stdin_context (from heredoc/pipe)
+    combined_context = []
     if config.additional_context:
+        combined_context.append(config.additional_context)
+    if config.stdin_context:
+        combined_context.append(config.stdin_context)
+
+    if combined_context:
         additional_parts.append("\n## ADDITIONAL CONTEXT\n")
-        additional_parts.append(config.additional_context)
+        additional_parts.append("\n\n".join(combined_context))
         additional_parts.append("\n")
 
     # Design context from context_ref (if provided)

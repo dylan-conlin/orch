@@ -324,6 +324,9 @@ class SpawnConfig:
     # Use this for beads issue context or other supplementary information
     # Contrast with custom_prompt which replaces the entire generated prompt
     additional_context: Optional[str] = None
+    # Stdin context (from heredoc/pipe, added to ADDITIONAL CONTEXT section)
+    # Separate from additional_context to allow combining beads context with heredoc
+    stdin_context: Optional[str] = None
     # Parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)
     parallel: bool = False
     # Cross-repo spawning: track origin directory to sync workspace back on completion
@@ -1868,6 +1871,7 @@ def spawn_with_skill(
     resume: bool = False,
     custom_prompt: Optional[str] = None,
     additional_context: Optional[str] = None,
+    stdin_context: Optional[str] = None,
     phases: Optional[str] = None,
     mode: Optional[str] = None,
     validation: Optional[str] = None,
@@ -1898,6 +1902,7 @@ def spawn_with_skill(
         resume: Allow resuming existing workspace
         custom_prompt: Optional custom prompt to replace generated prompt
         additional_context: Optional context to incorporate into prompt (does not replace)
+        stdin_context: Optional context from stdin/heredoc (added to ADDITIONAL CONTEXT section)
         phases: Comma-separated phases for feature-impl
         mode: Implementation mode (tdd or direct)
         validation: Validation level (none, tests, smoke-test, multi-phase)
@@ -2024,6 +2029,7 @@ def spawn_with_skill(
         deliverables=deliverables,
         custom_prompt=custom_prompt,
         additional_context=additional_context,  # Incorporated into prompt (not replacing)
+        stdin_context=stdin_context,  # From heredoc/pipe (added to ADDITIONAL CONTEXT)
         skill_metadata=skill_metadata,  # Phase 3: Pass full metadata for verification
         # Phase 4: Feature-impl configuration
         phases=phases,
