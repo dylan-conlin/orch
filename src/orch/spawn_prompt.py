@@ -774,60 +774,8 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
    - Running `bd close` bypasses verification and breaks tracking
 """.format(beads_id=config.beads_id))
 
-    # Agent Mail coordination (scope-aware: only included when explicitly requested or Medium/Large scope)
-    # Determine if Agent Mail should be included
-    include_agent_mail = config.include_agent_mail
-    if not include_agent_mail and config.phases:
-        # Include for Medium/Large scope (3+ phases)
-        phase_count = len([p.strip() for p in config.phases.split(',') if p.strip()])
-        include_agent_mail = phase_count >= 3
-
-    if include_agent_mail:
-        task_short = config.task[:50] + "..." if len(config.task) > 50 else config.task
-        additional_parts.append("""
-## AGENT MAIL COORDINATION (OPTIONAL)
-
-Agent Mail MCP is available for inter-agent messaging. On startup:
-
-1. **Register yourself** (first 5 actions):
-   ```
-   mcp__agent-mail__register_agent(
-     project_key="{project_dir}",
-     program="claude-code",
-     model="{model}",
-     task_description="{task_short}"
-   )
-   ```
-   This gives you a memorable identity (e.g., "BlueLake") for messaging.
-
-2. **Check inbox periodically** (every 30 min or at phase transitions):
-   ```
-   mcp__agent-mail__fetch_inbox(
-     project_key="{project_dir}",
-     agent_name="<your-registered-name>"
-   )
-   ```
-
-3. **Acknowledge urgent messages** immediately if `ack_required=true`
-
-4. **Message orchestrator** if blocked or need coordination:
-   ```
-   mcp__agent-mail__send_message(
-     project_key="{project_dir}",
-     sender_name="<your-name>",
-     to=["<orchestrator-name>"],
-     subject="Status update",
-     body_md="..."
-   )
-   ```
-
-**Why this matters:** Enables persistent, searchable communication between agents.
-The orchestrator may send you guidance via Agent Mail instead of tmux.
-""".format(
-            project_dir=str(config.project_dir),
-            model=config.model or "sonnet",
-            task_short=task_short
-        ))
+    # Agent Mail coordination removed (orch-cli-pz2)
+    # Agent Mail is no longer actively used and added ~30 lines of dead weight to spawn context.
 
     # Additional context (from beads issues, stdin/heredoc, etc.) - incorporated into prompt
     # Combine additional_context (from beads) with stdin_context (from heredoc/pipe)
