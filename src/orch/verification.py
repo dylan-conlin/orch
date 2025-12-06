@@ -225,7 +225,40 @@ def verify_agent_work(
                 return VerificationResult(passed=False, errors=errors, warnings=warnings)
             return VerificationResult(passed=True, errors=[], warnings=warnings)
 
-        # No beads_id and no workspace - cannot verify
+        # No beads_id and no workspace - check if commits exist since spawn time
+        # Ad-hoc spawns (no --issue) don't have beads_id or WORKSPACE.md (Dec 4 fix)
+        # Allow completion when commits exist since spawn time
+        if agent_info and agent_info.get('spawned_at'):
+            spawned_at = agent_info['spawned_at']
+            logger.log_event("verify", "Checking commits since spawn time for ad-hoc spawn", {
+                "workspace": str(workspace_path),
+                "spawned_at": spawned_at
+            }, level="INFO")
+
+            try:
+                # Check if any commits exist since spawn time
+                result = subprocess.run(
+                    ['git', 'log', f'--since={spawned_at}', '--oneline'],
+                    cwd=str(project_dir),
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    # Commits exist - allow completion
+                    logger.log_event("verify", "Ad-hoc spawn verified via commits", {
+                        "workspace": str(workspace_path),
+                        "commits_found": len(result.stdout.strip().split('\n'))
+                    }, level="INFO")
+                    warnings.append("WORKSPACE.md not found - verified via git commits since spawn time")
+                    return VerificationResult(passed=True, errors=[], warnings=warnings)
+            except Exception as e:
+                logger.log_event("verify", "Git log check failed", {
+                    "error": str(e)
+                }, level="WARNING")
+
+        # No beads_id, no workspace, no commits - cannot verify
         errors.append(f"Workspace file not found: {workspace_file}")
         return VerificationResult(passed=False, errors=errors, warnings=warnings)
 
