@@ -236,6 +236,7 @@ class AgentRegistry:
         stashed: bool = False,
         feature_id: str = None,
         beads_id: str = None,
+        beads_db_path: str = None,
         origin_dir: str = None
     ) -> Dict[str, Any]:
         """
@@ -252,6 +253,7 @@ class AgentRegistry:
             stashed: True if git changes were stashed before spawn (auto-unstash on complete)
             feature_id: Feature ID from backlog.json for lifecycle tracking
             beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
+            beads_db_path: Absolute path to beads db (for cross-repo spawning)
             origin_dir: Directory where spawn was invoked (for cross-repo workspace sync on complete)
 
         Raises:
@@ -329,6 +331,9 @@ class AgentRegistry:
         # Track beads issue ID for auto-close on complete
         if beads_id:
             agent['beads_id'] = beads_id
+        # Track beads db path for cross-repo spawning
+        if beads_db_path:
+            agent['beads_db_path'] = beads_db_path
         # Track origin directory for cross-repo workspace sync on complete
         if origin_dir:
             agent['origin_dir'] = str(Path(origin_dir).expanduser())

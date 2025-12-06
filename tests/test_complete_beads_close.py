@@ -180,8 +180,72 @@ Done.
                                 project_dir=tmp_path,
                                                             )
 
-                            # Should have called close_beads_issue
-                            mock_close.assert_called_once_with('orch-cli-xyz')
+                            # Should have called close_beads_issue with db_path=None (no cross-repo)
+                            mock_close.assert_called_once_with('orch-cli-xyz', db_path=None)
+                            assert result['success'] is True
+                            assert result.get('beads_closed') is True
+
+    def test_complete_agent_work_closes_beads_issue_cross_repo(self, tmp_path):
+        """Test that complete_agent_work passes beads_db_path for cross-repo spawning."""
+        from orch.complete import complete_agent_work
+
+        # Create minimal workspace structure
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text("""
+**TLDR:** Test workspace
+
+---
+
+# Workspace: test-agent
+
+**Phase:** Complete
+**Status:** Complete
+
+---
+
+## Verification Required
+
+- [x] All tests passing
+
+---
+
+## Handoff Notes
+
+Done.
+""")
+
+        with patch('orch.complete.get_agent_by_id') as mock_get_agent:
+            mock_get_agent.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': str(tmp_path),
+                'status': 'active',
+                'beads_id': 'orch-knowledge-abc',
+                'beads_db_path': '/path/to/other/repo/.beads/beads.db'
+            }
+
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = Mock(passed=True, errors=[])
+
+                with patch('orch.complete.validate_work_committed') as mock_git:
+                    mock_git.return_value = (True, None)
+
+                    with patch('orch.complete.close_beads_issue') as mock_close:
+                        mock_close.return_value = True
+
+                        with patch('orch.complete.clean_up_agent'):
+                            result = complete_agent_work(
+                                agent_id='test-agent',
+                                project_dir=tmp_path,
+                                                            )
+
+                            # Should have called close_beads_issue with cross-repo db_path
+                            mock_close.assert_called_once_with(
+                                'orch-knowledge-abc',
+                                db_path='/path/to/other/repo/.beads/beads.db'
+                            )
                             assert result['success'] is True
                             assert result.get('beads_closed') is True
 
@@ -336,8 +400,8 @@ class TestCompleteAgentAsyncBeadsClose:
                             project_dir=tmp_path,
                         )
 
-                        # Should have called close_beads_issue
-                        mock_close.assert_called_once_with('orch-cli-xyz')
+                        # Should have called close_beads_issue with db_path=None (no cross-repo)
+                        mock_close.assert_called_once_with('orch-cli-xyz', db_path=None)
                         assert result.get('beads_closed') is True
 
     def test_complete_agent_async_skips_beads_close_when_no_beads_id(self, tmp_path):

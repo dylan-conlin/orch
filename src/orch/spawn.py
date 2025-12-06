@@ -320,6 +320,7 @@ class SpawnConfig:
     interactive: bool = False  # If True, skill operates in collaborative mode with Dylan
     # Beads integration
     beads_id: Optional[str] = None  # Beads issue ID for lifecycle tracking
+    beads_db_path: Optional[str] = None  # Absolute path to beads db (for cross-repo spawning)
     # Additional context (incorporated into prompt, does NOT replace it)
     # Use this for beads issue context or other supplementary information
     # Contrast with custom_prompt which replaces the entire generated prompt
@@ -971,6 +972,7 @@ def register_agent(
     stashed: bool = False,
     feature_id: Optional[str] = None,
     beads_id: Optional[str] = None,
+    beads_db_path: Optional[str] = None,
     origin_dir: Optional[Path] = None
 ) -> None:
     """
@@ -989,6 +991,7 @@ def register_agent(
         stashed: True if git changes were stashed before spawn
         feature_id: Feature ID from backlog.json for lifecycle tracking
         beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
+        beads_db_path: Absolute path to beads db (for cross-repo spawning)
         origin_dir: Directory where spawn was invoked (for cross-repo workspace sync)
 
     Raises:
@@ -1020,6 +1023,7 @@ def register_agent(
             stashed=stashed,
             feature_id=feature_id,
             beads_id=beads_id,
+            beads_db_path=beads_db_path,
             origin_dir=str(origin_dir) if origin_dir else None
         )
 
@@ -1034,7 +1038,8 @@ def register_agent(
             "skill": skill_name,
             "backend": backend,
             "feature_id": feature_id,
-            "beads_id": beads_id
+            "beads_id": beads_id,
+            "beads_db_path": beads_db_path
         }, level="INFO")
 
         if backend == "opencode":
@@ -1890,6 +1895,7 @@ def spawn_with_skill(
     interactive: bool = False,
     context_ref: Optional[str] = None,
     beads_id: Optional[str] = None,
+    beads_db_path: Optional[str] = None,
     parallel: bool = False,
     include_agent_mail: bool = False
 ) -> Dict[str, str]:
@@ -1916,6 +1922,7 @@ def spawn_with_skill(
         backend: AI backend to use (overrides config/default)
         model: Optional model to use (e.g., "sonnet", "opus", or full model name)
         stash: If True, stash uncommitted changes before spawn
+        beads_db_path: Absolute path to beads db (for cross-repo spawning)
         allow_dirty: If True, allow spawn with uncommitted changes without prompting
         feature_id: Feature ID from backlog.json for lifecycle tracking
         interactive: If True, skill operates in collaborative mode with Dylan
@@ -2058,6 +2065,7 @@ def spawn_with_skill(
         interactive=interactive,
         # Beads integration
         beads_id=beads_id,
+        beads_db_path=beads_db_path,
         # Parallel execution mode
         parallel=parallel,
         # Cross-repo spawning
@@ -2123,6 +2131,7 @@ def spawn_with_skill(
                 stashed=stashed,
                 feature_id=config.feature_id,
                 beads_id=config.beads_id,
+                beads_db_path=config.beads_db_path,
                 origin_dir=config.origin_dir
             )
 
@@ -2149,6 +2158,7 @@ def spawn_with_skill(
                 stashed=stashed,
                 feature_id=config.feature_id,
                 beads_id=config.beads_id,
+                beads_db_path=config.beads_db_path,
                 origin_dir=config.origin_dir
             )
 

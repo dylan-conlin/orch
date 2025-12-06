@@ -39,13 +39,31 @@ class BeadsIssue:
 class BeadsIntegration:
     """Wrapper around the beads (bd) CLI."""
 
-    def __init__(self, cli_path: str = "bd"):
+    def __init__(self, cli_path: str = "bd", db_path: Optional[str] = None):
         """Initialize BeadsIntegration.
 
         Args:
             cli_path: Path to the bd CLI executable. Defaults to "bd".
+            db_path: Optional absolute path to beads database. If provided,
+                     all bd commands will include --db flag for cross-repo access.
         """
         self.cli_path = cli_path
+        self.db_path = db_path
+
+    def _build_command(self, *args) -> list:
+        """Build command with optional --db flag.
+
+        Args:
+            *args: Command arguments to pass to bd CLI.
+
+        Returns:
+            List of command arguments including cli_path and optional --db flag.
+        """
+        cmd = [self.cli_path]
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+        cmd.extend(args)
+        return cmd
 
     def get_issue(self, issue_id: str) -> BeadsIssue:
         """Get a beads issue by ID.
@@ -62,7 +80,7 @@ class BeadsIntegration:
         """
         try:
             result = subprocess.run(
-                [self.cli_path, "show", issue_id, "--json"],
+                self._build_command("show", issue_id, "--json"),
                 capture_output=True,
                 text=True,
             )
@@ -103,7 +121,7 @@ class BeadsIntegration:
         """
         try:
             result = subprocess.run(
-                [self.cli_path, "update", issue_id, "--notes", notes],
+                self._build_command("update", issue_id, "--notes", notes),
                 capture_output=True,
                 text=True,
             )
@@ -140,7 +158,7 @@ class BeadsIntegration:
         """
         try:
             result = subprocess.run(
-                [self.cli_path, "update", issue_id, "--status", status],
+                self._build_command("update", issue_id, "--status", status),
                 capture_output=True,
                 text=True,
             )
@@ -166,7 +184,7 @@ class BeadsIntegration:
 
         try:
             result = subprocess.run(
-                [self.cli_path, "close", issue_id, "--reason", reason],
+                self._build_command("close", issue_id, "--reason", reason),
                 capture_output=True,
                 text=True,
             )
@@ -196,7 +214,7 @@ class BeadsIntegration:
         """
         try:
             result = subprocess.run(
-                [self.cli_path, "comments", issue_id, "--json"],
+                self._build_command("comments", issue_id, "--json"),
                 capture_output=True,
                 text=True,
             )

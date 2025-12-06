@@ -218,6 +218,14 @@ def register_spawn_commands(cli):
                 skill_name = context_or_skill if context_or_skill else "feature-impl"
                 task_description = issue.title
 
+                # Resolve beads db path for cross-repo spawning
+                # The db is in the current working directory (where spawn is invoked)
+                beads_db_path = None
+                cwd = Path.cwd()
+                beads_db = cwd / ".beads" / "beads.db"
+                if beads_db.exists():
+                    beads_db_path = str(beads_db.resolve())
+
                 # Build beads issue context (added to full prompt, not replacing it)
                 issue_context = f"BEADS ISSUE: {issue_id}\n"
                 if issue.description:
@@ -258,6 +266,7 @@ def register_spawn_commands(cli):
                     stash=stash,
                     allow_dirty=allow_dirty,
                     beads_id=issue_id,
+                    beads_db_path=beads_db_path,
                     context_ref=context_ref,
                     include_agent_mail=agent_mail
                 )

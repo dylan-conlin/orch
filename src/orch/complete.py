@@ -565,18 +565,21 @@ def complete_agent_async(
     # Note: Verification already passed above, so we can safely close the issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
+        beads_db_path = agent.get('beads_db_path')  # For cross-repo spawning
         try:
-            if close_beads_issue(beads_id):
+            if close_beads_issue(beads_id, db_path=beads_db_path):
                 result['beads_closed'] = True
                 click.echo(f"🎯 Beads issue '{beads_id}' closed")
                 logger.log_event("complete", "Beads issue closed", {
                     "beads_id": beads_id,
+                    "beads_db_path": beads_db_path,
                     "agent_id": agent_id
                 })
             else:
                 result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
                 logger.log_event("complete", "Beads issue close failed", {
                     "beads_id": beads_id,
+                    "beads_db_path": beads_db_path,
                     "agent_id": agent_id
                 })
         except BeadsPhaseNotCompleteError as e:
@@ -739,18 +742,21 @@ def complete_agent_work(
     # Step 3: Close beads issue if agent was spawned from beads issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']
+        beads_db_path = agent.get('beads_db_path')  # For cross-repo spawning
         try:
-            if close_beads_issue(beads_id):
+            if close_beads_issue(beads_id, db_path=beads_db_path):
                 result['beads_closed'] = True
                 click.echo(f"🎯 Beads issue '{beads_id}' closed")
                 logger.log_event("complete", "Beads issue closed", {
                     "beads_id": beads_id,
+                    "beads_db_path": beads_db_path,
                     "agent_id": agent_id
                 })
             else:
                 result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
                 logger.log_event("complete", "Beads issue close failed", {
                     "beads_id": beads_id,
+                    "beads_db_path": beads_db_path,
                     "agent_id": agent_id
                 })
         except BeadsPhaseNotCompleteError as e:
@@ -1004,7 +1010,7 @@ class BeadsPhaseNotCompleteError(Exception):
         )
 
 
-def close_beads_issue(beads_id: str, verify_phase: bool = True) -> bool:
+def close_beads_issue(beads_id: str, verify_phase: bool = True, db_path: Optional[str] = None) -> bool:
     """
     Close a beads issue via BeadsIntegration.
 
@@ -1019,6 +1025,8 @@ def close_beads_issue(beads_id: str, verify_phase: bool = True) -> bool:
         beads_id: The beads issue ID to close (e.g., 'orch-cli-xyz')
         verify_phase: If True, verify "Phase: Complete" exists in comments
                      before closing. Set to False for backwards compat.
+        db_path: Optional absolute path to beads database (for cross-repo access).
+                 If provided, bd commands will include --db flag.
 
     Returns:
         True if issue was closed successfully, False on failure
@@ -1028,7 +1036,7 @@ def close_beads_issue(beads_id: str, verify_phase: bool = True) -> bool:
                                    comment exists (raised so caller can handle)
     """
     try:
-        beads = BeadsIntegration()
+        beads = BeadsIntegration(db_path=db_path)
 
         # Phase 3: Verify agent reported completion before closing
         if verify_phase:

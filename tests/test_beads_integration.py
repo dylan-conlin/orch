@@ -529,3 +529,94 @@ class TestBeadsIntegrationHasPhaseComplete:
 
             beads = BeadsIntegration()
             assert beads.has_phase_complete("test-id") is False
+
+
+class TestBeadsIntegrationDbPath:
+    """Tests for cross-repo db_path support."""
+
+    def test_build_command_without_db_path(self):
+        """Test command building without db_path."""
+        beads = BeadsIntegration()
+        cmd = beads._build_command("show", "test-id", "--json")
+        assert cmd == ["bd", "show", "test-id", "--json"]
+
+    def test_build_command_with_db_path(self):
+        """Test command building with db_path includes --db flag."""
+        beads = BeadsIntegration(db_path="/path/to/other/repo/.beads/beads.db")
+        cmd = beads._build_command("show", "test-id", "--json")
+        assert cmd == ["bd", "--db", "/path/to/other/repo/.beads/beads.db", "show", "test-id", "--json"]
+
+    def test_get_issue_with_db_path(self):
+        """Test get_issue uses --db flag when db_path is set."""
+        mock_output = json.dumps([{
+            "id": "other-repo-xyz",
+            "title": "Cross-repo issue",
+            "description": "Issue from another repo",
+            "status": "open",
+            "priority": 2,
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/path/to/other/.beads/beads.db")
+            issue = beads.get_issue("other-repo-xyz")
+
+            # Verify --db flag was included
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/path/to/other/.beads/beads.db" in cmd
+            assert issue.id == "other-repo-xyz"
+
+    def test_close_issue_with_db_path(self):
+        """Test close_issue uses --db flag when db_path is set."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/other/repo/.beads/beads.db")
+            beads.close_issue("cross-repo-id", "Completed in different repo")
+
+            # Verify --db flag was included
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/other/repo/.beads/beads.db" in cmd
+            assert "close" in cmd
+
+    def test_get_phase_from_comments_with_db_path(self):
+        """Test get_phase_from_comments uses --db flag when db_path is set."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "cross-repo-id",
+                "author": "agent",
+                "text": "Phase: Complete - Done",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/other/.beads/beads.db")
+            phase = beads.get_phase_from_comments("cross-repo-id")
+
+            # Verify --db flag was included
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/other/.beads/beads.db" in cmd
+            assert phase == "Complete"
