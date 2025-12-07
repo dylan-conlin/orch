@@ -38,12 +38,12 @@ class TestSkillDeliverable:
         """Should create deliverable with all fields."""
         deliverable = SkillDeliverable(
             type="investigation",
-            path=".orch/investigations/{slug}.md",
+            path=".kb/investigations/{slug}.md",
             required=False,
             description="Investigation findings"
         )
         assert deliverable.type == "investigation"
-        assert deliverable.path == ".orch/investigations/{slug}.md"
+        assert deliverable.path == ".kb/investigations/{slug}.md"
         assert deliverable.required is False
         assert deliverable.description == "Investigation findings"
 
@@ -161,11 +161,11 @@ triggers:
 name: list-skill
 deliverables:
   - type: workspace
-    path: .orch/workspace/{name}
+    path: ""
     required: true
-    description: Workspace file
+    description: Progress tracked via beads comments
   - type: investigation
-    path: .orch/investigations/{slug}.md
+    path: .kb/investigations/{slug}.md
     required: false
 ---
 """
@@ -183,10 +183,10 @@ name: dict-skill
 deliverables:
   workspace:
     required: true
-    description: Main workspace file
+    description: Progress tracked via beads comments
   investigation:
     required: false
-    path: .orch/investigations/{slug}.md
+    path: .kb/investigations/{slug}.md
 ---
 """
         metadata = parse_skill_metadata(content, "fallback")
@@ -411,8 +411,10 @@ class TestDefaultDeliverables:
     """Tests for DEFAULT_DELIVERABLES constant."""
 
     def test_default_deliverables_has_workspace(self):
-        """DEFAULT_DELIVERABLES should include workspace deliverable."""
+        """DEFAULT_DELIVERABLES should include workspace deliverable (tracked via beads)."""
         assert len(DEFAULT_DELIVERABLES) == 1
         assert DEFAULT_DELIVERABLES[0].type == "workspace"
         assert DEFAULT_DELIVERABLES[0].required is True
-        assert ".orch/workspace" in DEFAULT_DELIVERABLES[0].path
+        # Workspace tracking is now via beads comments, no file path
+        assert DEFAULT_DELIVERABLES[0].path == ""
+        assert "beads" in DEFAULT_DELIVERABLES[0].description.lower()

@@ -27,7 +27,7 @@ class TestBacklogResolver:
                 {
                     "id": "fix-login-bug",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-login-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-login-bug.md",
                     "resolution": "fix"
                 }
             ]
@@ -60,7 +60,7 @@ class TestBacklogResolver:
                 {
                     "id": "fix-login-bug",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-login-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-login-bug.md",
                     "resolution": "fix"
                 }
             ]
@@ -69,7 +69,7 @@ class TestBacklogResolver:
         resolver = BacklogResolver(project)
 
         # Query by investigation path
-        inv_path = ".orch/investigations/simple/2025-11-28-login-bug.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-login-bug.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         assert resolution == ResolutionStatus.FIX
@@ -87,14 +87,14 @@ class TestBacklogResolver:
                 {
                     "id": "handle-timeout",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-timeout-issue.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-timeout-issue.md",
                     "resolution": "workaround"
                 }
             ]
         }))
 
         resolver = BacklogResolver(project)
-        inv_path = ".orch/investigations/simple/2025-11-28-timeout-issue.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-timeout-issue.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         assert resolution == ResolutionStatus.WORKAROUND
@@ -112,14 +112,14 @@ class TestBacklogResolver:
                 {
                     "id": "debug-memory-leak",
                     "status": "in_progress",
-                    "investigation": ".orch/investigations/simple/2025-11-28-memory-leak.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-memory-leak.md",
                     "resolution": None
                 }
             ]
         }))
 
         resolver = BacklogResolver(project)
-        inv_path = ".orch/investigations/simple/2025-11-28-memory-leak.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-memory-leak.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         assert resolution == ResolutionStatus.UNRESOLVED
@@ -137,7 +137,7 @@ class TestBacklogResolver:
         }))
 
         resolver = BacklogResolver(project)
-        inv_path = ".orch/investigations/simple/2025-11-28-unknown.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-unknown.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         # Not in backlog = no associated problem tracking = unknown
@@ -156,20 +156,20 @@ class TestBacklogResolver:
                 {
                     "id": "fix-part-1",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-auth-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-auth-bug.md",
                     "resolution": "fix"
                 },
                 {
                     "id": "fix-part-2",
                     "status": "in_progress",
-                    "investigation": ".orch/investigations/simple/2025-11-28-auth-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-auth-bug.md",
                     "resolution": None
                 }
             ]
         }))
 
         resolver = BacklogResolver(project)
-        inv_path = ".orch/investigations/simple/2025-11-28-auth-bug.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-auth-bug.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         # If any item is unresolved, the overall problem is unresolved
@@ -188,20 +188,20 @@ class TestBacklogResolver:
                 {
                     "id": "fix-part-1",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-auth-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-auth-bug.md",
                     "resolution": "fix"
                 },
                 {
                     "id": "fix-part-2",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-auth-bug.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-auth-bug.md",
                     "resolution": "fix"
                 }
             ]
         }))
 
         resolver = BacklogResolver(project)
-        inv_path = ".orch/investigations/simple/2025-11-28-auth-bug.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-auth-bug.md"
         resolution = resolver.get_resolution_for_investigation(inv_path)
 
         # All resolved = overall resolved
@@ -225,7 +225,7 @@ class TestBacklogResolver:
                 {
                     "id": "test-fix",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-test-inv.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-test-inv.md",
                     "resolution": "fix"
                 }
             ]
@@ -254,13 +254,13 @@ class TestHelperFunction:
                 {
                     "id": "fix-issue",
                     "status": "complete",
-                    "investigation": ".orch/investigations/simple/2025-11-28-issue.md",
+                    "investigation": ".kb/investigations/simple/2025-11-28-issue.md",
                     "resolution": "fix"
                 }
             ]
         }))
 
-        inv_path = ".orch/investigations/simple/2025-11-28-issue.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-issue.md"
         resolution = get_investigation_resolution(inv_path, project)
 
         assert resolution == ResolutionStatus.FIX
@@ -272,7 +272,7 @@ class TestHelperFunction:
         orch_dir.mkdir(parents=True)
         # No backlog.json
 
-        inv_path = ".orch/investigations/simple/2025-11-28-issue.md"
+        inv_path = ".kb/investigations/simple/2025-11-28-issue.md"
         resolution = get_investigation_resolution(inv_path, project)
 
         assert resolution == ResolutionStatus.UNKNOWN

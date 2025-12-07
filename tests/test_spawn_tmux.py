@@ -110,7 +110,7 @@ class TestTmuxSpawning:
             deliverables=[
                 SkillDeliverable(
                     type="investigation",
-                    path=".orch/investigations/{date}-{slug}.md",
+                    path=".kb/investigations/{date}-{slug}.md",
                     required=True
                 )
             ]

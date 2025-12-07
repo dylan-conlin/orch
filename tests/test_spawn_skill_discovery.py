@@ -43,8 +43,9 @@ triggers:
   - Test trigger
 deliverables:
   - type: workspace
-    path: .orch/workspace/{workspace-name}/WORKSPACE.md
+    path: ""
     required: true
+    description: Progress tracked via beads comments
 ---
 
 # Test Skill

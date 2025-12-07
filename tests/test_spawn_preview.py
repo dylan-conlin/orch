@@ -34,10 +34,10 @@ class TestPreviewDisplay:
             workspace_name="debug-db-persistence"
         )
 
-        template = ".orch/investigations/{date}-{slug}.md"
+        template = ".kb/investigations/{date}-{slug}.md"
         rendered = render_deliverable_path(template, config)
 
-        assert ".orch/investigations/" in rendered
+        assert ".kb/investigations/" in rendered
         assert "-fix-database-persistence-issue.md" in rendered
         # Check date format (YYYY-MM-DD)
         assert re.search(r'\d{4}-\d{2}-\d{2}', rendered)
@@ -51,10 +51,10 @@ class TestPreviewDisplay:
             workspace_name="my-workspace"
         )
 
-        template = ".orch/workspace/{workspace-name}/WORKSPACE.md"
+        template = ".kb/workspace/{workspace-name}/WORKSPACE.md"
         rendered = render_deliverable_path(template, config)
 
-        assert rendered == ".orch/workspace/my-workspace/WORKSPACE.md"
+        assert rendered == ".kb/workspace/my-workspace/WORKSPACE.md"
 
     def test_wrap_text_single_line(self):
         """Test text wrapping with text that fits on one line."""
@@ -84,7 +84,7 @@ class TestPreviewDisplay:
             deliverables=[
                 SkillDeliverable(
                     type="workspace",
-                    path=".orch/workspace/{workspace-name}/WORKSPACE.md",
+                    path="",  # No file path - workspace tracking via beads comments
                     required=True
                 )
             ]
@@ -132,7 +132,7 @@ class TestDeterminePrimaryArtifact:
             deliverables=[
                 SkillDeliverable(
                     type="investigation",
-                    path=".orch/investigations/{date}-{slug}.md",
+                    path=".kb/investigations/{date}-{slug}.md",
                     required=True
                 )
             ]
@@ -153,7 +153,7 @@ class TestDeterminePrimaryArtifact:
             deliverables=[
                 SkillDeliverable(
                     type="investigation",
-                    path=".orch/investigations/{date}-{slug}.md",
+                    path=".kb/investigations/{date}-{slug}.md",
                     required=False  # Not required
                 )
             ]
@@ -198,7 +198,7 @@ class TestDeterminePrimaryArtifact:
             deliverables=[
                 SkillDeliverable(
                     type="workspace",
-                    path=".orch/workspace/{workspace-name}/WORKSPACE.md",
+                    path="",  # No file path - workspace tracking via beads comments
                     required=True
                 ),
                 SkillDeliverable(

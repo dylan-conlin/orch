@@ -92,7 +92,7 @@ Key constraint: Must integrate with existing auth system.
             project_dir=tmp_path,
             workspace_name="test-workspace",
             skill_name="feature-impl",
-            context_ref=".orch/investigations/nonexistent.md",
+            context_ref=".kb/investigations/nonexistent.md",
         )
 
         # Should not raise, should handle gracefully
@@ -120,7 +120,7 @@ Key constraint: Must integrate with existing auth system.
 
     def test_spawn_prompt_context_ref_includes_file_path(self, tmp_path):
         """Verify context section includes path to original file for reference."""
-        context_file = tmp_path / ".orch" / "investigations" / "design" / "test.md"
+        context_file = tmp_path / ".kb" / "investigations" / "design" / "test.md"
         context_file.parent.mkdir(parents=True, exist_ok=True)
         context_file.write_text("Design content")
 
@@ -130,13 +130,13 @@ Key constraint: Must integrate with existing auth system.
             project_dir=tmp_path,
             workspace_name="test-workspace",
             skill_name="feature-impl",
-            context_ref=".orch/investigations/design/test.md",
+            context_ref=".kb/investigations/design/test.md",
         )
 
         prompt = build_spawn_prompt(config)
 
         # Should include path reference so agent can find original
-        assert ".orch/investigations/design/test.md" in prompt
+        assert ".kb/investigations/design/test.md" in prompt
 
 
 class TestFrontendAestheticsContext:

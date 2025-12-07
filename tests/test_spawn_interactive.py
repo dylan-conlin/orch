@@ -115,8 +115,9 @@ class TestNonInteractiveProjectPrompt:
 skill: test-skill
 deliverables:
   - type: workspace
-    path: .orch/workspace/{workspace-name}/WORKSPACE.md
+    path: ""
     required: true
+    description: Progress tracked via beads comments
 ---
 # Test Skill
 """)
@@ -308,8 +309,9 @@ class TestTTYAutoDetection:
 skill: test-skill
 deliverables:
   - type: workspace
-    path: .orch/workspace/{workspace-name}/WORKSPACE.md
+    path: ""
     required: true
+    description: Progress tracked via beads comments
 ---
 # Test Skill
 """)

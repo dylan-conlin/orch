@@ -56,9 +56,9 @@ class SkillMetadata:
 DEFAULT_DELIVERABLES = [
     SkillDeliverable(
         type="workspace",
-        path=".orch/workspace/{workspace-name}/WORKSPACE.md",
+        path="",  # No file path - workspace tracking via beads comments
         required=True,
-        description="Workspace file with TLDR, progress tracking, and decisions"
+        description="Progress tracked via beads comments (bd comment <beads-id>)"
     )
 ]
 

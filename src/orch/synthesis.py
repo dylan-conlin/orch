@@ -280,7 +280,7 @@ def update_synthesis_status(synthesis_path: Path, status: str, decision_path: Op
 
     # Add/update Decision field if provided
     if decision_path:
-        decision_line = f'**Decision:** `.orch/decisions/{decision_path.name}`'
+        decision_line = f'**Decision:** `.kb/decisions/{decision_path.name}`'
         if '**Decision:**' in content:
             content = re.sub(
                 r'\*\*Decision:\*\*[^\n]+',
@@ -316,7 +316,7 @@ def update_synthesis_resolution_status(synthesis_path: Path) -> None:
     # Update checkboxes in Resolution Status section
     updates = [
         (r'- \[ \] Recommendation accepted', f'- [x] Recommendation accepted ({date})'),
-        (r'- \[ \] Decision document created', f'- [x] Decision document created (`.orch/decisions/...`)'),
+        (r'- \[ \] Decision document created', f'- [x] Decision document created (`.kb/decisions/...`)'),
         (r'- \[ \] ROADMAP item created', f'- [x] ROADMAP item created (See ROADMAP.org)'),
     ]
 
