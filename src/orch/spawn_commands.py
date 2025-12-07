@@ -370,77 +370,13 @@ def register_spawn_commands(cli):
                     # Use first line, truncate if too long
                     task_description = first_line[:100] if len(first_line) > 100 else first_line
 
-            # Investigation thrashing detection (Gemini's Leading Indicator #1)
-            # Only check when spawning investigations to prevent pattern thrashing
-            if investigation_type and task_description:
-                from orch.pattern_detection import PatternDetector
-
-                # Extract meaningful keywords from task (first 2 significant words)
-                # Use only first few keywords to avoid over-specific searches
-                words = [w for w in task_description.lower().split()
-                        if len(w) > 3 and w.isalnum()]
-                keywords = ' '.join(words[:2])  # First 2 significant words only (avoid over-specific)
-
-                # Check for recent investigations on this topic
-                detector = PatternDetector()
-                try:
-                    # Find current project directory
-                    project_dir = None
-                    if project:
-                        # Resolve project name to directory
-                        registry = AgentRegistry()
-                        for agent in registry.list_agents():
-                            if Path(agent['project_dir']).name == project:
-                                project_dir = Path(agent['project_dir'])
-                                break
-                    else:
-                        project_dir = detector._detect_project_dir()
-
-                    # Search for investigations matching the task keywords
-                    # Use relevance_filter="high" to only match investigations ABOUT this topic
-                    # (title/question match), not just investigations that mention it in passing
-                    analysis = detector.analyze_pattern(
-                        topic=keywords,
-                        project_dir=project_dir,
-                        global_search=False,
-                        max_age_days=60,  # Last 60 days
-                        relevance_filter="high"  # Only title/question matches (investigation is ABOUT topic)
-                    )
-
-                    # Warn if investigation thrashing detected (2+ related investigations)
-                    if analysis.total_count >= 2:
-                        click.echo("")
-                        click.echo("⚠️  INVESTIGATION THRASHING DETECTED", err=True)
-                        click.echo(f"   Found {analysis.total_count} recent investigations on similar topics:", err=True)
-                        click.echo("", err=True)
-                        for match in analysis.matches[:3]:  # Show first 3
-                            click.echo(f"   • {match.date}: {match.title}", err=True)
-                        if analysis.total_count > 3:
-                            click.echo(f"   ... and {analysis.total_count - 3} more", err=True)
-                        click.echo("", err=True)
-                        click.echo("   💡 Review prior work before starting new investigation:", err=True)
-                        click.echo(f"      orch search '{keywords}' --show-files", err=True)
-                        click.echo("", err=True)
-
-                        # Prompt to continue or abort
-                        if not yes:
-                            if not click.confirm("Continue spawning investigation anyway?", default=False):
-                                raise click.Abort()
-                except click.Abort:
-                    # Re-raise user abort
-                    raise
-                except Exception:
-                    # Silently ignore detection errors (don't block spawning)
-                    pass
-
-            # Pre-spawn artifact search hint (for all spawns, not just investigations)
+            # Pre-spawn artifact search hint (for all spawns)
             # Shows hint if related artifacts exist but weren't mentioned in context
             if task_description and not skip_artifact_check:
                 from orch.artifact_hint import show_artifact_hint
-                from orch.pattern_detection import PatternDetector
 
                 try:
-                    # Find current project directory (reuse if already detected above)
+                    # Find current project directory
                     hint_project_dir = None
                     if project:
                         # Resolve project name to directory
@@ -450,8 +386,15 @@ def register_spawn_commands(cli):
                                 hint_project_dir = Path(agent['project_dir'])
                                 break
                     else:
-                        detector = PatternDetector()
-                        hint_project_dir = detector._detect_project_dir()
+                        # Walk up from cwd looking for .orch directory
+                        current = Path.cwd()
+                        for _ in range(5):
+                            if (current / ".orch").exists():
+                                hint_project_dir = current
+                                break
+                            if current == current.parent:
+                                break
+                            current = current.parent
 
                     if hint_project_dir:
                         show_artifact_hint(

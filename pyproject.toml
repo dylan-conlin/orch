@@ -122,7 +122,6 @@ module = [
     "orch.verification",
     "orch.skill_discovery",
     "orch.validate",
-    "orch.pattern_detection",
     "orch.spawn_context_quality",
     "orch.dashboard.*",
     "orch.workspace_naming",
@@ -184,3 +183,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
 norecursedirs = ["tests/fixtures"]
+markers = [
+    "e2e: End-to-end integration tests that verify spawn context generation and beads workflow",
+    "beads: Tests that require beads CLI (may be skipped in CI)",
+]

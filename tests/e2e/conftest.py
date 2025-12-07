@@ -85,6 +85,13 @@ roadmap_paths:
             fake_templates_dir / 'WORKSPACE.md'
         )
 
+    # Copy SPAWN_PROMPT.md template (required for spawn context generation)
+    if (real_templates_dir / 'SPAWN_PROMPT.md').exists():
+        shutil.copy(
+            real_templates_dir / 'SPAWN_PROMPT.md',
+            fake_templates_dir / 'SPAWN_PROMPT.md'
+        )
+
     # Initialize as git repository (required by orch commands)
     subprocess.run(
         ['git', 'init'],
