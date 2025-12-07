@@ -31,6 +31,30 @@ def _display_context_info(context_info):
     click.echo(f"    Context: {context_info.tokens_used:,}/{context_info.tokens_total:,} ({context_info.percentage:.1f}%)")
 
 
+def _get_issue_title(beads_id: str, db_path: str = None) -> str | None:
+    """Fetch beads issue title for display.
+
+    Args:
+        beads_id: Beads issue ID
+        db_path: Optional path to beads database
+
+    Returns:
+        Issue title or None if issue not found or beads CLI unavailable
+    """
+    from orch.beads_integration import (
+        BeadsIntegration,
+        BeadsCLINotFoundError,
+        BeadsIssueNotFoundError,
+    )
+
+    try:
+        beads = BeadsIntegration(db_path=db_path) if db_path else BeadsIntegration()
+        issue = beads.get_issue(beads_id)
+        return issue.title
+    except (BeadsCLINotFoundError, BeadsIssueNotFoundError):
+        return None
+
+
 def _format_agent_not_found_error(agent_id: str, registry: AgentRegistry) -> str:
     """Format a helpful 'agent not found' error message with active agents listed.
 
@@ -238,6 +262,17 @@ def register_monitoring_commands(cli):
         if status_filter:
             agent_statuses = filter_agents_by_status(agent_statuses, status_filter)
 
+        # Build cache of issue titles for agents spawned from beads issues
+        issue_titles = {}
+        all_agents_to_display = [a for a, s in agent_statuses] + [a for a, s in completed_statuses]
+        for agent in all_agents_to_display:
+            beads_id = agent.get('beads_id')
+            if beads_id and beads_id not in issue_titles:
+                db_path = agent.get('beads_db_path')
+                title = _get_issue_title(beads_id, db_path)
+                if title:
+                    issue_titles[beads_id] = title
+
         # Group by priority
         critical = [(a, s) for a, s in agent_statuses if s.priority == 'critical']
         warnings = [(a, s) for a, s in agent_statuses if s.priority == 'warning']
@@ -259,6 +294,13 @@ def register_monitoring_commands(cli):
                     "started_at": agent.get('spawned_at', 'unknown'),
                     "window": agent.get('window', 'unknown')
                 }
+
+                # Include beads issue info if available
+                beads_id = agent.get('beads_id')
+                if beads_id:
+                    agent_data["beads_id"] = beads_id
+                    if beads_id in issue_titles:
+                        agent_data["beads_title"] = issue_titles[beads_id]
 
                 # Include context info if requested
                 if check_context and status_obj.context_info:
@@ -294,7 +336,9 @@ def register_monitoring_commands(cli):
         if critical:
             click.echo(f"🔴 NEEDS ATTENTION ({len(critical)})")
             for agent, status_obj in critical:
-                click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]})")
+                beads_id = agent.get('beads_id')
+                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]}){title_suffix}")
                 for alert in status_obj.alerts:
                     click.echo(f"    {alert['type'].upper()}: {alert['message']}")
                 if check_context and status_obj.context_info:
@@ -308,7 +352,9 @@ def register_monitoring_commands(cli):
             click.echo(f"🟡 WARNINGS ({len(warnings)})")
             for agent, status_obj in warnings:
                 window_info = f" (window {agent['window'].split(':')[1]})" if agent.get('window') else ""
-                click.echo(f"  {agent['id']}{window_info}")
+                beads_id = agent.get('beads_id')
+                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                click.echo(f"  {agent['id']}{window_info}{title_suffix}")
                 for alert in status_obj.alerts:
                     click.echo(f"    ⚠️  {alert['message']}")
                 if check_context and status_obj.context_info:
@@ -321,7 +367,9 @@ def register_monitoring_commands(cli):
         if info:
             click.echo(f"⏸️  AWAITING VALIDATION ({len(info)})")
             for agent, status_obj in info:
-                click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]}) - Phase: {status_obj.phase}")
+                beads_id = agent.get('beads_id')
+                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]}){title_suffix} - Phase: {status_obj.phase}")
                 for alert in status_obj.alerts:
                     click.echo(f"    ℹ️  {alert['message']}")
                 if check_context and status_obj.context_info:
@@ -338,7 +386,9 @@ def register_monitoring_commands(cli):
                 if check_context and status_obj.context_info:
                     ctx = status_obj.context_info
                     context_str = f" - Context: {ctx.percentage:.1f}%"
-                click.echo(f"  {agent['id']} - Phase: {status_obj.phase}{context_str}")
+                beads_id = agent.get('beads_id')
+                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                click.echo(f"  {agent['id']}{title_suffix} - Phase: {status_obj.phase}{context_str}")
 
                 # Phase 2: Display recommendation if available
                 if status_obj.recommendation:
@@ -372,7 +422,9 @@ def register_monitoring_commands(cli):
                 click.echo(f"✅ COMPLETED THIS SESSION ({len(this_session)})")
                 for agent, status_obj in this_session:
                     age_str = f" ({status_obj.age_str})" if status_obj.age_str else ""
-                    click.echo(f"  {agent['id']}{age_str}")
+                    beads_id = agent.get('beads_id')
+                    title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                    click.echo(f"  {agent['id']}{title_suffix}{age_str}")
                     if status_obj.recommendation:
                         click.echo(f"     └─ {status_obj.recommendation}")
                 click.echo()
@@ -383,7 +435,9 @@ def register_monitoring_commands(cli):
                 for agent, status_obj in previous_sessions:
                     age_str = f" ({status_obj.age_str})" if status_obj.age_str else ""
                     stale_marker = "⏰ " if status_obj.is_stale else ""
-                    click.echo(f"  {stale_marker}{agent['id']}{age_str}")
+                    beads_id = agent.get('beads_id')
+                    title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                    click.echo(f"  {stale_marker}{agent['id']}{title_suffix}{age_str}")
                     if status_obj.recommendation:
                         click.echo(f"     └─ {status_obj.recommendation}")
                 click.echo()
