@@ -19,60 +19,52 @@ from orch.complete import (
 
 
 class TestVerification:
-    """Tests for agent work verification."""
+    """Tests for agent work verification.
 
-    def test_verify_agent_work_passes_when_complete(self, tmp_path):
-        """Test verification passes when all requirements met."""
-        # Create workspace with Phase: Complete
+    Note: WORKSPACE.md is no longer used. Verification uses:
+    1. beads_id (beads comments) - primary path
+    2. primary_artifact (investigation file) - for investigation skills
+    3. spawned_at (git commits) - fallback for ad-hoc spawns
+    """
+
+    def test_verify_agent_work_passes_with_beads_id(self, tmp_path):
+        """Test verification passes when beads_id is provided."""
         workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text("""# Workspace: test-workspace
-**Phase:** Complete
-**Type:** Implementation
 
-## Deliverables
-- Implementation complete
-- Tests passing
-""")
-
-        # Create project dir with git repo
         project_dir = tmp_path
         (project_dir / ".git").mkdir()
 
-        # Verify should pass
+        # Agent info with beads_id - phase verification happens in close_beads_issue()
+        agent_info = {'beads_id': 'test-123'}
+
         result = verify_agent_work(
             workspace_path=workspace_dir,
-            project_dir=project_dir
+            project_dir=project_dir,
+            agent_info=agent_info
         )
 
         assert result.passed is True
         assert len(result.errors) == 0
 
-    def test_verify_agent_work_fails_when_not_complete(self, tmp_path):
-        """Test verification fails when Phase is not Complete."""
-        # Create workspace with Phase: Implementing
+    def test_verify_agent_work_fails_without_beads_or_artifact(self, tmp_path):
+        """Test verification fails when no beads_id or primary_artifact."""
         workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text("""# Workspace: test-workspace
-**Phase:** Implementing
-**Type:** Implementation
-""")
 
         project_dir = tmp_path
 
-        # Verify should fail
+        # No agent_info - cannot verify
         result = verify_agent_work(
             workspace_path=workspace_dir,
             project_dir=project_dir
         )
 
         assert result.passed is False
-        assert any("Complete" in error for error in result.errors)
+        assert any("Cannot verify" in error for error in result.errors)
 
-    def test_verify_agent_work_fails_when_workspace_missing(self, tmp_path):
-        """Test verification fails when workspace file doesn't exist."""
+    def test_verify_agent_work_fails_without_verification_path(self, tmp_path):
+        """Test verification fails when no verification method available."""
         workspace_dir = tmp_path / ".orch" / "workspace" / "nonexistent"
         project_dir = tmp_path
 
@@ -82,14 +74,12 @@ class TestVerification:
         )
 
         assert result.passed is False
-        assert any("not found" in error for error in result.errors)
+        assert any("Cannot verify" in error for error in result.errors)
 
     def test_verification_result_has_error_details(self, tmp_path):
         """Test that VerificationResult includes detailed error messages."""
         workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text("**Phase:** Planning\n")
 
         project_dir = tmp_path
 
@@ -98,12 +88,12 @@ class TestVerification:
             project_dir=project_dir
         )
 
-        # Should have detailed error about phase
+        # Should have detailed error about verification
         assert result.passed is False
         assert len(result.errors) > 0
         assert isinstance(result.errors, list)
-        # Check specific error message
-        assert any("Complete" in error for error in result.errors)
+        # Check for verification error message
+        assert any("verify" in error.lower() for error in result.errors)
 
     def test_verify_adhoc_spawn_passes_with_commits_but_no_workspace(self, tmp_path):
         """Test that ad-hoc spawns (no beads_id, no WORKSPACE.md) can complete when commits exist.
@@ -171,35 +161,32 @@ class TestCompleteIntegration:
     """Integration tests for complete_agent_work function."""
 
     def test_complete_agent_work_success(self, tmp_path):
-        """Test successful complete workflow."""
+        """Test successful complete workflow with beads_id."""
         # Setup workspace
         workspace_name = "test-workspace"
         workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text("""# Workspace: test-workspace
-**Phase:** Complete
-**Type:** Implementation
-""")
 
         # Setup git repo
         (tmp_path / ".git").mkdir()
 
-        # Mock agent registry
+        # Mock agent registry with beads_id for verification
         mock_agent = {
             'id': workspace_name,
             'workspace': f".orch/workspace/{workspace_name}",
-            'status': 'active'
+            'status': 'active',
+            'beads_id': 'test-123'  # Beads ID for verification
         }
 
         # Complete the work
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent') as mock_cleanup:
                 with patch('orch.complete.validate_work_committed', return_value=(True, "")):
-                    result = complete_agent_work(
-                        agent_id=workspace_name,
-                        project_dir=tmp_path
-                    )
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        result = complete_agent_work(
+                            agent_id=workspace_name,
+                            project_dir=tmp_path
+                        )
 
         # Verify success
         assert result['success'] is True
@@ -208,16 +195,11 @@ class TestCompleteIntegration:
         # Verify cleanup was called
         mock_cleanup.assert_called_once()
 
-    def test_complete_agent_work_fails_verification(self, tmp_path):
-        """Test complete workflow fails when verification fails."""
+    def test_complete_agent_work_fails_verification_no_beads(self, tmp_path):
+        """Test complete workflow fails when no beads_id and no other verification path."""
         workspace_name = "test-workspace"
         workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        # Phase is NOT Complete
-        workspace_file.write_text("""# Workspace: test-workspace
-**Phase:** Implementing
-""")
 
         mock_agent = {
             'id': workspace_name,
@@ -247,11 +229,6 @@ class TestCompleteIntegration:
         workspace_name = "test-workspace"
         workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
         workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text("""# Workspace: test-workspace
-**Phase:** Complete
-**Type:** Implementation
-""")
 
         # Setup git repo
         (tmp_path / ".git").mkdir()

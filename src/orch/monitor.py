@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from enum import Enum
-from orch.workspace import parse_workspace, parse_workspace_verification
 from orch.frontmatter import extract_phase as fm_extract_phase, extract_metadata
 import re
 from orch.patterns import check_patterns
@@ -112,6 +111,9 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
     """
     Check status of an agent.
 
+    Phase detection uses beads comments as the primary source.
+    WORKSPACE.md is no longer used for agent state.
+
     Args:
         agent_info: Agent dict from registry (id, project_dir, workspace, window)
         check_context: If True, check context usage via /context command
@@ -124,7 +126,7 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
     project_dir = Path(agent_info['project_dir'])
     workspace_path = agent_info['workspace']
 
-    # Phase 3: Prefer beads-based phase detection when agent has beads_id
+    # Primary: beads-based phase detection
     beads_id = agent_info.get('beads_id')
     beads_phase = None
     if beads_id:
@@ -132,12 +134,9 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
             beads = BeadsIntegration()
             beads_phase = beads.get_phase_from_comments(beads_id)
         except (BeadsCLINotFoundError, BeadsIssueNotFoundError):
-            pass  # Fallback to workspace-based detection
+            pass
 
-    # Parse workspace for signals (workspace_file may not exist for investigation-only agents)
-    workspace_file = project_dir / workspace_path / 'WORKSPACE.md'
-    signal = parse_workspace(workspace_file)
-
+    # Secondary: primary_artifact phase (for investigation skills)
     primary_artifact = agent_info.get('primary_artifact')
     primary_artifact_path = None
     if primary_artifact:
@@ -145,26 +144,24 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
         if not primary_artifact_path.is_absolute():
             primary_artifact_path = (project_dir / primary_artifact_path).resolve()
 
-    coordination_file = primary_artifact_path or workspace_file
+    coordination_file = primary_artifact_path
 
-    # Determine phase: beads > workspace > fallback
+    # Determine phase: beads > artifact > fallback
     if beads_phase:
         status.phase = beads_phase
-    elif signal.phase:
-        status.phase = signal.phase
+    elif primary_artifact_path:
+        artifact_phase = extract_phase_from_file(primary_artifact_path)
+        if artifact_phase:
+            status.phase = artifact_phase
     else:
-        # Fallback completion detection when workspace phase is Unknown
+        # Fallback completion detection
         inferred_phase = _detect_completion_fallback(agent_info, project_dir)
         if inferred_phase:
             status.phase = inferred_phase
 
-    # For investigation-oriented skills, prefer Phase from investigation file if available
+    # For investigation-oriented skills without primary_artifact, try to find investigation file
     skill_name = agent_info.get('skill')
-    if primary_artifact_path:
-        artifact_phase = extract_phase_from_file(primary_artifact_path)
-        if artifact_phase:
-            status.phase = artifact_phase
-    elif skill_name in ("investigation", "systematic-debugging", "codebase-audit"):
+    if not primary_artifact_path and skill_name in ("investigation", "systematic-debugging", "codebase-audit"):
         # Check .kb/ first (new location), then .orch/ (legacy fallback)
         workspace_name = Path(workspace_path).name
         matches = []
@@ -187,22 +184,10 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
                 phase_match = re.search(r"\*\*Phase:\*\*\s*([^\n]+)", content)
                 if phase_match:
                     phase = phase_match.group(1).strip()
-                    # Filter out template placeholder values like 'Active | Complete'
                     if not _is_template_placeholder(phase):
                         status.phase = phase
 
-    # Priority 1: Explicit signals (BLOCKED/QUESTION)
-    if signal.has_signal:
-        status.needs_attention = True
-        status.priority = 'critical'
-        status.alerts.append({
-            'type': signal.signal_type,
-            'message': signal.message,
-            'level': 'critical'
-        })
-        return status  # Critical takes precedence
-
-    # Priority 2: Context usage (if requested)
+    # Priority 1: Context usage (if requested)
     if check_context:
         from orch.context import get_context_info
         context_info = get_context_info(agent_info)
@@ -210,7 +195,6 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
 
         if context_info and context_info.is_high_usage:
             status.needs_attention = True
-            # Don't override 'critical' priority if already set
             if status.priority == 'ok':
                 status.priority = 'warning'
             status.alerts.append({
@@ -219,7 +203,7 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
                 'level': 'warning'
             })
 
-    # Priority 2.5: Git tracking (if requested)
+    # Priority 2: Git tracking (if requested)
     if check_git:
         from orch.git_utils import get_last_commit, count_commits_since
 
@@ -251,50 +235,11 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
             except (ValueError, TypeError):
                 pass  # Invalid spawn time, skip git checking
 
-    # Priority 2.75: AWAITING_VALIDATION detection (multi-phase validation pattern)
-    if signal.awaiting_validation:
-        status.needs_attention = True
-        if status.priority == 'ok':
-            status.priority = 'info'
-        status.alerts.append({
-            'type': 'validation',
-            'message': '⏸️  Agent awaiting validation – run manual tests before starting next phase',
-            'level': 'info'
-        })
-
     # Priority 3: Pattern violations
-    # Skip workspace checks when:
-    # - Agent has primary_artifact (investigation file is source of truth)
-    # - Agent has beads_id (beads tracks lifecycle via comments)
-    skip_workspace_checks = primary_artifact_path is not None or agent_info.get('beads_id')
-    violations = check_patterns(project_dir, workspace_path) if not skip_workspace_checks else []
-    status.violations = violations
-
-    # Check for critical violations
-    critical_violations = [v for v in violations if v.severity == 'critical']
-    if critical_violations:
-        status.needs_attention = True
-        status.priority = 'warning'  # Not as urgent as BLOCKED
-        status.alerts.append({
-            'type': 'pattern',
-            'message': f'{len(critical_violations)} critical violations',
-            'level': 'warning'
-        })
-
-    # Priority 4: Workspace population check
-    from orch.workspace import is_unmodified_template
-    if not skip_workspace_checks and is_unmodified_template(workspace_file):
-        status.needs_attention = True
-        if status.priority == 'ok':
-            status.priority = 'warning'
-        status.alerts.append({
-            'type': 'workspace',
-            'message': 'Workspace appears unpopulated (template placeholders still present)',
-            'level': 'warning'
-        })
+    # Skip pattern checks - beads tracks lifecycle, patterns no longer relevant
+    status.violations = []
 
     # Phase 2: Detect completion scenario
-    # Pass the phase we determined (including inferred) to detect_completion_scenario
     scenario, recommendation = detect_completion_scenario(
         agent_info, coordination_file, primary_artifact_path,
         phase_override=status.phase if status.phase != 'Unknown' else None
@@ -313,7 +258,7 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
 
             # Add staleness warning to recommendation if stale
             if status.is_stale and recommendation:
-                status.recommendation = f"⏰ {recommendation} (completed {status.age_str})\n      ⚠️  Stale completion - review workspace before completing"
+                status.recommendation = f"⏰ {recommendation} (completed {status.age_str})\n      ⚠️  Stale completion - review before completing"
             elif status.is_stale:
                 status.recommendation = f"⏰ Completed {status.age_str} (stale - review before completing)"
         except (ValueError, TypeError):
@@ -325,23 +270,26 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
 
 def detect_completion_scenario(
     agent_info: Dict[str, Any],
-    coordination_file: Path,
+    coordination_file: Optional[Path],
     primary_artifact: Optional[Path] = None,
     phase_override: Optional[str] = None
 ) -> tuple[Scenario, Optional[str]]:
     """
     Detect completion scenario for an agent.
 
+    Uses beads phase (via phase_override) as the primary source.
+    WORKSPACE.md is no longer used.
+
     Args:
         agent_info: Agent dict from registry
-        coordination_file: Path to coordination artifact (workspace or investigation file)
+        coordination_file: Path to primary artifact (investigation file), or None
         primary_artifact: Investigation file path if agent is workspace-less
-        phase_override: Optional phase determined by fallback detection (e.g., "Complete (inferred)")
+        phase_override: Phase from beads or fallback detection
 
     Returns:
         Tuple of (Scenario, recommendation_text)
     """
-    # Investigation-first workflow: use investigation file instead of workspace
+    # Investigation-first workflow: use investigation file
     if primary_artifact:
         primary_artifact = Path(primary_artifact).expanduser()
         if primary_artifact.exists():
@@ -350,19 +298,15 @@ def detect_completion_scenario(
                 return (Scenario.WORKING, None)
             return (
                 Scenario.READY_CLEAN,
-                "✅ Ready: Investigation complete, no next-actions, ready to clean"
+                "✅ Ready: Investigation complete, ready to clean"
             )
         # Investigation file missing → treat as still working
         return (Scenario.WORKING, None)
 
-    # Parse workspace with verification data
-    data = parse_workspace_verification(coordination_file)
-
-    # Determine effective phase: use override if provided, otherwise use workspace phase
-    effective_phase = phase_override or data.phase
+    # Use phase from beads or fallback
+    effective_phase = phase_override
 
     # Scenario 1: Not complete yet - agent still working
-    # Check for both "complete" and "complete (inferred)" patterns
     is_complete = effective_phase and 'complete' in effective_phase.lower()
     if not is_complete:
         return (Scenario.WORKING, None)
@@ -370,97 +314,45 @@ def detect_completion_scenario(
     # Scenario 1.5: Inferred completion (no workspace but detected complete via fallback signals)
     is_inferred = phase_override and 'inferred' in phase_override.lower()
     if is_inferred:
-        # Workspace doesn't exist, so we can't verify - recommend manual check
         return (
             Scenario.READY_COMPLETE,
-            "✅ Ready: Completion inferred (no workspace, but tmux closed), run `orch check` to verify"
+            "✅ Ready: Completion inferred (tmux closed), run `orch check` to verify"
         )
 
     # Scenario 2: Interactive session - manual completion required
-    # Check if agent was spawned with --interactive flag
     is_interactive = agent_info.get('is_interactive', False)
     if is_interactive:
         return (Scenario.INTERACTIVE, "⚪ Interactive session (manual completion required)")
 
-    # Scenario 3: Verification incomplete - blocked
-    if not data.verification_complete:
-        # Find first unchecked item
-        unchecked = [item for item in data.verification_items if not item.checked]
-        if unchecked:
-            first_unchecked = unchecked[0].text[:60]  # Truncate long text
-            return (
-                Scenario.BLOCKED,
-                f"❌ Blocked: Verification incomplete\n      {first_unchecked}"
-            )
-        else:
-            # No verification items at all but verification_complete is False
-            # This shouldn't happen with current logic, but handle gracefully
-            return (Scenario.BLOCKED, "❌ Blocked: Verification incomplete")
-
-    # Scenario 4: Next-actions require decisions
-    if data.has_pending_actions:
-        # Get first unchecked next-action
-        unchecked_actions = [item for item in data.next_actions if not item.checked]
-        if unchecked_actions:
-            first_action = unchecked_actions[0].text[:60]
-            return (
-                Scenario.ACTION_NEEDED,
-                f"⚠️  Action needed: {first_action}"
-            )
-
-    # At this point: Phase Complete, verification complete, no pending actions
-    # Determine if this is ROADMAP work or investigation
-
-    # Check if agent has ROADMAP reference
-    has_roadmap_ref = agent_info.get('from_roadmap', False) or agent_info.get('roadmap_item')
+    # At this point: Phase Complete from beads
+    # Determine if this is investigation or other work
 
     # Check if investigation file exists
     project_dir = Path(agent_info['project_dir'])
     workspace_path = agent_info['workspace']
+    workspace_name = Path(workspace_path).name
 
     # Look for investigation files (check .kb/ first, then .orch/)
-    investigation_patterns = [
-        project_dir / ".kb" / "investigations" / "*.md",
-        project_dir / ".orch" / "investigations" / "*.md",
-        project_dir / workspace_path / "investigation.md"
-    ]
-
     has_investigation = False
-    for pattern in investigation_patterns:
-        if pattern.exists() or list(pattern.parent.glob(pattern.name)) if '*' in str(pattern) else False:
-            has_investigation = True
-            break
+    for base_dir in [".kb", ".orch"]:
+        investigations_dir = project_dir / base_dir / "investigations"
+        if investigations_dir.exists():
+            try:
+                matches = list(investigations_dir.rglob(f"*{workspace_name}*.md"))
+                if matches:
+                    has_investigation = True
+                    break
+            except Exception:
+                pass
 
-    # Scenario 5: ROADMAP work ready for completion
-    if has_roadmap_ref:
-        # Check if tests passed (if there were any)
-        if data.test_results:
-            if data.test_results.passed:
-                return (
-                    Scenario.READY_COMPLETE,
-                    f"✅ Ready: Tests passed ({data.test_results.total}), ready for `orch complete`"
-                )
-            else:
-                # Tests failed - this is actually a blocker
-                return (
-                    Scenario.BLOCKED,
-                    f"❌ Blocked: Tests failed ({data.test_results.failed}/{data.test_results.total})"
-                )
-        else:
-            # No test results, but verification complete
-            return (
-                Scenario.READY_COMPLETE,
-                "✅ Ready: Verification complete, ready for `orch complete`"
-            )
-
-    # Scenario 6: Investigation complete, ready to clean
+    # Scenario: Investigation complete, ready to clean
     if has_investigation:
         return (
             Scenario.READY_CLEAN,
-            "✅ Ready: Investigation complete, no next-actions, ready to clean"
+            "✅ Ready: Investigation complete, ready to clean"
         )
 
-    # Default: Work complete (no ROADMAP or investigation, but verified)
+    # Default: Work complete, ready for orch complete
     return (
         Scenario.READY_COMPLETE,
         "✅ Ready: Work complete, ready for `orch complete`"

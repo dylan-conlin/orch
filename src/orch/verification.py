@@ -6,6 +6,9 @@ Handles:
 - Deliverable existence checks
 - Test result validation
 - Investigation artifact verification
+
+Note: WORKSPACE.md is no longer used. Agent state is tracked via beads comments.
+Phase verification happens via `bd show` (beads comments contain "Phase: <state>").
 """
 
 from pathlib import Path
@@ -161,152 +164,65 @@ def verify_agent_work(
     """
     Verify agent work meets completion requirements.
 
-    Checks (Phase 4 enhanced):
-    - Workspace exists
-    - Phase is Complete
-    - Verification requirements complete (from workspace)
-    - No pending next-actions
-    - Test results (if present)
-    - Deliverables exist (if specified)
+    Primary verification is via beads comments (agent reports "Phase: Complete").
+    WORKSPACE.md is no longer used - all agent state is in beads.
+
+    Checks:
+    - Beads phase is Complete (verified separately in close_beads_issue())
+    - Deliverables exist (from skill metadata)
     - Git commits present (if git repo)
+
+    For investigation skills with primary_artifact, verifies the artifact exists
+    and has Phase: Complete.
 
     Args:
         workspace_path: Path to workspace directory
         project_dir: Path to project directory
         agent_info: Optional agent registry info (for skill metadata lookup)
-        skip_test_check: Skip test verification check (use when pre-existing test failures block completion)
+        skip_test_check: Skip test verification check (unused - kept for API compat)
 
     Returns:
         VerificationResult with passed status and any errors
     """
-    from orch.workspace import parse_workspace_verification
     from orch.logging import OrchLogger
 
     logger = OrchLogger()
-    errors = []
-    warnings = []
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    # Check for primary_artifact (investigation skills)
     primary_artifact_path = None
     if agent_info and agent_info.get('primary_artifact'):
         primary_artifact_path = Path(agent_info['primary_artifact']).expanduser()
         if not primary_artifact_path.is_absolute():
             primary_artifact_path = (project_dir / primary_artifact_path).resolve()
 
-    # Check workspace exists
-    workspace_file = workspace_path / "WORKSPACE.md"
-    if not workspace_file.exists():
-        if primary_artifact_path:
-            logger.log_event("verify", "Workspace missing - verifying investigation artifact", {
-                "workspace": str(workspace_path),
-                "artifact": str(primary_artifact_path)
-            }, level="INFO")
-            return _verify_investigation_artifact(
-                primary_artifact_path,
-                workspace_path,
-                project_dir,
-                agent_info
-            )
+    # Path 1: Investigation skills with primary_artifact
+    # Verify the investigation file exists and has Phase: Complete
+    if primary_artifact_path:
+        logger.log_event("verify", "Verifying investigation artifact", {
+            "workspace": str(workspace_path),
+            "artifact": str(primary_artifact_path)
+        }, level="INFO")
+        return _verify_investigation_artifact(
+            primary_artifact_path,
+            workspace_path,
+            project_dir,
+            agent_info
+        )
 
-        # WORKSPACE.md not required when beads is source of truth
-        # Beads phase verification happens separately in close_beads_issue()
-        if agent_info and agent_info.get('beads_id'):
-            logger.log_event("verify", "Workspace missing - using beads as source of truth", {
-                "workspace": str(workspace_path),
-                "beads_id": agent_info.get('beads_id')
-            }, level="INFO")
-            warnings.append("WORKSPACE.md not found - relying on beads phase verification")
-            # Skip workspace-based checks, just verify deliverables
-            if agent_info.get('skill'):
-                skill_name = agent_info['skill']
-                deliverables = _get_skill_deliverables(skill_name)
-                for deliverable in deliverables:
-                    if not _check_deliverable_exists(deliverable, workspace_path, project_dir, agent_info):
-                        errors.append(f"Missing deliverable: {deliverable}")
-            if errors:
-                return VerificationResult(passed=False, errors=errors, warnings=warnings)
-            return VerificationResult(passed=True, errors=[], warnings=warnings)
+    # Path 2: Beads-tracked agents (primary path)
+    # Phase verification happens in close_beads_issue() - just check deliverables here
+    if agent_info and agent_info.get('beads_id'):
+        logger.log_event("verify", "Using beads as source of truth", {
+            "workspace": str(workspace_path),
+            "beads_id": agent_info.get('beads_id')
+        }, level="INFO")
 
-        # No beads_id and no workspace - check if commits exist since spawn time
-        # Ad-hoc spawns (no --issue) don't have beads_id or WORKSPACE.md (Dec 4 fix)
-        # Allow completion when commits exist since spawn time
-        if agent_info and agent_info.get('spawned_at'):
-            spawned_at = agent_info['spawned_at']
-            logger.log_event("verify", "Checking commits since spawn time for ad-hoc spawn", {
-                "workspace": str(workspace_path),
-                "spawned_at": spawned_at
-            }, level="INFO")
-
-            try:
-                # Check if any commits exist since spawn time
-                result = subprocess.run(
-                    ['git', 'log', f'--since={spawned_at}', '--oneline'],
-                    cwd=str(project_dir),
-                    capture_output=True,
-                    text=True,
-                    check=False
-                )
-
-                if result.returncode == 0 and result.stdout.strip():
-                    # Commits exist - allow completion
-                    logger.log_event("verify", "Ad-hoc spawn verified via commits", {
-                        "workspace": str(workspace_path),
-                        "commits_found": len(result.stdout.strip().split('\n'))
-                    }, level="INFO")
-                    warnings.append("WORKSPACE.md not found - verified via git commits since spawn time")
-                    return VerificationResult(passed=True, errors=[], warnings=warnings)
-            except Exception as e:
-                logger.log_event("verify", "Git log check failed", {
-                    "error": str(e)
-                }, level="WARNING")
-
-        # No beads_id, no workspace, no commits - cannot verify
-        errors.append(f"Workspace file not found: {workspace_file}")
-        return VerificationResult(passed=False, errors=errors, warnings=warnings)
-
-    logger.log_event("verify", "Parsing workspace verification data", {
-        "workspace_file": str(workspace_file)
-    })
-
-    # Phase 4: Parse workspace with verification data
-    data = parse_workspace_verification(workspace_file)
-
-    # Check Phase: Complete
-    if not data.phase:
-        errors.append("Phase field not found in workspace")
-    elif data.phase.lower() != "complete":
-        errors.append(f"Phase is '{data.phase}', must be 'Complete'")
-
-    # Phase 4: Check verification requirements complete
-    if not data.verification_complete:
-        # List unchecked items for clarity
-        unchecked = [item.text for item in data.verification_items if not item.checked]
-        if unchecked:
-            errors.append(f"Verification incomplete. Unchecked items:\n  - " + "\n  - ".join(unchecked[:3]))
-        else:
-            # Verification section exists but no items found
-            warnings.append("No verification items found in workspace")
-
-    # Phase 4: Check for pending next-actions
-    if data.has_pending_actions:
-        # List first few pending actions
-        pending = [item.text for item in data.next_actions if not item.checked]
-        if pending:
-            errors.append(f"Next-Actions incomplete. Pending items:\n  - " + "\n  - ".join(pending[:3]))
-
-    # Phase 4: Check test results (if present and not skipped)
-    if data.test_results and not skip_test_check:
-        if not data.test_results.passed:
-            errors.append(f"Tests failed: {data.test_results.output}")
-            logger.log_event("verify", "Test failure detected", {
-                "total": data.test_results.total,
-                "failed": data.test_results.failed
-            })
-
-    # Phase 4: Check deliverables exist (from skill metadata)
-    if agent_info and agent_info.get('skill'):
-        skill_name = agent_info['skill']
-        deliverables = _get_skill_deliverables(skill_name)
-
-        if deliverables:
+        # Verify required deliverables exist
+        if agent_info.get('skill'):
+            skill_name = agent_info['skill']
+            deliverables = _get_skill_deliverables(skill_name)
             for deliverable in deliverables:
                 if not _check_deliverable_exists(deliverable, workspace_path, project_dir, agent_info):
                     errors.append(f"Missing deliverable: {deliverable}")
@@ -315,18 +231,51 @@ def verify_agent_work(
                         "skill": skill_name
                     })
 
-    # Phase 4: Check git commits present (if git repo)
-    git_dir = project_dir / ".git"
-    if git_dir.exists():
-        if not _has_commits_in_workspace(workspace_path, project_dir):
-            warnings.append("No commits found in workspace - agent may not have committed work")
+        # Check git commits present (warning only)
+        git_dir = project_dir / ".git"
+        if git_dir.exists():
+            if not _has_commits_in_workspace(workspace_path, project_dir):
+                warnings.append("No commits found in workspace - agent may not have committed work")
 
-    # If errors, return early
-    if errors:
-        return VerificationResult(passed=False, errors=errors, warnings=warnings)
+        if errors:
+            return VerificationResult(passed=False, errors=errors, warnings=warnings)
+        return VerificationResult(passed=True, errors=[], warnings=warnings)
 
-    # All checks passed
-    return VerificationResult(passed=True, errors=[], warnings=warnings)
+    # Path 3: Ad-hoc spawns (no beads_id)
+    # Allow completion when commits exist since spawn time
+    if agent_info and agent_info.get('spawned_at'):
+        spawned_at = agent_info['spawned_at']
+        logger.log_event("verify", "Checking commits since spawn time for ad-hoc spawn", {
+            "workspace": str(workspace_path),
+            "spawned_at": spawned_at
+        }, level="INFO")
+
+        try:
+            # Check if any commits exist since spawn time
+            result = subprocess.run(
+                ['git', 'log', f'--since={spawned_at}', '--oneline'],
+                cwd=str(project_dir),
+                capture_output=True,
+                text=True,
+                check=False
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                # Commits exist - allow completion
+                logger.log_event("verify", "Ad-hoc spawn verified via commits", {
+                    "workspace": str(workspace_path),
+                    "commits_found": len(result.stdout.strip().split('\n'))
+                }, level="INFO")
+                warnings.append("Ad-hoc spawn verified via git commits since spawn time")
+                return VerificationResult(passed=True, errors=[], warnings=warnings)
+        except Exception as e:
+            logger.log_event("verify", "Git log check failed", {
+                "error": str(e)
+            }, level="WARNING")
+
+    # No verification method available
+    errors.append("Cannot verify agent work: no beads_id, no primary_artifact, and no commits since spawn")
+    return VerificationResult(passed=False, errors=errors, warnings=warnings)
 
 
 def _verify_investigation_artifact(

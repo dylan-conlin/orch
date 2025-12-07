@@ -98,7 +98,7 @@ class TestResumeCommand:
         assert 'no workspace' in result.output.lower()
 
     def test_resume_workspace_file_missing(self, cli_runner):
-        """Test error when workspace file doesn't exist."""
+        """Test error when SPAWN_CONTEXT.md doesn't exist."""
         from orch.cli import cli
 
         mock_agent = {
@@ -117,7 +117,7 @@ class TestResumeCommand:
                 result = cli_runner.invoke(cli, ['resume', 'test-agent'])
 
         assert result.exit_code != 0
-        assert 'workspace file not found' in result.output.lower()
+        assert 'spawn_context.md not found' in result.output.lower()
 
     def test_resume_with_custom_message(self, cli_runner):
         """Test resume with custom message overrides auto-generation."""

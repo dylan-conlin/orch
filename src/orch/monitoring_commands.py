@@ -13,7 +13,6 @@ from orch.tmux_utils import list_windows, find_session, is_tmux_available
 from orch.monitor import check_agent_status, get_status_emoji
 from orch.logging import OrchLogger
 from orch.path_utils import get_git_root, detect_and_display_context
-from orch.workspace import is_unmodified_template, extract_tldr
 from orch.spawn_context_quality import (
     validate_spawn_context_quality,
     format_quality_for_human,
@@ -575,19 +574,8 @@ def register_monitoring_commands(cli):
                 agent_data["last_commit"] = serialize_commit_info(status_obj.last_commit)
                 agent_data["commits_since_spawn"] = status_obj.commits_since_spawn
 
-            # Include workspace preview and TLDR
-            project_dir = Path(agent['project_dir'])
-            workspace_file = project_dir / agent['workspace'] / 'WORKSPACE.md'
-            if workspace_file.exists():
-                # Extract TLDR
-                tldr = extract_tldr(workspace_file)
-                if tldr:
-                    agent_data["tldr"] = tldr
-                # Include last 15 lines as preview
-                lines = workspace_file.read_text().split('\n')
-                agent_data["workspace_preview"] = '\n'.join(lines[-15:])
-
             # Include spawn context quality if SPAWN_CONTEXT.md exists
+            project_dir = Path(agent['project_dir'])
             spawn_context_file = project_dir / agent['workspace'] / 'SPAWN_CONTEXT.md'
             if spawn_context_file.exists():
                 spawn_context_content = spawn_context_file.read_text()
@@ -622,19 +610,8 @@ def register_monitoring_commands(cli):
         click.echo(f"Status: {agent['status']}")
         click.echo()
 
-        # Show TLDR if available
-        project_dir = Path(agent['project_dir'])
-        workspace_file = project_dir / agent['workspace'] / 'WORKSPACE.md'
-        if workspace_file.exists():
-            tldr = extract_tldr(workspace_file)
-            if tldr:
-                click.echo("📋 TLDR")
-                click.echo("-" * 70)
-                click.echo(tldr)
-                click.echo("-" * 70)
-                click.echo()
-
         click.echo(f"Priority: {get_status_emoji(status_obj.priority)} {status_obj.priority}")
+        project_dir = Path(agent['project_dir'])
         click.echo(f"Phase: {status_obj.phase}")
 
         # Show git info
@@ -1038,7 +1015,6 @@ def register_monitoring_commands(cli):
             orch resume fix-authentication-bug --dry-run
         """
         from orch.send import send_message_to_agent
-        from orch.resume import parse_resume_context, update_workspace_timestamps, generate_continuation_message
 
         # Initialize logger
         orch_logger = OrchLogger()
@@ -1069,71 +1045,45 @@ def register_monitoring_commands(cli):
             click.echo(f"   Resume requires workspace for context.", err=True)
             raise click.Abort()
 
-        # Construct workspace path (agent['workspace'] already contains relative path)
+        # Construct paths (SPAWN_CONTEXT.md is the coordination artifact)
         project_dir = Path(agent.get('project_dir', Path.cwd()))
-        workspace_path = project_dir / workspace_rel / "WORKSPACE.md"
+        spawn_context_path = project_dir / workspace_rel / "SPAWN_CONTEXT.md"
 
         # Extract workspace name from path for display/messages
         workspace_name = workspace_rel.split('/')[-1] if workspace_rel else ''
 
-        if not workspace_path.exists():
-            orch_logger.log_error("resume", f"Workspace file not found: {workspace_path}", {
+        if not spawn_context_path.exists():
+            orch_logger.log_error("resume", f"SPAWN_CONTEXT.md not found: {spawn_context_path}", {
                 "agent_id": agent_id,
                 "workspace": workspace_rel,
-                "reason": "workspace_missing"
+                "reason": "spawn_context_missing"
             })
 
-            click.echo(f"❌ Workspace file not found: {workspace_path}", err=True)
+            click.echo(f"❌ SPAWN_CONTEXT.md not found: {spawn_context_path}", err=True)
             click.echo(f"   Agent '{agent_id}' workspace: {workspace_rel}", err=True)
             raise click.Abort()
 
-        # Parse workspace for resume context
-        try:
-            context = parse_resume_context(workspace_path)
-        except Exception as e:
-            orch_logger.log_error("resume", f"Failed to parse workspace: {e}", {
-                "agent_id": agent_id,
-                "workspace": workspace_name,
-                "reason": "parse_error"
-            })
-
-            click.echo(f"❌ Failed to parse workspace: {e}", err=True)
-            raise click.Abort()
-
-        # Generate continuation message
-        continuation_message = generate_continuation_message(
-            workspace_name=workspace_name,
-            context=context,
-            custom_message=message
-        )
+        # Generate continuation message (simple resume - no workspace parsing needed)
+        # Custom message takes priority, otherwise use generic resume prompt
+        if message:
+            continuation_message = message
+        else:
+            continuation_message = (
+                f"Session resumed. Read your SPAWN_CONTEXT.md at "
+                f"{spawn_context_path} and continue your task. "
+                f"Report your current phase via `bd comment`."
+            )
 
         # Dry-run mode: show what would be sent
         if dry_run:
             click.echo(f"🔍 Dry-run mode for agent '{agent_id}':\n")
             click.echo(f"Workspace: {workspace_name}")
-            click.echo(f"Workspace path: {workspace_path}\n")
+            click.echo(f"SPAWN_CONTEXT path: {spawn_context_path}\n")
             click.echo(f"Continuation message:")
             click.echo(f"---")
             click.echo(continuation_message)
             click.echo(f"---\n")
-            click.echo(f"Workspace updates:")
-            click.echo(f"  - Resumed At: [current timestamp]")
-            click.echo(f"  - Last Activity: [current timestamp]")
-            click.echo(f"  - Current Status: RESUMING")
             return
-
-        # Update workspace timestamps
-        try:
-            update_workspace_timestamps(workspace_path)
-        except Exception as e:
-            orch_logger.log_error("resume", f"Failed to update workspace: {e}", {
-                "agent_id": agent_id,
-                "workspace": workspace_name,
-                "reason": "update_error"
-            })
-
-            click.echo(f"⚠️  Failed to update workspace timestamps: {e}", err=True)
-            click.echo(f"   Continuing with message send anyway...", err=True)
 
         # Send continuation message
         try:
@@ -1151,8 +1101,6 @@ def register_monitoring_commands(cli):
             click.echo(f"   Workspace: {workspace_name}")
             if message:
                 click.echo(f"   Used custom message")
-            else:
-                click.echo(f"   Used auto-generated message from workspace context")
 
         except RuntimeError as e:
             # Log error
