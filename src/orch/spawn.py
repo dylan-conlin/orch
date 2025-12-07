@@ -66,6 +66,11 @@ from orch.git_utils import (
     git_stash_changes,
     git_stash_pop,
 )
+from orch.tmuxinator import (
+    ensure_tmuxinator_config,
+    start_workers_session,
+    switch_workers_client,
+)
 from orch.project_resolver import (
     detect_project_roadmap,
     _get_active_projects_file,
@@ -196,6 +201,23 @@ def validate_feature_impl_config(
 # - discover_skills()
 # - parse_skill_metadata()
 # - _discover_skills_cached() (internal)
+
+
+# Per-Project Session Name Derivation
+def get_workers_session_name(project_name: str) -> str:
+    """
+    Derive per-project workers session name from project name.
+
+    Creates a tmux session name in the format 'workers-{project_name}'
+    for organizing agents by project.
+
+    Args:
+        project_name: Name of the project (e.g., 'orch-cli', 'beads')
+
+    Returns:
+        Session name (e.g., 'workers-orch-cli', 'workers-beads')
+    """
+    return f"workers-{project_name}"
 
 
 # Heuristics
@@ -369,17 +391,20 @@ def _wrap_text(text: str, width: int) -> List[str]:
 # - build_spawn_prompt
 
 
-def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[str, str]:
+def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, str]:
     """
     Spawn agent in tmux window with proper context.
 
+    Uses per-project workers sessions (e.g., workers-orch-cli, workers-beads)
+    instead of a single global 'workers' session.
+
     Args:
         config: Spawn configuration
-        session_name: Tmux session name (default: "workers")
+        session_name: Tmux session name (derived from config.project if not provided)
 
     Returns:
         Dictionary with spawn info:
-        - window: Window target (e.g., "workers:10")
+        - window: Window target (e.g., "workers-orch-cli:10")
         - window_name: Human-readable window name
         - agent_id: Unique agent identifier (workspace name)
 
@@ -394,12 +419,17 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[st
     # Start timing
     start_time = time.time()
 
+    # Derive per-project session name if not explicitly provided
+    if session_name is None:
+        session_name = get_workers_session_name(config.project)
+
     # Log spawn start
     orch_logger.log_command_start("spawn", {
         "task": config.task,
         "project": config.project,
         "workspace": config.workspace_name,
-        "skill": config.skill_name or "none"
+        "skill": config.skill_name or "none",
+        "session": session_name
     })
 
     try:
@@ -410,10 +440,21 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[st
             })
             raise RuntimeError("Tmux not available. Cannot spawn agent.")
 
-        # Verify session exists
+        # Ensure per-project tmuxinator config exists
+        ensure_tmuxinator_config(config.project, config.project_dir)
+
+        # Start per-project workers session if not already running
+        if not start_workers_session(config.project):
+            orch_logger.log_error("spawn", "Failed to start workers session", {
+                "session_name": session_name,
+                "reason": "tmuxinator start failed"
+            })
+            raise RuntimeError(f"Failed to start workers session '{session_name}'.")
+
+        # Verify session exists (should now be running)
         session = find_session(session_name)
         if not session:
-            orch_logger.log_error("spawn", "Tmux session not found", {
+            orch_logger.log_error("spawn", "Tmux session not found after start", {
                 "session_name": session_name,
                 "reason": f"session '{session_name}' does not exist"
             })
@@ -567,6 +608,12 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = "workers") -> Dict[st
             "tmux", "select-window",
             "-t", actual_window_target
         ], check=False)  # Don't fail spawn if select fails
+
+        # Switch workers Ghostty client to show this per-project session
+        # This auto-switches the workers window when spawning for a different project
+        # Failure to switch is not fatal - just log and continue
+        if not switch_workers_client(session_name):
+            logger.debug(f"Could not switch workers client to {session_name} (no workers client attached?)")
 
         return {
             'window': actual_window_target,

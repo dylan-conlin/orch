@@ -70,6 +70,10 @@ class TestTmuxSpawning:
         with patch('orch.tmux_utils.is_tmux_available', return_value=True), \
              patch('orch.tmux_utils.find_session', return_value=mock_session), \
              patch('orch.tmux_utils.list_windows', return_value=mock_windows), \
+             patch('orch.spawn.ensure_tmuxinator_config'), \
+             patch('orch.spawn.start_workers_session', return_value=True), \
+             patch('orch.spawn.switch_workers_client', return_value=True), \
+             patch('orch.spawn.validate_spawn_context_length'), \
              patch('subprocess.run', side_effect=create_subprocess_mock("2:@1002\n")) as mock_subprocess, \
              patch('time.sleep'), \
              patch('orch.tmux_utils.get_window_by_target', return_value=True):
@@ -77,11 +81,11 @@ class TestTmuxSpawning:
             result = spawn_in_tmux(config)
 
             # Verify window 2 was created (gap-filled), not window 4 (max+1)
-            # Default session is 'workers' (from config.py defaults)
-            assert result['window'] == "workers:2"
+            # Session is now per-project: 'workers-test-project'
+            assert result['window'] == "workers-test-project:2"
 
             # Verify tmux command does NOT use explicit index
-            # (should be "-t workers", not "-t workers:4")
+            # (should be "-t workers-test-project", not "-t workers-test-project:4")
             mock_subprocess.assert_called()
             calls = mock_subprocess.call_args_list
             # Find the new-window call
@@ -96,8 +100,8 @@ class TestTmuxSpawning:
             # Check that -t flag is NOT followed by an explicit window index
             t_index = new_window_call.index('-t')
             target_arg = new_window_call[t_index + 1]
-            # Should be just "workers", not "workers:4"
-            assert target_arg == "workers", f"Expected 'workers', got '{target_arg}'"
+            # Should be just "workers-test-project", not "workers-test-project:4"
+            assert target_arg == "workers-test-project", f"Expected 'workers-test-project', got '{target_arg}'"
 
     def test_build_spawn_prompt(self):
         """Test building spawn prompt with all components."""
@@ -173,16 +177,21 @@ class TestTmuxSpawning:
 
         with patch('orch.tmux_utils.is_tmux_available', return_value=True), \
              patch('orch.tmux_utils.find_session', return_value=mock_session), \
+             patch('orch.spawn.ensure_tmuxinator_config'), \
+             patch('orch.spawn.start_workers_session', return_value=True), \
+             patch('orch.spawn.switch_workers_client', return_value=True), \
+             patch('orch.spawn.validate_spawn_context_length'), \
              patch('subprocess.run', side_effect=create_subprocess_mock("10:@1008\n")), \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('pathlib.Path.write_text'):
 
             result = spawn_in_tmux(config)
 
-            # Session name is "workers" not "orchestrator"
-            assert result['window'] == "workers:10"
+            # Session name is now per-project: "workers-test-project"
+            assert result['window'] == "workers-test-project:10"
             assert result['agent_id'] == "test-workspace"
-            assert "worker: test-workspace" in result['window_name']
+            # Window name includes workspace name (format may vary based on skill)
+            assert "test-workspace" in result['window_name']
 
     def test_spawn_in_tmux_no_tmux_available(self):
         """Test spawn failure when tmux not available."""
