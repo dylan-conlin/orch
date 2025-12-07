@@ -327,3 +327,9 @@ bd list --status=in_progress --json
 - Final confidence: High (85%)
 - Status: Complete
 - Key outcome: Beads-ui can be enhanced primarily through UI-side changes (parsing comments) rather than orch-cli or beads-core changes
+
+**[2025-12-06 22:45]:** Clarified status vs phase distinction with Dylan
+- Status (lifecycle: open/in_progress/closed) IS displayed - works correctly
+- Phase (work progress: Planning/Implementing/Complete) NOT displayed - the gap
+- Confirmed minimal viable enhancement: Phase + Skill + Last Update columns
+- Skip: window IDs, backend types, git state, context usage (too technical or low value)
