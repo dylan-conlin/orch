@@ -760,11 +760,17 @@ After your final commit, BEFORE typing anything else:
             inv_slug = 'investigation'
         inv_type = config.investigation_type or 'simple'
 
+        # Build beads_id reference for investigation_path instruction
+        beads_id_ref = config.beads_id if config.beads_id else "<beads-id>"
+
         coordination_check = (
             f"**SET UP investigation file:** Run `kb create investigation {inv_slug}` to create from template\n"
             f"   - This creates: `.kb/investigations/{inv_type}/YYYY-MM-DD-{inv_slug}.md`\n"
             "   - This file is your coordination artifact (replaces WORKSPACE.md)\n"
-            "   - If command fails, report to orchestrator immediately"
+            "   - If command fails, report to orchestrator immediately\n"
+            f"   - **IMPORTANT:** After running `kb create`, report the actual path via:\n"
+            f"     `bd comment {beads_id_ref} \"investigation_path: /path/to/file.md\"`\n"
+            "     (This allows orch complete to verify the correct file)"
         )
         coordination_update = (
             "**UPDATE investigation file** as you work:\n"

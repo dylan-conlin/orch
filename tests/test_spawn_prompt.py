@@ -404,6 +404,83 @@ class TestSpawnPromptNoUnfilledPlaceholders:
         )
 
 
+class TestSpawnPromptInvestigationPathReporting:
+    """
+    Validates that spawn prompts instruct agents to report investigation file path.
+
+    Agents must capture the actual path from `kb create` and report it via beads comment
+    so orch complete can update the registry with the correct path.
+    Related: orch-cli-57n
+    """
+
+    def test_spawn_prompt_includes_investigation_path_reporting_instruction(self):
+        """Verify spawn prompts include instruction to report investigation_path via beads."""
+        config = SpawnConfig(
+            task="Test investigation task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="investigation",
+            beads_id="test-123",
+            requires_workspace=False,  # Investigation skills use investigation file, not workspace
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Should include instruction to report investigation_path via beads comment
+        assert "investigation_path:" in prompt, (
+            "Spawn prompt should include instruction to report investigation_path via beads comment.\n"
+            "This allows orch complete to extract the actual file path.\n"
+            "Reference: orch-cli-57n"
+        )
+
+    def test_spawn_prompt_includes_bd_comment_example_for_path(self):
+        """Verify spawn prompts include example bd comment with investigation_path."""
+        config = SpawnConfig(
+            task="Test investigation task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="investigation",
+            beads_id="test-123",
+            requires_workspace=False,  # Investigation skills use investigation file, not workspace
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Should show example of how to report path via bd comment
+        assert "bd comment" in prompt and "investigation_path" in prompt, (
+            "Spawn prompt should include example: bd comment <id> 'investigation_path: /path/to/file.md'\n"
+            "Reference: orch-cli-57n"
+        )
+
+    def test_spawn_prompt_investigation_path_instruction_only_for_investigation_skills(self):
+        """Verify investigation_path instruction only appears for investigation-type skills."""
+        # Non-investigation skill should NOT have the instruction
+        config_feature = SpawnConfig(
+            task="Build a feature",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            requires_workspace=True,  # feature-impl requires workspace
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config_feature)
+
+        # feature-impl should NOT have investigation_path instruction
+        # (feature-impl uses requires_workspace=True path, not investigation path)
+        # The kb create instruction is only for investigation skills
+        assert "Run `kb create investigation" not in prompt or "investigation_path" not in prompt, (
+            "Non-investigation skills should not have kb create investigation instructions.\n"
+            "Reference: orch-cli-57n"
+        )
+
+
 class TestSpawnPromptAgentMailRemoval:
     """
     Validates that Agent Mail coordination section is NEVER included in spawn prompts.
