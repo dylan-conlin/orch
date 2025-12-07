@@ -263,7 +263,10 @@ def check_agent_status(agent_info: Dict[str, Any], check_context: bool = False, 
         })
 
     # Priority 3: Pattern violations
-    skip_workspace_checks = primary_artifact_path is not None
+    # Skip workspace checks when:
+    # - Agent has primary_artifact (investigation file is source of truth)
+    # - Agent has beads_id (beads tracks lifecycle via comments)
+    skip_workspace_checks = primary_artifact_path is not None or agent_info.get('beads_id')
     violations = check_patterns(project_dir, workspace_path) if not skip_workspace_checks else []
     status.violations = violations
 
