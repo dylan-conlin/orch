@@ -15,11 +15,71 @@ from orch.skill_discovery import (
     DEFAULT_DELIVERABLES,
 )
 from orch.workspace_naming import extract_meaningful_words
+import subprocess
 
 if TYPE_CHECKING:
     from orch.spawn import SpawnConfig
 
 logger = logging.getLogger(__name__)
+
+
+def load_kn_context(task: str, project_dir: Path) -> Optional[str]:
+    """
+    Load relevant knowledge context from kn for the spawn task.
+
+    Runs `kn context "<keywords>"` to surface:
+    - Constraints (highest authority - agent MUST respect)
+    - Decisions (prior choices made)
+    - Failed attempts (approaches that didn't work)
+    - Open questions (unresolved issues)
+
+    Args:
+        task: Task description to extract keywords from
+        project_dir: Project directory (must have .kn initialized)
+
+    Returns:
+        Formatted markdown string of kn context, or None if not available.
+    """
+    # Check if .kn directory exists
+    kn_dir = project_dir / '.kn'
+    if not kn_dir.exists():
+        return None
+
+    # Extract keywords from task (first 5 meaningful words)
+    keywords = ' '.join(extract_meaningful_words(task)[:5])
+    if not keywords:
+        return None
+
+    try:
+        result = subprocess.run(
+            ['kn', 'context', keywords],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        output = result.stdout.strip()
+
+        # Format the context
+        lines = ["## PRIOR KNOWLEDGE (from kn)\n"]
+        lines.append("*Relevant knowledge discovered. CONSTRAINTS must be respected.*\n")
+        lines.append("```")
+        lines.append(output)
+        lines.append("```\n")
+        lines.append("*If you discover new constraints, decisions, or failed approaches, record them:*")
+        lines.append("- `kn constrain \"<rule>\" --reason \"<why>\"`")
+        lines.append("- `kn decide \"<what>\" --reason \"<why>\"`")
+        lines.append("- `kn tried \"<what>\" --failed \"<why>\"`\n")
+
+        return "\n".join(lines)
+
+    except (subprocess.TimeoutExpired, Exception) as e:
+        logger.debug(f"Error loading kn context: {e}")
+        return None
 
 
 # ========== Default Verification Requirements ==========
@@ -738,6 +798,12 @@ Signal orchestrator when blocked:
 
     # Build additional sections that don't come from template
     additional_parts = []
+
+    # Prior knowledge from kn (smart auto-inject)
+    # Surfaces relevant constraints, decisions, failed attempts, questions
+    kn_context = load_kn_context(config.task, config.project_dir)
+    if kn_context:
+        additional_parts.append(kn_context)
 
     # Beads progress tracking (when spawned from a beads issue)
     if config.beads_id:
