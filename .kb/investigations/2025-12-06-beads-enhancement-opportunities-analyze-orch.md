@@ -18,13 +18,35 @@
 
 ## Findings
 
+### Finding 0: Status vs Phase - Important Distinction
+
+**Evidence:**
+- **Status (beads lifecycle):** orch DOES update this - open → in_progress → closed
+  - `orch spawn --issue <id>` sets status="in_progress" (spawn_commands.py:241)
+  - `orch complete` sets status="closed" (complete.py:1235)
+  - UI displays status in table view (app.js:131)
+- **Phase (agent work progress):** orch sends via comments, UI does NOT display
+  - Planning → Implementing → Validating → Complete (changes many times)
+  - Stored in comments: `"Phase: Planning - description"` (beads_integration.py:311-332)
+  - Not parsed or displayed by UI (app.js has no comment parsing)
+
+**Source:**
+- src/orch/spawn_commands.py:241 (status update at spawn)
+- src/orch/complete.py:1235 (status update at complete)
+- ~/Documents/personal/beads/examples/monitor-webui/web/static/js/app.js:131 (status rendering)
+- Test: `bd list --status=in_progress --json` shows 4 issues with status="in_progress"
+
+**Significance:** Status tracking works correctly - the gap is **phase** (granular work progress) not being displayed. Users can see "in_progress" in UI, but can't distinguish between "Planning" vs "Implementing" vs "Complete" phases.
+
+---
+
 ### Finding 1: Agent Phase Information is Sent but Not Displayed
 
 **Evidence:**
 - Orch-cli sends phase updates via `bd comment <id> "Phase: Planning - description"` (beads_integration.py:311-332)
 - Agents report phase in comments like: `{"text": "Phase: Planning - Exploring codebase...", "created_at": "2025-12-07T04:19:29Z"}`
 - Monitor WebUI does not parse or display phase information from comments (app.js:210-222)
-- UI only shows: ID, Title, Status, Priority, Type, Assignee in table view
+- UI shows status (open/in_progress/closed) but not phase (Planning/Implementing/Complete)
 - Phase parsing exists in orch-cli (beads_integration.py:197-245) but not in beads-ui
 
 **Source:**
@@ -32,7 +54,7 @@
 - ~/Documents/personal/beads/examples/monitor-webui/web/static/js/app.js:210-222
 - Test: `bd comments orch-cli-cdu --json` showed phase comments exist
 
-**Significance:** Users cannot see agent progress (Planning → Implementing → Complete) in the web UI, requiring them to use CLI commands to check agent status. This is the highest-impact enhancement opportunity.
+**Significance:** Users cannot see granular agent work progress (Planning → Implementing → Complete) in the web UI. They only see coarse lifecycle status (in_progress). This is the highest-impact enhancement opportunity.
 
 ---
 
