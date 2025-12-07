@@ -101,13 +101,34 @@ def start_workers_session(project_name: str) -> bool:
     return result.returncode == 0
 
 
+def _get_current_client_tty() -> Optional[str]:
+    """
+    Get the TTY of the current tmux client (the one running this process).
+
+    Returns:
+        TTY path (e.g., '/dev/ttys000') or None if not in tmux
+    """
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "#{client_tty}"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        return None
+    tty = result.stdout.strip()
+    return tty if tty else None
+
+
 def switch_workers_client(session_name: str) -> bool:
     """
     Switch the workers tmux client to a different session.
 
-    Finds the client attached to any workers session and switches it
-    to the specified session. This allows the Ghostty window to
-    automatically show the correct project's workers session.
+    Finds the client attached to any workers session (excluding the current
+    client) and switches it to the specified session. This allows the
+    Ghostty window to automatically show the correct project's workers session.
+
+    The current client is excluded to prevent the orchestrator from accidentally
+    switching itself when it happens to be attached to a workers session.
 
     Args:
         session_name: Target session name (e.g., 'workers-orch-cli')
@@ -116,6 +137,10 @@ def switch_workers_client(session_name: str) -> bool:
         True if switch succeeded, False if no workers client found
         or switch failed
     """
+    # Get current client TTY to exclude it from selection
+    # This prevents the orchestrator from switching itself
+    current_client_tty = _get_current_client_tty()
+
     # Find any workers client by looking for clients attached to workers* sessions
     # We need to get the TTY of the client that's showing workers content
     result = subprocess.run(
@@ -127,7 +152,7 @@ def switch_workers_client(session_name: str) -> bool:
     if result.returncode != 0:
         return False
 
-    # Parse output to find workers client
+    # Parse output to find workers client (excluding current client)
     workers_client_tty = None
     for line in result.stdout.strip().split('\n'):
         if not line:
@@ -135,6 +160,9 @@ def switch_workers_client(session_name: str) -> bool:
         parts = line.split(' ', 1)
         if len(parts) == 2:
             tty, session = parts
+            # Skip the current client to avoid switching the orchestrator
+            if current_client_tty and tty == current_client_tty:
+                continue
             if session.startswith('workers'):
                 workers_client_tty = tty
                 break
@@ -153,16 +181,24 @@ def switch_workers_client(session_name: str) -> bool:
     return switch_result.returncode == 0
 
 
-def get_workers_client_tty() -> Optional[str]:
+def get_workers_client_tty(exclude_current: bool = True) -> Optional[str]:
     """
     Get the TTY of the client attached to a workers session.
 
     Searches for any tmux client attached to a session starting with 'workers'
-    and returns its TTY path.
+    and returns its TTY path. By default, excludes the current client to avoid
+    returning the orchestrator when it happens to be on a workers session.
+
+    Args:
+        exclude_current: If True, exclude the current client from search.
+                        Default True to prevent orchestrator self-selection.
 
     Returns:
         TTY path (e.g., '/dev/ttys043') or None if no workers client found
     """
+    # Get current client TTY to optionally exclude it
+    current_client_tty = _get_current_client_tty() if exclude_current else None
+
     result = subprocess.run(
         ["tmux", "list-clients", "-F", "#{client_tty} #{session_name}"],
         capture_output=True,
@@ -178,6 +214,9 @@ def get_workers_client_tty() -> Optional[str]:
         parts = line.split(' ', 1)
         if len(parts) == 2:
             tty, session = parts
+            # Skip the current client if exclusion is enabled
+            if current_client_tty and tty == current_client_tty:
+                continue
             if session.startswith('workers'):
                 return tty
 

@@ -177,43 +177,51 @@ class TestSwitchWorkersClient:
         from orch.tmuxinator import switch_workers_client
 
         with patch('subprocess.run') as mock_run:
-            # First call: list-clients returns workers client TTY with session name
-            # Format: #{client_tty} #{session_name}
-            # Second call: switch-client
+            # Calls in order:
+            # 1. display-message to get current client TTY
+            # 2. list-clients to find workers client
+            # 3. switch-client to switch it
             mock_run.side_effect = [
-                Mock(returncode=0, stdout="/dev/ttys043 workers\n", stderr=""),
-                Mock(returncode=0, stdout="", stderr=""),
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client (orchestrator)
+                Mock(returncode=0, stdout="/dev/ttys000 orchestrator\n/dev/ttys043 workers\n", stderr=""),  # list-clients
+                Mock(returncode=0, stdout="", stderr=""),  # switch-client
             ]
 
             result = switch_workers_client("workers-orch-cli")
 
             assert result is True
-            assert mock_run.call_count == 2
+            assert mock_run.call_count == 3
+
+            # Verify display-message call (get current client)
+            first_call = mock_run.call_args_list[0][0][0]
+            assert "display-message" in first_call
 
             # Verify list-clients call
-            first_call = mock_run.call_args_list[0][0][0]
-            assert "list-clients" in first_call
-
-            # Verify switch-client call
             second_call = mock_run.call_args_list[1][0][0]
-            assert "switch-client" in second_call
-            assert "/dev/ttys043" in second_call
-            assert "workers-orch-cli" in second_call
+            assert "list-clients" in second_call
+
+            # Verify switch-client call - should switch workers client (ttys043), not current (ttys000)
+            third_call = mock_run.call_args_list[2][0][0]
+            assert "switch-client" in third_call
+            assert "/dev/ttys043" in third_call  # Workers client, not orchestrator
+            assert "workers-orch-cli" in third_call
 
     def test_switch_workers_client_no_client_attached(self):
         """Test graceful handling when no workers client attached."""
         from orch.tmuxinator import switch_workers_client
 
         with patch('subprocess.run') as mock_run:
-            # list-clients returns empty (no workers client)
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client
+                Mock(returncode=0, stdout="/dev/ttys000 orchestrator\n", stderr=""),  # list-clients: only orchestrator, no workers
+            ]
 
             result = switch_workers_client("workers-orch-cli")
 
             # Should return False but not error
             assert result is False
-            # Should only call list-clients, not switch-client
-            assert mock_run.call_count == 1
+            # Should call display-message and list-clients, but not switch-client
+            assert mock_run.call_count == 2
 
     def test_switch_workers_client_handles_switch_failure(self):
         """Test handling when switch-client command fails."""
@@ -221,14 +229,39 @@ class TestSwitchWorkersClient:
 
         with patch('subprocess.run') as mock_run:
             mock_run.side_effect = [
-                Mock(returncode=0, stdout="/dev/ttys043\n", stderr=""),
-                Mock(returncode=1, stdout="", stderr="can't switch"),
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client
+                Mock(returncode=0, stdout="/dev/ttys043 workers\n", stderr=""),  # list-clients
+                Mock(returncode=1, stdout="", stderr="can't switch"),  # switch-client fails
             ]
 
             result = switch_workers_client("workers-orch-cli")
 
             # Should return False on switch failure
             assert result is False
+
+    def test_switch_workers_client_excludes_current_client(self):
+        """Test that current client (orchestrator) is excluded even when on workers session."""
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run:
+            # Scenario: orchestrator is on 'workers' session (the bug scenario)
+            # Current client = ttys000 (orchestrator)
+            # Both clients on workers sessions, orchestrator listed first
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current = orchestrator TTY
+                Mock(returncode=0, stdout="/dev/ttys000 workers\n/dev/ttys043 workers-orch-cli\n", stderr=""),  # list-clients
+                Mock(returncode=0, stdout="", stderr=""),  # switch-client
+            ]
+
+            result = switch_workers_client("workers-new-project")
+
+            assert result is True
+            assert mock_run.call_count == 3
+
+            # Verify switch-client switches the OTHER workers client, not current
+            third_call = mock_run.call_args_list[2][0][0]
+            assert "/dev/ttys043" in third_call  # NOT ttys000 (current/orchestrator)
+            assert "/dev/ttys000" not in third_call
 
 
 class TestSpawnInTmuxPerProjectSession:
