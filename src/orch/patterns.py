@@ -29,22 +29,16 @@ def check_patterns(
     full_workspace_path = project_dir / workspace_path
 
     # Check 1: Workspace directory exists
+    # Note: Workspace directory is optional - beads/primary_artifact may be used instead
     if not full_workspace_path.exists():
-        violations.append(PatternViolation(
-            type='missing_workspace',
-            severity='critical',
-            message='Workspace directory does not exist'
-        ))
-        return violations  # Can't check further if workspace missing
+        # Not a violation - workspace-less agents are valid (investigation skills, beads-tracked)
+        return violations
 
     # Check 2: WORKSPACE.md exists
+    # Note: WORKSPACE.md deprecated Dec 2024 - beads is now source of truth for agent lifecycle
     workspace_file = full_workspace_path / 'WORKSPACE.md'
     if not workspace_file.exists():
-        violations.append(PatternViolation(
-            type='missing_workspace_file',
-            severity='critical',
-            message='WORKSPACE.md file missing'
-        ))
+        # Not a violation - WORKSPACE.md no longer required
         return violations
 
     # Check 3: Phase field present
