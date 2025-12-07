@@ -475,3 +475,141 @@ class BeadsIntegration:
             agents.append(agent_info)
 
         return agents
+
+    def get_agent_notes(self, issue_id: str) -> Optional[dict]:
+        """Get agent metadata from the notes field as a JSON dict.
+
+        The notes field stores a JSON object with agent metadata including:
+        agent_id, window_id, phase, skill, project_dir, investigation_path, updated_at.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            Dict with agent metadata or None if notes is empty/not JSON.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        issue = self.get_issue(issue_id)
+        if not issue.notes:
+            return None
+
+        try:
+            return json.loads(issue.notes)
+        except json.JSONDecodeError:
+            return None
+
+    def update_agent_notes(
+        self,
+        issue_id: str,
+        agent_id: Optional[str] = None,
+        window_id: Optional[str] = None,
+        phase: Optional[str] = None,
+        skill: Optional[str] = None,
+        project_dir: Optional[str] = None,
+        investigation_path: Optional[str] = None,
+    ) -> None:
+        """Update agent metadata in the notes field as JSON.
+
+        This method merges new values with existing notes content,
+        preserving fields that aren't being updated.
+
+        Args:
+            issue_id: The beads issue ID
+            agent_id: Agent identifier (workspace name)
+            window_id: Tmux window ID (e.g., "@123")
+            phase: Current phase (e.g., "Planning", "Implementing", "Complete")
+            skill: Skill name (e.g., "feature-impl", "investigation")
+            project_dir: Project directory path
+            investigation_path: Path to investigation file
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        from datetime import datetime, timezone
+
+        # Get existing notes and merge
+        existing = {}
+        try:
+            existing = self.get_agent_notes(issue_id) or {}
+        except BeadsIssueNotFoundError:
+            # Issue doesn't exist yet, start fresh
+            pass
+
+        # Build update dict with only provided values
+        updates = {}
+        if agent_id is not None:
+            updates["agent_id"] = agent_id
+        if window_id is not None:
+            updates["window_id"] = window_id
+        if phase is not None:
+            updates["phase"] = phase
+        if skill is not None:
+            updates["skill"] = skill
+        if project_dir is not None:
+            updates["project_dir"] = project_dir
+        if investigation_path is not None:
+            updates["investigation_path"] = investigation_path
+
+        # Merge existing with updates
+        merged = {**existing, **updates}
+
+        # Always update timestamp
+        merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Write to notes field
+        self.update_issue_notes(issue_id, json.dumps(merged))
+
+    def get_phase_from_notes(self, issue_id: str) -> Optional[str]:
+        """Get the phase from the notes field.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            The phase string or None if not found.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        notes = self.get_agent_notes(issue_id)
+        if notes is None:
+            return None
+        return notes.get("phase")
+
+    def get_investigation_path_from_notes(self, issue_id: str) -> Optional[str]:
+        """Get the investigation_path from the notes field.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            The investigation file path or None if not found.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        notes = self.get_agent_notes(issue_id)
+        if notes is None:
+            return None
+        return notes.get("investigation_path")
+
+    def update_phase(self, issue_id: str, phase: str) -> None:
+        """Update just the phase in the notes field.
+
+        Convenience method for updating phase without specifying other fields.
+
+        Args:
+            issue_id: The beads issue ID
+            phase: The new phase (e.g., "Planning", "Implementing", "Complete")
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        self.update_agent_notes(issue_id, phase=phase)
