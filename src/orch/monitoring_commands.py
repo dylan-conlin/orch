@@ -651,23 +651,7 @@ def register_monitoring_commands(cli):
             click.echo("-" * 70)
             click.echo()
 
-        # Show workspace content (last 15 lines)
-        if workspace_file.exists():
-            # Check if workspace is an unmodified template
-            if is_unmodified_template(workspace_file):
-                click.echo("📄 Workspace:")
-                click.echo("-" * 70)
-                click.echo("🔄 Agent initializing (workspace template not yet filled in)")
-                click.echo("-" * 70)
-            else:
-                click.echo("📄 Workspace (last 15 lines):")
-                click.echo("-" * 70)
-                lines = workspace_file.read_text().split('\n')
-                for line in lines[-15:]:
-                    click.echo(line)
-                click.echo("-" * 70)
-        else:
-            click.echo("⚠️  Workspace file not found")
+        # WORKSPACE.md no longer used - beads is source of truth for agent state
 
         # Log completion with inspection results
         orch_logger.log_event("check", f"Agent inspection complete: {agent_id}", {

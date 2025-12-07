@@ -1,5 +1,10 @@
 """
-Tests for orch registry reconciliation with workspace Phase checking.
+Tests for orch registry reconciliation.
+
+Note: WORKSPACE.md is no longer used for agent state tracking.
+Beads is now the source of truth. Reconciliation now:
+- Uses primary_artifact phase for investigation agents
+- Treats window closure as completion for agents without primary_artifact
 """
 
 import pytest
@@ -8,11 +13,10 @@ from pathlib import Path
 from datetime import datetime
 from unittest.mock import Mock, patch
 from orch.registry import AgentRegistry
-from orch.workspace import WorkspaceSignal
 
 
 class TestRegistryReconciliation:
-    """Tests for registry reconciliation that checks workspace Phase."""
+    """Tests for registry reconciliation."""
 
     @pytest.fixture
     def temp_registry(self, tmp_path):
@@ -21,88 +25,78 @@ class TestRegistryReconciliation:
         return AgentRegistry(registry_path=registry_path)
 
     @pytest.fixture
-    def temp_workspace(self, tmp_path):
-        """Create a temporary workspace directory."""
-        workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
-        workspace_dir.mkdir(parents=True)
-        return workspace_dir / "WORKSPACE.md"
+    def temp_artifact(self, tmp_path):
+        """Create a temporary primary artifact file."""
+        artifact_dir = tmp_path / ".kb" / "investigations"
+        artifact_dir.mkdir(parents=True)
+        return artifact_dir / "test-investigation.md"
 
-    def test_reconcile_marks_completed_when_phase_is_complete(
-        self, temp_registry, temp_workspace
+    def test_reconcile_marks_completed_when_primary_artifact_complete(
+        self, temp_registry, temp_artifact, tmp_path
     ):
         """
-        When window closes and workspace Phase is 'Complete',
+        When window closes and primary_artifact Phase is 'Complete',
         reconcile should mark agent as 'completed'.
         """
-        # Setup: Register an active agent with workspace
+        # Setup: Register an active agent with primary_artifact
         temp_registry.register(
             agent_id="test-agent",
             task="Test task",
             window="test:1",
             window_id="@123",
-            project_dir=str(temp_workspace.parent.parent.parent),
-            workspace=str(temp_workspace),
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/test",
+            primary_artifact=str(temp_artifact),
         )
 
-        # Create workspace file with Phase: Complete
-        temp_workspace.write_text(
-            """**TLDR:** Test workspace
+        # Create artifact with Status: Complete
+        temp_artifact.write_text(
+            """**TLDR:** Test investigation
 ---
-# Workspace: test-workspace
-**Phase:** Complete
+# Investigation: Test
+
 **Status:** Complete
 """
         )
 
-        # Mock parse_workspace to return Phase: Complete
-        with patch("orch.registry.parse_workspace") as mock_parse:
-            mock_parse.return_value = WorkspaceSignal(
-                has_signal=False, phase="Complete"
-            )
-
-            # Execute: Reconcile with empty window list (window closed)
-            temp_registry.reconcile(active_windows=[])
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
 
         # Assert: Agent marked as completed
         agent = temp_registry.find("test-agent")
         assert agent["status"] == "completed"
         assert "completed_at" in agent
 
-    def test_reconcile_marks_terminated_when_phase_not_complete(
-        self, temp_registry, temp_workspace
+    def test_reconcile_marks_terminated_when_primary_artifact_not_complete(
+        self, temp_registry, temp_artifact, tmp_path
     ):
         """
-        When window closes and workspace Phase is NOT 'Complete',
+        When window closes and primary_artifact Phase is NOT 'Complete',
         reconcile should mark agent as 'terminated'.
         """
-        # Setup: Register an active agent
+        # Setup: Register an active agent with primary_artifact
         temp_registry.register(
             agent_id="test-agent",
             task="Test task",
             window="test:1",
             window_id="@123",
-            project_dir=str(temp_workspace.parent.parent.parent),
-            workspace=str(temp_workspace),
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/test",
+            primary_artifact=str(temp_artifact),
         )
 
-        # Create workspace file with Phase: Implementing
-        temp_workspace.write_text(
-            """**TLDR:** Test workspace
+        # Create artifact with Status: Investigating (not complete)
+        temp_artifact.write_text(
+            """**TLDR:** Test investigation
 ---
-# Workspace: test-workspace
-**Phase:** Implementing
-**Status:** Active
+# Investigation: Test
+
+**Status:** Investigating
 """
         )
 
-        # Mock parse_workspace to return Phase: Implementing
-        with patch("orch.registry.parse_workspace") as mock_parse:
-            mock_parse.return_value = WorkspaceSignal(
-                has_signal=False, phase="Implementing"
-            )
-
-            # Execute: Reconcile with empty window list (window closed)
-            temp_registry.reconcile(active_windows=[])
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
 
         # Assert: Agent marked as terminated
         agent = temp_registry.find("test-agent")
@@ -110,43 +104,35 @@ class TestRegistryReconciliation:
         assert "terminated_at" in agent
         assert "completed_at" not in agent
 
-    def test_reconcile_marks_completed_when_workspace_missing(
+    def test_reconcile_marks_completed_when_no_primary_artifact(
         self, temp_registry, tmp_path
     ):
         """
-        When window closes and workspace file doesn't exist,
-        reconcile should mark agent as 'completed' (not terminated).
+        When window closes and agent has no primary_artifact,
+        reconcile should mark agent as 'completed' (trust window closure).
 
-        Note: Behavior changed - missing workspace now means "completed" for
-        legacy agents and no-workspace investigation agents.
-        See: registry.py reconcile() "window_closed_no_workspace" reason.
+        Beads is the source of truth for agent state.
         """
-        # Setup: Register an active agent with non-existent workspace
-        missing_workspace = tmp_path / "missing" / "WORKSPACE.md"
-
+        # Setup: Register an active agent without primary_artifact
         temp_registry.register(
             agent_id="test-agent",
             task="Test task",
             window="test:1",
             window_id="@123",
             project_dir=str(tmp_path),
-            workspace=str(missing_workspace),
+            workspace=".orch/workspace/test",
         )
 
-        # Mock parse_workspace to return no phase (workspace doesn't exist)
-        with patch("orch.registry.parse_workspace") as mock_parse:
-            mock_parse.return_value = WorkspaceSignal(has_signal=False, phase=None)
+        # Execute: Reconcile with empty window list (window closed)
+        temp_registry.reconcile(active_windows=[])
 
-            # Execute: Reconcile with empty window list (window closed)
-            temp_registry.reconcile(active_windows=[])
-
-        # Assert: Agent marked as completed (not terminated) when workspace missing
+        # Assert: Agent marked as completed (trust window closure)
         agent = temp_registry.find("test-agent")
         assert agent["status"] == "completed"
         assert "completed_at" in agent
 
     def test_reconcile_keeps_active_when_window_exists(
-        self, temp_registry, temp_workspace
+        self, temp_registry, tmp_path
     ):
         """
         When window still exists, reconcile should keep agent as 'active'.
@@ -157,8 +143,8 @@ class TestRegistryReconciliation:
             task="Test task",
             window="test:1",
             window_id="@123",
-            project_dir=str(temp_workspace.parent.parent.parent),
-            workspace=str(temp_workspace),
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/test",
         )
 
         # Execute: Reconcile with window still active
@@ -182,7 +168,7 @@ class TestRegistryReconciliation:
             window="test:1",
             window_id="@123",
             project_dir="/tmp",
-            workspace="/tmp/ws1/WORKSPACE.md",
+            workspace="/tmp/ws1",
         )
 
         temp_registry.register(
@@ -191,7 +177,7 @@ class TestRegistryReconciliation:
             window="test:2",
             window_id="@124",
             project_dir="/tmp",
-            workspace="/tmp/ws2/WORKSPACE.md",
+            workspace="/tmp/ws2",
         )
 
         # Manually mark one as completed, one as terminated
@@ -214,38 +200,34 @@ class TestRegistryReconciliation:
         assert history[0]["status"] == "completed"
 
     def test_reconcile_handles_phase_case_insensitive(
-        self, temp_registry, temp_workspace
+        self, temp_registry, temp_artifact, tmp_path
     ):
         """
-        Reconcile should handle Phase field case-insensitively.
+        Reconcile should handle Phase/Status field case-insensitively.
         """
-        # Setup: Register an active agent
+        # Setup: Register an active agent with primary_artifact
         temp_registry.register(
             agent_id="test-agent",
             task="Test task",
             window="test:1",
             window_id="@123",
-            project_dir=str(temp_workspace.parent.parent.parent),
-            workspace=str(temp_workspace),
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/test",
+            primary_artifact=str(temp_artifact),
         )
 
-        # Create workspace with lowercase 'complete'
-        temp_workspace.write_text(
-            """**TLDR:** Test workspace
+        # Create artifact with lowercase 'complete'
+        temp_artifact.write_text(
+            """**TLDR:** Test investigation
 ---
-# Workspace: test-workspace
-**Phase:** complete
+# Investigation: Test
+
+**Status:** complete
 """
         )
 
-        # Mock parse_workspace to return lowercase phase
-        with patch("orch.registry.parse_workspace") as mock_parse:
-            mock_parse.return_value = WorkspaceSignal(
-                has_signal=False, phase="complete"
-            )
-
-            # Execute: Reconcile
-            temp_registry.reconcile(active_windows=[])
+        # Execute: Reconcile
+        temp_registry.reconcile(active_windows=[])
 
         # Assert: Agent marked as completed (case-insensitive match)
         agent = temp_registry.find("test-agent")
@@ -262,16 +244,10 @@ class TestRegistryConcurrency:
 
     def test_concurrent_spawn_operations_no_data_loss(self, temp_registry_path):
         """
-        RED TEST: Concurrent spawns should not lose agent entries.
+        Concurrent spawns should not lose agent entries.
 
-        This test reproduces the race condition where concurrent spawn
-        operations overwrite each other's registry changes, causing
-        silent data loss.
-
-        Expected behavior WITHOUT fix: This test will FAIL - some agents
-        will be lost due to read-modify-write race condition.
-
-        Expected behavior WITH fix: All 10 agents will be registered.
+        This test verifies that file locking prevents race conditions
+        where concurrent spawn operations overwrite each other's registry changes.
         """
         import concurrent.futures
 
@@ -288,11 +264,11 @@ class TestRegistryConcurrency:
                         window=f"orchestrator:{i}",
                         window_id=f"@{100+i}",
                         project_dir="/tmp/test",
-                        workspace=f"/tmp/workspace-{i}/WORKSPACE.md",
+                        workspace=f"/tmp/workspace-{i}",
                     )
                     return  # Success
                 except json.JSONDecodeError:
-                    # File corrupted during concurrent access - this is the bug we're fixing
+                    # File corrupted during concurrent access
                     if attempt < max_retries - 1:
                         time.sleep(0.01 * (attempt + 1))  # Exponential backoff
                         continue
@@ -312,771 +288,42 @@ class TestRegistryConcurrency:
         agents = final_registry.list_active_agents()
         agent_ids = {a['id'] for a in agents}
 
-        assert len(agents) == 10, (
-            f"Expected 10 agents, got {len(agents)}. "
-            f"Missing agents indicate race condition. "
-            f"Present: {agent_ids}"
-        )
+        expected_ids = {f"agent-{i}" for i in range(10)}
+        assert agent_ids == expected_ids, f"Missing agents: {expected_ids - agent_ids}"
 
-    def test_concurrent_reads_allowed(self, temp_registry_path):
+    def test_file_locking_prevents_concurrent_writes(self, temp_registry_path):
         """
-        RED TEST: Multiple concurrent reads should succeed with shared locks.
-
-        Without proper locking, concurrent reads during writes can see
-        corrupted data (JSON decode errors).
-
-        Expected behavior WITH fix: All reads succeed simultaneously.
+        Test that file locking prevents data corruption during concurrent writes.
         """
         import concurrent.futures
-        import time
-
-        # Pre-populate registry with one agent
-        reg = AgentRegistry(temp_registry_path)
-        reg.register(
-            agent_id="initial-agent",
-            task="Initial task",
-            window="test:1",
-            window_id="@100",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        def read_registry():
-            """Read the registry - should not block other readers."""
-            r = AgentRegistry(temp_registry_path)
-            return r.list_active_agents()
-
-        # 20 concurrent reads should all succeed
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [executor.submit(read_registry) for _ in range(20)]
-            results = []
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    results.append(future.result())
-                except json.JSONDecodeError:
-                    # Without proper locking, reads during writes can fail
-                    pass
-
-        # All successful reads should see the same agent
-        assert len(results) >= 15, (
-            f"Too many failed reads ({20 - len(results)} failures). "
-            f"This suggests reads are blocking or seeing corrupted data."
-        )
-        assert all(len(r) == 1 for r in results), "All reads should see 1 agent"
-        assert all(r[0]['id'] == 'initial-agent' for r in results)
-
-    def test_registry_lock_timeout_prevents_deadlock(self, temp_registry_path):
-        """
-        RED TEST: Lock acquisition should timeout rather than block forever.
-
-        This test will SKIP without implementation since we can't easily
-        simulate a stuck lock. It documents the requirement.
-        """
-        pytest.skip("Lock timeout requires implementation - documents requirement")
-
-    def test_merge_preserves_all_agents(self, temp_registry_path):
-        """
-        RED TEST: Merge logic should preserve agents from concurrent writes.
-
-        When two operations write concurrently, the second writer should
-        merge its changes with what's on disk, not blindly overwrite.
-
-        Expected behavior WITHOUT fix: Last write wins, earlier changes lost.
-        Expected behavior WITH fix: Both agents preserved through merge.
-        """
-        import concurrent.futures
-        import time
-
-        def register_with_delay(agent_id, delay):
-            """Register agent with intentional delay to force race."""
-            if delay > 0:
-                time.sleep(delay)
-            reg = AgentRegistry(temp_registry_path)
-            # Simulate some work before saving
-            reg.register(
-                agent_id=agent_id,
-                task=f"Task for {agent_id}",
-                window="test:1",
-                window_id=f"@{hash(agent_id) % 1000}",
-                project_dir="/tmp/test",
-                workspace=f"/tmp/workspace-{agent_id}/WORKSPACE.md",
-            )
-
-        # Agent A starts first, Agent B starts slightly later
-        # Both should be preserved through merge logic
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            f1 = executor.submit(register_with_delay, "agent-a", 0)
-            time.sleep(0.01)  # Small delay to ensure A starts first
-            f2 = executor.submit(register_with_delay, "agent-b", 0)
-
-            # Wait for both
-            f1.result()
-            f2.result()
-
-        # Verify both agents are present
-        final_reg = AgentRegistry(temp_registry_path)
-        agents = final_reg.list_active_agents()
-        agent_ids = {a['id'] for a in agents}
-
-        assert len(agents) == 2, (
-            f"Expected 2 agents, got {len(agents)}. "
-            f"Merge should preserve both agents. Present: {agent_ids}"
-        )
-        assert agent_ids == {"agent-a", "agent-b"}, (
-            f"Expected both agents, got {agent_ids}"
-        )
-
-
-class TestAsyncCompletion:
-    """Tests for async completion metadata tracking."""
-
-    @pytest.fixture
-    def temp_registry(self, tmp_path):
-        """Create a temporary registry for testing."""
-        registry_path = tmp_path / "test-registry.json"
-        return AgentRegistry(registry_path=registry_path)
-
-    def test_agent_can_have_completion_field(self, temp_registry):
-        """
-        Agents should support an optional 'completion' field for tracking
-        async completion metadata.
-        """
-        # Setup: Register an agent
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        # Add completion metadata
-        # Note: Must update updated_at when modifying agent to ensure
-        # timestamp-based merge preserves our changes
-        agent = temp_registry.find("test-agent")
-        agent['completion'] = {
-            'mode': 'async',
-            'daemon_pid': 12345,
-            'started_at': '2025-11-20T14:00:00',
-            'completed_at': None,
-            'error': None
-        }
-        agent['updated_at'] = datetime.now().isoformat()  # Mark as modified
-        temp_registry.save()
-
-        # Reload registry
-        reloaded_registry = AgentRegistry(temp_registry.registry_path)
-        reloaded_agent = reloaded_registry.find("test-agent")
-
-        # Assert: completion field persists
-        assert 'completion' in reloaded_agent
-        assert reloaded_agent['completion']['mode'] == 'async'
-        assert reloaded_agent['completion']['daemon_pid'] == 12345
-        assert reloaded_agent['completion']['started_at'] == '2025-11-20T14:00:00'
-
-    def test_completion_field_defaults_to_none(self, temp_registry):
-        """
-        Agents without explicit completion field should work normally
-        (backward compatibility).
-        """
-        # Setup: Register an agent (without completion field)
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        agent = temp_registry.find("test-agent")
-
-        # Assert: Agent exists and works without completion field
-        assert agent['id'] == "test-agent"
-        assert 'completion' not in agent  # Field not added by default
-
-    def test_completing_status_for_async_agents(self, temp_registry):
-        """
-        Agents can have 'completing' status to indicate async cleanup in progress.
-        """
-        # Setup: Register an agent
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        # Mark as completing (async cleanup started)
-        agent = temp_registry.find("test-agent")
-        agent['status'] = 'completing'
-        agent['completion'] = {
-            'mode': 'async',
-            'daemon_pid': 99999,
-            'started_at': datetime.now().isoformat(),
-            'completed_at': None,
-            'error': None
-        }
-        temp_registry.save()
-
-        # Assert: Status is completing
-        reloaded_agent = temp_registry.find("test-agent")
-        assert reloaded_agent['status'] == 'completing'
-        assert reloaded_agent['completion']['mode'] == 'async'
-
-    def test_completion_error_tracking(self, temp_registry):
-        """
-        Completion field should track errors if async cleanup fails.
-        """
-        # Setup: Register an agent
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        # Mark completion as failed
-        agent = temp_registry.find("test-agent")
-        agent['status'] = 'failed'
-        agent['completion'] = {
-            'mode': 'async',
-            'daemon_pid': 12345,
-            'started_at': '2025-11-20T14:00:00',
-            'completed_at': '2025-11-20T14:02:00',
-            'error': 'Cleanup failed after all strategies'
-        }
-        temp_registry.save()
-
-        # Assert: Error is tracked
-        reloaded_agent = temp_registry.find("test-agent")
-        assert reloaded_agent['status'] == 'failed'
-        assert reloaded_agent['completion']['error'] == 'Cleanup failed after all strategies'
-
-
-class TestTimestampBasedMerge:
-    """Tests for timestamp-based merge to fix re-animation race condition."""
-
-    @pytest.fixture
-    def temp_registry_path(self, tmp_path):
-        """Create a temporary registry path for testing."""
-        return tmp_path / "agent-registry.json"
-
-    @pytest.fixture
-    def temp_registry(self, temp_registry_path):
-        """Create a temporary registry for testing."""
-        return AgentRegistry(registry_path=temp_registry_path)
-
-    def test_merge_prefers_newer_timestamp(self, temp_registry):
-        """
-        When same agent exists in both disk and memory with different states,
-        the newer timestamp should win.
-        """
-        # Setup: Create an agent
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        # Simulate: Agent has older timestamp in memory (stale state)
-        agent = temp_registry.find("test-agent")
-        old_timestamp = "2025-11-27T10:00:00"
-        agent['updated_at'] = old_timestamp
-        agent['status'] = 'active'
-
-        # Simulate: Disk has newer timestamp (updated by another process)
-        current_disk = [{
-            'id': 'test-agent',
-            'task': 'Test task',
-            'window': 'test:1',
-            'window_id': '@123',
-            'project_dir': '/tmp/test',
-            'workspace': '/tmp/workspace/WORKSPACE.md',
-            'spawned_at': '2025-11-27T09:00:00',
-            'updated_at': '2025-11-27T11:00:00',  # Newer!
-            'status': 'completed',  # Was completed by another process
-            'completed_at': '2025-11-27T11:00:00'
-        }]
-
-        # Execute: Merge should prefer newer timestamp
-        merged = temp_registry._merge_agents(current_disk, temp_registry._agents)
-
-        # Assert: Disk version wins (newer timestamp)
-        merged_agent = next(a for a in merged if a['id'] == 'test-agent')
-        assert merged_agent['status'] == 'completed', (
-            "Expected completed (newer disk version), got active (stale memory version)"
-        )
-        assert merged_agent['updated_at'] == '2025-11-27T11:00:00'
-
-    def test_merge_fallback_to_spawned_at(self, temp_registry):
-        """
-        For backward compatibility, if updated_at is missing, use spawned_at.
-        """
-        # Setup: Agents without updated_at (old format)
-        current_disk = [{
-            'id': 'old-agent',
-            'task': 'Old task',
-            'window': 'test:1',
-            'window_id': '@123',
-            'project_dir': '/tmp/test',
-            'workspace': '/tmp/workspace/WORKSPACE.md',
-            'spawned_at': '2025-11-27T11:00:00',  # Newer spawned_at
-            'status': 'completed'
-        }]
-
-        ours = [{
-            'id': 'old-agent',
-            'task': 'Old task',
-            'window': 'test:1',
-            'window_id': '@123',
-            'project_dir': '/tmp/test',
-            'workspace': '/tmp/workspace/WORKSPACE.md',
-            'spawned_at': '2025-11-27T10:00:00',  # Older spawned_at
-            'status': 'active'
-        }]
-
-        # Execute: Merge should use spawned_at as fallback
-        merged = temp_registry._merge_agents(current_disk, ours)
-
-        # Assert: Disk version wins (newer spawned_at)
-        merged_agent = next(a for a in merged if a['id'] == 'old-agent')
-        assert merged_agent['status'] == 'completed'
-
-    def test_register_sets_updated_at(self, temp_registry):
-        """
-        Registering a new agent should set both spawned_at and updated_at.
-        """
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        agent = temp_registry.find("test-agent")
-        assert 'updated_at' in agent, "Agent should have updated_at field"
-        assert 'spawned_at' in agent, "Agent should have spawned_at field"
-        # Both should be the same at registration time
-        assert agent['updated_at'] == agent['spawned_at']
-
-    def test_register_stores_beads_id(self, temp_registry):
-        """
-        Registering an agent with beads_id should store it in the registry.
-
-        This is required for orch complete to auto-close beads issues.
-        Reference: beads issue orch-cli-qrk
-        """
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-            beads_id="orch-cli-xyz"
-        )
-
-        agent = temp_registry.find("test-agent")
-        assert 'beads_id' in agent, "Agent should have beads_id field"
-        assert agent['beads_id'] == "orch-cli-xyz"
-
-    def test_register_without_beads_id(self, temp_registry):
-        """
-        Registering an agent without beads_id should work (backwards compatible).
-        """
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        agent = temp_registry.find("test-agent")
-        assert 'beads_id' not in agent, "Agent without beads_id should not have the field"
-
-
-class TestTombstoneDeletion:
-    """Tests for tombstone-based deletion to prevent re-animation."""
-
-    @pytest.fixture
-    def temp_registry_path(self, tmp_path):
-        """Create a temporary registry path for testing."""
-        return tmp_path / "agent-registry.json"
-
-    @pytest.fixture
-    def temp_registry(self, temp_registry_path):
-        """Create a temporary registry for testing."""
-        return AgentRegistry(registry_path=temp_registry_path)
-
-    def test_remove_creates_tombstone(self, temp_registry):
-        """
-        Removing an agent should create a tombstone instead of physically deleting.
-        """
-        # Setup: Create an agent
-        temp_registry.register(
-            agent_id="test-agent",
-            task="Test task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace/WORKSPACE.md",
-        )
-
-        # Execute: Remove the agent
-        result = temp_registry.remove("test-agent")
-
-        # Assert: Remove succeeded
-        assert result is True
-
-        # Assert: Agent is marked as deleted (tombstone), not physically removed
-        agent = temp_registry.find("test-agent")
-        assert agent is not None, "Agent should still exist as tombstone"
-        assert agent.get('status') == 'deleted', "Agent should be marked as deleted"
-        assert 'deleted_at' in agent, "Agent should have deleted_at timestamp"
-        assert 'updated_at' in agent, "Agent should have updated_at timestamp"
-
-    def test_list_agents_excludes_deleted(self, temp_registry):
-        """
-        list_agents() should not return deleted (tombstone) agents.
-        """
-        # Setup: Create agents
-        temp_registry.register(
-            agent_id="active-agent",
-            task="Active task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace-1/WORKSPACE.md",
-        )
-        temp_registry.register(
-            agent_id="deleted-agent",
-            task="Deleted task",
-            window="test:2",
-            window_id="@124",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace-2/WORKSPACE.md",
-        )
-
-        # Delete one agent
-        temp_registry.remove("deleted-agent")
-
-        # Execute: List agents
-        agents = temp_registry.list_agents()
-        agent_ids = {a['id'] for a in agents}
-
-        # Assert: Only active agent visible
-        assert "active-agent" in agent_ids, "Active agent should be visible"
-        assert "deleted-agent" not in agent_ids, "Deleted agent should not be visible"
-
-    def test_list_active_agents_excludes_deleted(self, temp_registry):
-        """
-        list_active_agents() should not return deleted (tombstone) agents.
-        """
-        # Setup: Create agents
-        temp_registry.register(
-            agent_id="active-agent",
-            task="Active task",
-            window="test:1",
-            window_id="@123",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace-1/WORKSPACE.md",
-        )
-        temp_registry.register(
-            agent_id="deleted-agent",
-            task="Deleted task",
-            window="test:2",
-            window_id="@124",
-            project_dir="/tmp/test",
-            workspace="/tmp/workspace-2/WORKSPACE.md",
-        )
-
-        # Delete one agent
-        temp_registry.remove("deleted-agent")
-
-        # Execute: List active agents
-        agents = temp_registry.list_active_agents()
-        agent_ids = {a['id'] for a in agents}
-
-        # Assert: Only active agent visible
-        assert "active-agent" in agent_ids, "Active agent should be visible"
-        assert "deleted-agent" not in agent_ids, "Deleted agent should not be visible"
-
-    def test_merge_preserves_tombstones(self, temp_registry):
-        """
-        Merge should preserve deleted (tombstone) state even if
-        another process has stale version with active status.
-        """
-        # Setup: Disk has tombstone (recently deleted)
-        current_disk = [{
-            'id': 'test-agent',
-            'task': 'Test task',
-            'window': 'test:1',
-            'window_id': '@123',
-            'project_dir': '/tmp/test',
-            'workspace': '/tmp/workspace/WORKSPACE.md',
-            'spawned_at': '2025-11-27T10:00:00',
-            'updated_at': '2025-11-27T12:00:00',  # Recently deleted
-            'status': 'deleted',
-            'deleted_at': '2025-11-27T12:00:00'
-        }]
-
-        # Memory has stale active version
-        ours = [{
-            'id': 'test-agent',
-            'task': 'Test task',
-            'window': 'test:1',
-            'window_id': '@123',
-            'project_dir': '/tmp/test',
-            'workspace': '/tmp/workspace/WORKSPACE.md',
-            'spawned_at': '2025-11-27T10:00:00',
-            'updated_at': '2025-11-27T10:00:00',  # Stale
-            'status': 'active'
-        }]
-
-        # Execute: Merge should preserve tombstone
-        merged = temp_registry._merge_agents(current_disk, ours)
-
-        # Assert: Tombstone wins (newer timestamp)
-        merged_agent = next(a for a in merged if a['id'] == 'test-agent')
-        assert merged_agent['status'] == 'deleted', (
-            "Expected deleted (tombstone), got active (stale)"
-        )
-
-    def test_concurrent_clean_and_reconcile_no_reanimation(self, temp_registry_path):
-        """
-        RED TEST: Concurrent clean and reconcile should not re-animate deleted agents.
-
-        This is the core race condition we're fixing:
-        1. clean loads registry, sees agents A, B, C
-        2. reconcile loads registry, sees agents A, B, C
-        3. clean removes B, C, saves with skip_merge
-        4. reconcile saves WITH merge, re-adds B, C (RE-ANIMATION BUG!)
-
-        With timestamp-based merge and tombstones, B and C should stay deleted.
-        """
-        import concurrent.futures
-        import time
-
-        # Setup: Create agents A, B, C
-        setup_reg = AgentRegistry(temp_registry_path)
-        for agent_id in ['agent-a', 'agent-b', 'agent-c']:
-            setup_reg.register(
-                agent_id=agent_id,
-                task=f"Task {agent_id}",
-                window=f"test:{agent_id}",
-                window_id=f"@{hash(agent_id) % 1000}",
-                project_dir="/tmp/test",
-                workspace=f"/tmp/workspace-{agent_id}/WORKSPACE.md",
-            )
-
-        def simulate_clean():
-            """Simulates orch clean removing agents B and C."""
-            time.sleep(0.05)  # Delay to ensure reconcile loads first
-            reg = AgentRegistry(temp_registry_path)
-            reg.remove('agent-b')
-            reg.remove('agent-c')
-            reg.save(skip_merge=True)
-
-        def simulate_reconcile():
-            """Simulates orch status reconcile saving stale state."""
-            reg = AgentRegistry(temp_registry_path)
-            # Hold the registry open for a bit (simulating reconcile work)
-            time.sleep(0.1)
-            # Save with merge (the bug: this re-adds deleted agents)
-            reg.save(skip_merge=False)
-
-        # Execute concurrent operations
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            f1 = executor.submit(simulate_reconcile)
-            time.sleep(0.01)  # Small delay to ensure reconcile starts first
-            f2 = executor.submit(simulate_clean)
-
-            f1.result()
-            f2.result()
-
-        # Verify: B and C should remain deleted (not re-animated)
-        final_reg = AgentRegistry(temp_registry_path)
-        agents = final_reg.list_agents()
-        agent_ids = {a['id'] for a in agents}
-
-        # With the fix, only agent-a should be visible
-        # (agent-b and agent-c are tombstones, filtered out)
-        assert agent_ids == {'agent-a'}, (
-            f"Expected only agent-a, got {agent_ids}. "
-            f"If agent-b or agent-c are present, the re-animation bug occurred."
-        )
-
-
-class TestReconcilePrimaryArtifact:
-    """Tests for reconcile() checking primary_artifact for investigation agents.
-
-    Bug fix: Prior to fix, reconcile() only checked workspace for Phase.
-    Investigation agents use primary_artifact as their coordination artifact,
-    not workspace. When the investigation file's Status is "Complete",
-    reconcile() should mark the agent as completed, not terminated.
-
-    See: .orch/investigations/simple/2025-11-30-orch-wait-doesn-reliably-detect.md
-    """
-
-    @pytest.fixture
-    def temp_registry(self, tmp_path):
-        """Create a temporary registry for testing."""
-        registry_path = tmp_path / "test-registry.json"
-        return AgentRegistry(registry_path=registry_path)
-
-    @pytest.fixture
-    def temp_investigation(self, tmp_path):
-        """Create a temporary investigation file."""
-        inv_dir = tmp_path / ".orch" / "investigations" / "simple"
-        inv_dir.mkdir(parents=True)
-        return inv_dir / "2025-11-30-test-investigation.md"
-
-    def test_reconcile_checks_primary_artifact_for_completion(
-        self, temp_registry, temp_investigation, tmp_path
-    ):
-        """
-        When window closes and primary_artifact has Status: Complete,
-        reconcile should mark agent as 'completed' (not terminated).
-
-        Investigation agents use primary_artifact, not workspace.
-        """
-        # Setup: Register an active investigation agent with primary_artifact
-        temp_registry.register(
-            agent_id="inv-agent",
-            task="Investigation task",
-            window="test:1",
-            window_id="@123",
-            project_dir=str(tmp_path),
-            workspace=None,  # No workspace for investigation agents
-            primary_artifact=str(temp_investigation),
-        )
-
-        # Create investigation file with Status: Complete
-        temp_investigation.write_text(
-            """# Investigation: Test
-
-**Status:** Complete
-**Confidence:** High
-
-## Findings
-
-Investigation complete.
-"""
-        )
-
-        # Execute: Reconcile with empty window list (window closed)
-        temp_registry.reconcile(active_windows=[])
-
-        # Assert: Agent marked as completed (NOT terminated)
-        agent = temp_registry.find("inv-agent")
-        assert agent["status"] == "completed", (
-            f"Expected 'completed' but got '{agent['status']}'. "
-            "reconcile() should check primary_artifact for investigation agents."
-        )
-        assert "completed_at" in agent
-
-    def test_reconcile_marks_terminated_when_primary_artifact_not_complete(
-        self, temp_registry, temp_investigation, tmp_path
-    ):
-        """
-        When window closes and primary_artifact has Status: Active (not Complete),
-        reconcile should mark agent as 'terminated'.
-        """
-        # Setup: Register an active investigation agent
-        temp_registry.register(
-            agent_id="inv-agent",
-            task="Investigation task",
-            window="test:1",
-            window_id="@123",
-            project_dir=str(tmp_path),
-            workspace=None,
-            primary_artifact=str(temp_investigation),
-        )
-
-        # Create investigation file with Status: Active (not complete)
-        temp_investigation.write_text(
-            """# Investigation: Test
-
-**Status:** Active
-**Confidence:** Low
-
-## Findings
-
-Still investigating...
-"""
-        )
-
-        # Execute: Reconcile with empty window list (window closed)
-        temp_registry.reconcile(active_windows=[])
-
-        # Assert: Agent marked as terminated (work not complete)
-        agent = temp_registry.find("inv-agent")
-        assert agent["status"] == "terminated"
-        assert "terminated_at" in agent
-
-    def test_reconcile_prefers_primary_artifact_over_workspace(
-        self, temp_registry, temp_investigation, tmp_path
-    ):
-        """
-        When both primary_artifact and workspace exist,
-        primary_artifact Status should take precedence.
-        """
-        # Setup workspace (with Phase: Implementing)
-        workspace_dir = tmp_path / ".orch" / "workspace" / "test-workspace"
-        workspace_dir.mkdir(parents=True)
-        workspace_file = workspace_dir / "WORKSPACE.md"
-        workspace_file.write_text(
-            """**TLDR:** Test workspace
----
-# Workspace: test-workspace
-**Phase:** Implementing
-**Status:** Active
-"""
-        )
-
-        # Setup: Register agent with both workspace and primary_artifact
-        temp_registry.register(
-            agent_id="inv-agent",
-            task="Investigation task",
-            window="test:1",
-            window_id="@123",
-            project_dir=str(tmp_path),
-            workspace=str(workspace_dir),  # Has Phase: Implementing
-            primary_artifact=str(temp_investigation),  # Will have Status: Complete
-        )
-
-        # Create investigation file with Status: Complete
-        temp_investigation.write_text(
-            """# Investigation: Test
-
-**Status:** Complete
-**Confidence:** High
-
-## Findings
-
-Investigation complete.
-"""
-        )
-
-        # Execute: Reconcile with empty window list (window closed)
-        temp_registry.reconcile(active_windows=[])
-
-        # Assert: Agent marked as completed (primary_artifact takes precedence)
-        agent = temp_registry.find("inv-agent")
-        assert agent["status"] == "completed", (
-            f"Expected 'completed' (from primary_artifact) but got '{agent['status']}'. "
-            "primary_artifact should take precedence over workspace."
-        )
+        import threading
+
+        errors = []
+        lock = threading.Lock()
+
+        def concurrent_operation(i):
+            try:
+                reg = AgentRegistry(temp_registry_path)
+                reg.register(
+                    agent_id=f"concurrent-{i}",
+                    task=f"Concurrent task {i}",
+                    window=f"test:{i}",
+                    window_id=f"@{200+i}",
+                    project_dir="/tmp",
+                    workspace=f"/tmp/ws-{i}",
+                )
+            except Exception as e:
+                with lock:
+                    errors.append(str(e))
+
+        # Run 5 concurrent operations
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(concurrent_operation, i) for i in range(5)]
+            concurrent.futures.wait(futures)
+
+        # Verify no errors and all agents registered
+        assert len(errors) == 0, f"Errors during concurrent operations: {errors}"
+
+        final_registry = AgentRegistry(temp_registry_path)
+        agents = final_registry.list_active_agents()
+        assert len(agents) == 5

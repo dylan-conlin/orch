@@ -1,77 +1,51 @@
 """
 Resume paused agents with workspace-aware continuation.
+
+Note: WORKSPACE.md is no longer used for agent state tracking.
+Beads is the source of truth. Resume context now focuses on
+SPAWN_CONTEXT.md and primary artifacts.
 """
 
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
-from orch.workspace import parse_workspace
 
 
 def parse_resume_context(workspace_path: Path) -> Dict[str, Any]:
     """
-    Parse workspace file to extract resume context.
+    Parse workspace directory to extract resume context.
+
+    Now reads from SPAWN_CONTEXT.md instead of WORKSPACE.md.
 
     Args:
-        workspace_path: Path to WORKSPACE.md file or directory
+        workspace_path: Path to workspace directory
 
     Returns:
         dict with resume context:
-            - next_step: Specific next action from Summary section
-            - last_completed: Last completed task from Progress Tracking
-            - phase: Current phase
-            - session_time: Elapsed session time (if tracked)
-            - budget_remaining: Remaining time budget (if tracked)
+            - next_step: Specific next action (if found)
+            - task: Original task from SPAWN_CONTEXT.md
 
     Returns empty dict if workspace not found or can't parse.
     """
-    # Expand ~ and handle directory vs file path
     workspace_path = Path(workspace_path).expanduser()
-    if workspace_path.is_dir():
-        workspace_path = workspace_path / 'WORKSPACE.md'
-
-    if not workspace_path.exists():
+    if not workspace_path.is_dir():
         return {}
 
-    content = workspace_path.read_text()
     context = {}
 
-    # Extract basic phase info using existing parser
-    signal = parse_workspace(workspace_path)
-    if signal.phase:
-        context['phase'] = signal.phase
+    # Read SPAWN_CONTEXT.md for task info
+    spawn_context_path = workspace_path / 'SPAWN_CONTEXT.md'
+    if spawn_context_path.exists():
+        try:
+            content = spawn_context_path.read_text()
 
-    # Extract "Next Step" from Summary section
-    # Pattern: - **Next Step:** [text]
-    next_step_match = re.search(
-        r'^\s*-\s*\*\*Next Step:\*\*\s*(.+?)$',
-        content,
-        re.MULTILINE
-    )
-    if next_step_match:
-        context['next_step'] = next_step_match.group(1).strip()
-
-    # Extract last completed task from Progress Tracking
-    # Pattern: - [x] Task N: Description
-    completed_tasks = re.findall(
-        r'^\s*-\s*\[x\]\s*(.+?)$',
-        content,
-        re.MULTILINE
-    )
-    if completed_tasks:
-        context['last_completed'] = completed_tasks[-1].strip()
-
-    # Extract session time tracking (if present)
-    # Pattern: Session time: X.Xh elapsed, X.Xh budget remaining
-    time_match = re.search(
-        r'Session time:\s*([\d.]+)h\s+elapsed.*?([\d.]+)h\s+budget remaining',
-        content,
-        re.IGNORECASE
-    )
-    if time_match:
-        context['session_time'] = time_match.group(1)
-        context['budget_remaining'] = time_match.group(2)
+            # Extract task from SPAWN_CONTEXT.md
+            task_match = re.search(r'^##\s*Task\s*\n\n(.+?)(?:\n##|\Z)', content, re.MULTILINE | re.DOTALL)
+            if task_match:
+                context['task'] = task_match.group(1).strip()
+        except Exception:
+            pass
 
     return context
 
@@ -80,64 +54,14 @@ def update_workspace_timestamps(workspace_path: Path) -> None:
     """
     Update workspace timestamps for resumption.
 
-    Updates:
-        - Resumed At: [ISO timestamp] (in header)
-        - Last Activity: [ISO timestamp] (in Session Scope section if present)
-        - Current Status: RESUMING (in Checkpoint Opportunities section if present)
+    DEPRECATED: WORKSPACE.md is no longer used.
+    This function is a no-op for backward compatibility.
 
     Args:
-        workspace_path: Path to WORKSPACE.md file or directory
-
-    Raises:
-        FileNotFoundError: If workspace file doesn't exist
+        workspace_path: Path to workspace directory
     """
-    # Expand ~ and handle directory vs file path
-    workspace_path = Path(workspace_path).expanduser()
-    if workspace_path.is_dir():
-        workspace_path = workspace_path / 'WORKSPACE.md'
-
-    if not workspace_path.exists():
-        raise FileNotFoundError(f"Workspace file not found: {workspace_path}")
-
-    content = workspace_path.read_text()
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Update "Resumed At" field in header (or add if missing)
-    if re.search(r'^\*\*Resumed At:\*\*', content, re.MULTILINE):
-        # Update existing field
-        content = re.sub(
-            r'(^\*\*Resumed At:\*\*\s+)(.+?)$',
-            f'\\1{now_iso}',
-            content,
-            flags=re.MULTILINE
-        )
-    else:
-        # Add field after "Last Updated" if not present
-        content = re.sub(
-            r'(^\*\*Last Updated:\*\*.+?)$',
-            f'\\1\n**Resumed At:** {now_iso}',
-            content,
-            flags=re.MULTILINE
-        )
-
-    # Update "Last Activity" in Session Scope section (if present)
-    content = re.sub(
-        r'(^\*\*Last Activity:\*\*\s+)(.+?)$',
-        f'\\1{now_iso}',
-        content,
-        flags=re.MULTILINE
-    )
-
-    # Update "Current Status" in Checkpoint Opportunities section (if present)
-    content = re.sub(
-        r'(^\*\*Current Status:\*\*\s+)(.+?)$',
-        r'\1RESUMING',
-        content,
-        flags=re.MULTILINE
-    )
-
-    # Write updated content back
-    workspace_path.write_text(content)
+    # WORKSPACE.md no longer used - no-op for backward compatibility
+    pass
 
 
 def generate_continuation_message(
@@ -160,24 +84,11 @@ def generate_continuation_message(
         return custom_message
 
     # Auto-generate message from workspace context
-    parts = ["Resuming work. Your workspace shows:"]
+    parts = ["Resuming work."]
 
-    if context.get('last_completed'):
-        parts.append(f"- Last completed: {context['last_completed']}")
+    if context.get('task'):
+        parts.append(f"\nOriginal task: {context['task']}")
 
-    if context.get('next_step'):
-        parts.append(f"- Next step: {context['next_step']}")
+    parts.append("\nPlease continue where you left off.")
 
-    if context.get('session_time') and context.get('budget_remaining'):
-        parts.append(
-            f"- Session time: {context['session_time']}h elapsed, "
-            f"{context['budget_remaining']}h budget remaining"
-        )
-
-    # If we have next step, use it as continuation directive
-    if context.get('next_step'):
-        parts.append(f"\nContinue with: {context['next_step']}")
-    else:
-        parts.append(f"\nPlease continue where you left off.")
-
-    return "\n".join(parts)
+    return " ".join(parts)

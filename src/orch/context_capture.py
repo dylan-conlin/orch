@@ -7,7 +7,6 @@ import subprocess
 import re
 
 from orch.git_utils import is_git_repo
-from orch.workspace import parse_workspace
 
 
 @dataclass
@@ -85,11 +84,14 @@ def detect_active_workspace(current_dir: Path) -> Dict:
     """
     Detect if current directory is within a workspace.
 
+    Note: WORKSPACE.md is no longer used for agent state tracking.
+    This function now returns basic workspace path info only.
+
     Args:
         current_dir: Current working directory
 
     Returns:
-        Dict with workspace_path, workspace_summary (or None if not in workspace)
+        Dict with workspace_path (or None if not in workspace)
     """
     # Check if current directory is within .orch/workspace/
     workspace_marker = '.orch/workspace'
@@ -101,14 +103,13 @@ def detect_active_workspace(current_dir: Path) -> Dict:
     while check_dir != check_dir.parent:
         if workspace_marker in str(check_dir):
             # Found workspace directory
-            # Find the WORKSPACE.md file
             parts = str(check_dir).split(workspace_marker)
             if len(parts) >= 2:
                 # Get workspace root (e.g., .orch/workspace/my-workspace)
                 workspace_root_parts = parts[1].strip('/').split('/')
                 if workspace_root_parts:
                     workspace_name = workspace_root_parts[0]
-                    workspace_path = Path(parts[0]) / workspace_marker / workspace_name / 'WORKSPACE.md'
+                    workspace_path = Path(parts[0]) / workspace_marker / workspace_name
                     if workspace_path.exists():
                         break
             workspace_path = None
@@ -120,30 +121,11 @@ def detect_active_workspace(current_dir: Path) -> Dict:
             'workspace_summary': None
         }
 
-    # Parse workspace for summary info
-    signal = parse_workspace(workspace_path)
-
-    # Read first few sections for summary
-    content = workspace_path.read_text()
-
-    # Extract Summary section
-    summary_match = re.search(
-        r'## Summary.*?\n(.*?)(?:\n##|\Z)',
-        content,
-        re.DOTALL
-    )
-    summary_text = summary_match.group(1).strip() if summary_match else ''
-
-    # Extract current goal
-    goal_match = re.search(r'\*\*Current Goal:\*\*\s*(.+)', summary_text)
-    current_goal = goal_match.group(1).strip() if goal_match else ''
-
+    # Return workspace path without WORKSPACE.md parsing
+    # Beads is now the source of truth for agent state
     return {
-        'workspace_path': str(workspace_path.parent),  # Return directory, not file
-        'workspace_summary': {
-            'current_goal': current_goal,
-            'phase': signal.phase or 'Unknown'
-        }
+        'workspace_path': str(workspace_path),
+        'workspace_summary': None
     }
 
 

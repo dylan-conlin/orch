@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
 from orch.logging import OrchLogger
-from orch.workspace import parse_workspace
+# WORKSPACE.md parsing removed - beads is source of truth for agent state
 from orch.frontmatter import extract_metadata_from_file
 
 class AgentRegistry:
@@ -426,82 +426,60 @@ class AgentRegistry:
                                 phase = artifact_status  # Keep original for logging
                             primary_artifact_checked = True
 
-                    # Second: Fall back to workspace check if no primary_artifact or not checked
-                    workspace_exists = False
-                    workspace_path = None
+                    # WORKSPACE.md no longer used - beads is source of truth
+                    # For agents with primary_artifact, check artifact completion
+                    # For other agents, window closure = completion (trust the agent)
 
-                    if not primary_artifact_checked and workspace_rel:
-                        workspace_path = project_dir / workspace_rel
-                        if workspace_path.is_dir():
-                            workspace_exists = (workspace_path / "WORKSPACE.md").exists()
-                        else:
-                            workspace_exists = workspace_path.exists()
-
-                        if workspace_exists:
-                            # Parse workspace to get Phase
-                            signal = parse_workspace(workspace_path)
-                            phase = signal.phase
-
-                    # Determine if any coordination artifact exists
-                    coordination_artifact_exists = primary_artifact_checked or workspace_exists
-
-                    # Backward-compatible behavior:
-                    # - If coordination artifact exists, only mark as 'completed' if Phase/Status is 'Complete'.
-                    # - If no coordination artifact on disk (no directory/file), treat as 'completed' (legacy agents).
-
-                    if coordination_artifact_exists and phase and phase.lower() == 'complete':
+                    if primary_artifact_checked and phase and phase.lower() == 'complete':
+                        # Primary artifact exists and shows complete
                         now = datetime.now().isoformat()
                         agent['status'] = 'completed'
                         agent['completed_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
+                        agent['updated_at'] = now
 
-                        # Log state transition to completed
-                        artifact_type = "primary_artifact" if primary_artifact_checked else "workspace"
-                        self._logger.log_event("registry", f"Agent completed (window closed, {artifact_type} Phase: Complete): {agent['id']}", {
+                        self._logger.log_event("registry", f"Agent completed (window closed, primary_artifact Phase: Complete): {agent['id']}", {
                             "agent_id": agent['id'],
                             "window": agent['window'],
                             "window_id": agent.get('window_id'),
                             "phase": phase,
-                            "artifact_type": artifact_type,
+                            "artifact_type": "primary_artifact",
                             "reason": "window_closed_phase_complete"
                         }, level="INFO")
 
                         completed_count += 1
-                    elif not coordination_artifact_exists:
-                        # No coordination artifact on disk – treat as completed (legacy agents)
-                        now = datetime.now().isoformat()
-                        agent['status'] = 'completed'
-                        agent['completed_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
-
-                        self._logger.log_event("registry", f"Agent completed (window closed, no coordination artifact): {agent['id']}", {
-                            "agent_id": agent['id'],
-                            "window": agent['window'],
-                            "window_id": agent.get('window_id'),
-                            "phase": phase or 'unknown',
-                            "reason": "window_closed_no_artifact"
-                        }, level="INFO")
-
-                        completed_count += 1
-                    else:
-                        # Window closed but Phase/Status is not Complete - mark as terminated
+                    elif primary_artifact_checked and phase and phase.lower() != 'complete':
+                        # Primary artifact exists but not complete - terminated
                         now = datetime.now().isoformat()
                         agent['status'] = 'terminated'
                         agent['terminated_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
+                        agent['updated_at'] = now
 
-                        # Log state transition to terminated
-                        artifact_type = "primary_artifact" if primary_artifact_checked else "workspace"
-                        self._logger.log_event("registry", f"Agent terminated (window closed, {artifact_type} Phase: {phase or 'unknown'}): {agent['id']}", {
+                        self._logger.log_event("registry", f"Agent terminated (window closed, primary_artifact Phase: {phase}): {agent['id']}", {
                             "agent_id": agent['id'],
                             "window": agent['window'],
                             "window_id": agent.get('window_id'),
-                            "phase": phase or 'unknown',
-                            "artifact_type": artifact_type,
+                            "phase": phase,
+                            "artifact_type": "primary_artifact",
                             "reason": "window_closed_phase_incomplete"
                         }, level="INFO")
 
                         terminated_count += 1
+                    else:
+                        # No primary_artifact or couldn't check - trust window closure as completion
+                        # Beads tracks the actual state via agent comments
+                        now = datetime.now().isoformat()
+                        agent['status'] = 'completed'
+                        agent['completed_at'] = now
+                        agent['updated_at'] = now
+
+                        self._logger.log_event("registry", f"Agent completed (window closed): {agent['id']}", {
+                            "agent_id": agent['id'],
+                            "window": agent['window'],
+                            "window_id": agent.get('window_id'),
+                            "reason": "window_closed"
+                        }, level="INFO")
+
+                        completed_count += 1
 
         # Log reconciliation summary if any changes
         if completed_count > 0 or terminated_count > 0:
@@ -564,40 +542,13 @@ class AgentRegistry:
                     session_exists = False
 
                 if not session_exists:
-                    # Session no longer exists - check workspace phase
-                    workspace_rel = agent.get('workspace')
-                    phase = None
-
-                    project_dir_path = Path(project_dir)
-                    workspace_path = project_dir_path / workspace_rel if workspace_rel else None
-                    workspace_exists = False
-
-                    if workspace_path:
-                        if workspace_path.is_dir():
-                            workspace_exists = (workspace_path / "WORKSPACE.md").exists()
-
-                    if workspace_exists:
-                        signal = parse_workspace(workspace_path)
-                        phase = signal.phase
-
-                    if workspace_exists and phase and phase.lower() == 'complete':
-                        now = datetime.now().isoformat()
-                        agent['status'] = 'completed'
-                        agent['completed_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
-                        completed_count += 1
-                    elif not workspace_exists:
-                        now = datetime.now().isoformat()
-                        agent['status'] = 'completed'
-                        agent['completed_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
-                        completed_count += 1
-                    else:
-                        now = datetime.now().isoformat()
-                        agent['status'] = 'terminated'
-                        agent['terminated_at'] = now
-                        agent['updated_at'] = now  # For timestamp-based merge
-                        terminated_count += 1
+                    # Session no longer exists - mark as completed
+                    # WORKSPACE.md no longer used - beads is source of truth
+                    now = datetime.now().isoformat()
+                    agent['status'] = 'completed'
+                    agent['completed_at'] = now
+                    agent['updated_at'] = now
+                    completed_count += 1
 
             if completed_count > 0 or terminated_count > 0:
                 self._logger.log_event("registry",

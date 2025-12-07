@@ -1,5 +1,9 @@
 """
 Tests for orch resume functionality.
+
+Note: WORKSPACE.md is no longer used for agent state tracking.
+Beads is now the source of truth. Resume context now focuses on
+SPAWN_CONTEXT.md and primary artifacts.
 """
 
 import pytest
@@ -188,159 +192,88 @@ class TestResumeCommand:
 
 
 class TestResumeWorkspaceParsing:
-    """Tests for workspace parsing logic."""
+    """Tests for workspace parsing logic.
 
-    def test_parse_resume_context_extracts_next_step(self):
-        """Test extracting Next Step from Summary section."""
+    Note: WORKSPACE.md is no longer used. parse_resume_context now reads
+    from SPAWN_CONTEXT.md for task info only.
+    """
+
+    def test_parse_resume_context_extracts_task(self, tmp_path):
+        """Test extracting task from SPAWN_CONTEXT.md."""
         from orch.resume import parse_resume_context
 
-        workspace_content = """
-## Summary (Top 3)
+        # Create workspace directory
+        workspace_dir = tmp_path / "test-workspace"
+        workspace_dir.mkdir()
 
-- **Current Goal:** Implementing feature
-- **Next Step:** Task 5 - Write documentation
-- **Blocking Issue:** None
-"""
+        # Create SPAWN_CONTEXT.md
+        spawn_context = workspace_dir / "SPAWN_CONTEXT.md"
+        spawn_context.write_text("""# SPAWN_CONTEXT
 
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.read_text', return_value=workspace_content):
-                context = parse_resume_context(Path('/tmp/WORKSPACE.md'))
+## Task
 
-        assert 'next_step' in context
-        assert 'Task 5 - Write documentation' in context['next_step']
+Implement feature X with proper error handling.
 
-    def test_parse_resume_context_extracts_last_completed(self):
-        """Test extracting last completed task."""
-        from orch.resume import parse_resume_context
+## Skill
+feature-impl
+""")
 
-        workspace_content = """
-## Progress Tracking
+        context = parse_resume_context(workspace_dir)
 
-- [x] Task 1: Setup environment
-- [x] Task 2: Write tests
-- [ ] Task 3: Implement feature
-"""
+        assert 'task' in context
+        assert 'Implement feature X' in context['task']
 
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.read_text', return_value=workspace_content):
-                context = parse_resume_context(Path('/tmp/WORKSPACE.md'))
-
-        assert 'last_completed' in context
-        assert 'Task 2: Write tests' in context['last_completed']
-
-    def test_parse_resume_context_extracts_phase(self):
-        """Test extracting phase information."""
-        from orch.resume import parse_resume_context
-
-        workspace_content = """
-**Phase:** Implementation
-"""
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.read_text', return_value=workspace_content):
-                context = parse_resume_context(Path('/tmp/WORKSPACE.md'))
-
-        assert 'phase' in context
-        assert context['phase'] == 'Implementation'
-
-    def test_parse_resume_context_missing_workspace(self):
+    def test_parse_resume_context_missing_workspace(self, tmp_path):
         """Test parsing returns empty dict when workspace missing."""
         from orch.resume import parse_resume_context
 
-        with patch('pathlib.Path.exists', return_value=False):
-            context = parse_resume_context(Path('/tmp/WORKSPACE.md'))
+        missing_dir = tmp_path / "nonexistent"
+        context = parse_resume_context(missing_dir)
 
         assert context == {}
 
 
 class TestTimestampUpdates:
-    """Tests for workspace timestamp update logic."""
+    """Tests for workspace timestamp update logic.
 
-    def test_update_workspace_timestamps_adds_resumed_at(self, tmp_path):
-        """Test adding Resumed At timestamp."""
+    Note: WORKSPACE.md is no longer used. update_workspace_timestamps
+    is now a no-op for backward compatibility.
+    """
+
+    def test_update_workspace_timestamps_is_noop(self, tmp_path):
+        """Test that update_workspace_timestamps is a no-op."""
         from orch.resume import update_workspace_timestamps
 
-        workspace_content = """
-**Owner:** Agent
-**Started:** 2025-11-14
-**Last Updated:** 2025-11-14 10:00
-"""
+        workspace_dir = tmp_path / "test-workspace"
+        workspace_dir.mkdir()
 
-        # Create temporary workspace file
-        workspace_file = tmp_path / "WORKSPACE.md"
-        workspace_file.write_text(workspace_content)
-
-        update_workspace_timestamps(workspace_file)
-
-        # Read updated content
-        updated_content = workspace_file.read_text()
-        assert 'Resumed At:' in updated_content
-        # ISO timestamp format check
-        assert '2025-' in updated_content or '2024-' in updated_content
-        assert 'T' in updated_content  # ISO format has T separator
-        assert 'Z' in updated_content  # UTC timezone
-
-    def test_update_workspace_timestamps_updates_last_activity(self, tmp_path):
-        """Test updating Last Activity in Session Scope section."""
-        from orch.resume import update_workspace_timestamps
-
-        workspace_content = """
-## Session Scope & Checkpoint Plan
-
-**Last Activity:** 2025-11-14T10:00:00Z
-"""
-
-        # Create temporary workspace file
-        workspace_file = tmp_path / "WORKSPACE.md"
-        workspace_file.write_text(workspace_content)
-
-        update_workspace_timestamps(workspace_file)
-
-        # Read updated content
-        updated_content = workspace_file.read_text()
-        # Should have updated timestamp (different from original)
-        assert updated_content != workspace_content
-        # Should contain an ISO timestamp (with T and Z)
-        assert 'T' in updated_content
-        assert 'Z' in updated_content
-
-    def test_update_workspace_timestamps_missing_file_raises_error(self, tmp_path):
-        """Test error when workspace file doesn't exist."""
-        from orch.resume import update_workspace_timestamps
-
-        # Path to non-existent file
-        missing_file = tmp_path / "nonexistent" / "WORKSPACE.md"
-
-        with pytest.raises(FileNotFoundError):
-            update_workspace_timestamps(missing_file)
+        # Should not raise, even if directory exists
+        update_workspace_timestamps(workspace_dir)
+        # Function is a no-op, just verify it doesn't crash
 
 
 class TestContinuationMessageGeneration:
     """Tests for continuation message generation."""
 
-    def test_generate_continuation_message_with_context(self):
-        """Test auto-generated message includes workspace context."""
+    def test_generate_continuation_message_with_task(self):
+        """Test auto-generated message includes task from context."""
         from orch.resume import generate_continuation_message
 
         context = {
-            'last_completed': 'Task 2: Write tests',
-            'next_step': 'Task 3 - Implement feature',
-            'phase': 'Implementation'
+            'task': 'Implement feature X with proper error handling'
         }
 
         message = generate_continuation_message('test-workspace', context)
 
         assert 'Resuming work' in message
-        assert 'Task 2: Write tests' in message
-        assert 'Task 3 - Implement feature' in message
+        assert 'Implement feature X' in message
 
     def test_generate_continuation_message_custom_overrides(self):
         """Test custom message overrides auto-generation."""
         from orch.resume import generate_continuation_message
 
         context = {
-            'next_step': 'Task 3',
-            'last_completed': 'Task 2'
+            'task': 'Implement feature X'
         }
 
         custom_message = "Please skip to Task 5"
@@ -348,8 +281,7 @@ class TestContinuationMessageGeneration:
 
         assert message == custom_message
         # Should NOT include context info
-        assert 'Task 2' not in message
-        assert 'Task 3' not in message
+        assert 'feature X' not in message
 
     def test_generate_continuation_message_minimal_context(self):
         """Test message generation with minimal context."""

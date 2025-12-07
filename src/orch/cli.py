@@ -13,7 +13,7 @@ from orch.monitor import check_agent_status, get_status_emoji
 from orch.logging import OrchLogger
 from orch.complete import verify_agent_work, clean_up_agent
 from orch.help import show_help_overview, show_help_topic, show_unknown_topic, HELP_TOPICS
-from orch.workspace import is_unmodified_template, extract_tldr
+from orch.markdown_utils import extract_tldr
 
 # Import from path_utils to break circular dependencies
 # (cli -> complete -> spawn -> cli and cli -> complete -> spawn -> investigations -> cli)
