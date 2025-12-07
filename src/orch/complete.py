@@ -240,6 +240,125 @@ def extract_recommendations_section(investigation_path: Path) -> str | None:
     return None
 
 
+def extract_areas_needing_investigation(investigation_path: Path) -> list[str] | None:
+    """
+    Extract 'Areas needing further investigation' items from investigation file.
+
+    Looks for sections with:
+    - **Areas needing further investigation:** (bold subsection)
+    - ## Areas Needing Further Investigation (H2 section)
+
+    Defense-in-depth pattern: Even if agents don't proactively create beads issues,
+    orchestrator is prompted to create follow-up issues from investigation files.
+
+    Args:
+        investigation_path: Path to investigation markdown file
+
+    Returns:
+        List of extracted items (strings), empty list if section exists but empty,
+        or None if section not found or file missing
+    """
+    if not investigation_path.exists():
+        return None
+
+    try:
+        content = investigation_path.read_text()
+    except Exception:
+        return None
+
+    # Patterns for finding the section
+    # Pattern 1: Bold subsection format - **Areas needing further investigation:**
+    # Pattern 2: H2 section format - ## Areas Needing Further Investigation
+    patterns = [
+        # Bold subsection - extract until next bold section or H2
+        r'\*\*Areas needing further investigation:\*\*\n(.*?)(?=\n\*\*[A-Z]|\n## |\Z)',
+        # H2 section - extract until next H2 or end
+        r'## Areas Needing Further Investigation\n(.*?)(?=\n## |\Z)',
+    ]
+
+    section_content = None
+    for pattern in patterns:
+        match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+        if match:
+            section_content = match.group(1).strip()
+            break
+
+    if section_content is None:
+        return None
+
+    # Parse list items from the section
+    # Handle both - and * bullet points, and numbered lists
+    items = []
+    for line in section_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Match list items: -, *, or numbered (1., 2., etc.)
+        list_match = re.match(r'^[-*]\s+(.+)$|^(\d+)\.\s+(.+)$', line)
+        if list_match:
+            # Extract the item text (handle both bullet and numbered formats)
+            if list_match.group(1):
+                items.append(list_match.group(1).strip())
+            elif list_match.group(3):
+                items.append(list_match.group(3).strip())
+
+    return items
+
+
+def surface_areas_needing_investigation(
+    agent: dict[str, Any],
+    project_dir: Path
+) -> dict[str, Any] | None:
+    """
+    Surface areas needing investigation from investigation file if applicable.
+
+    Called during agent completion to extract and return areas needing
+    further investigation for investigation-category skills.
+
+    Args:
+        agent: Agent info dictionary (must have 'skill' and 'workspace' keys)
+        project_dir: Project directory
+
+    Returns:
+        Dict with areas info, or None if not applicable
+    """
+    skill = agent.get('skill')
+
+    # Only surface for investigation-category skills
+    if skill not in INVESTIGATION_SKILLS:
+        return None
+
+    # Try primary_artifact first (most reliable - exact path from spawn)
+    inv_path = None
+    primary_artifact = agent.get('primary_artifact')
+    if primary_artifact:
+        inv_path = Path(primary_artifact).expanduser()
+        if not inv_path.is_absolute():
+            inv_path = (project_dir / inv_path).resolve()
+        if not inv_path.exists():
+            inv_path = None
+
+    # Fall back to name-based matching
+    if not inv_path:
+        workspace_rel = agent.get('workspace', '')
+        workspace_name = Path(workspace_rel).name
+        inv_path = find_investigation_file(workspace_name, project_dir)
+
+    if not inv_path:
+        return None
+
+    # Extract areas
+    areas = extract_areas_needing_investigation(inv_path)
+    if not areas:
+        return None
+
+    return {
+        'investigation_path': str(inv_path),
+        'areas': areas
+    }
+
+
 def find_investigation_file(
     workspace_name: str,
     project_dir: Path
@@ -606,6 +725,26 @@ def complete_agent_async(
             "investigation_path": rec_info['investigation_path']
         })
 
+    # Surface areas needing further investigation (defense-in-depth)
+    # Must happen BEFORE daemon spawn - click.echo() in daemon goes nowhere
+    areas_info = surface_areas_needing_investigation(agent, project_dir)
+    if areas_info:
+        result['areas_needing_investigation'] = areas_info
+        parent_beads_id = agent.get('beads_id')
+        click.echo("\n🔍 Areas needing further investigation:")
+        for area in areas_info['areas']:
+            click.echo(f"   • {area}")
+        click.echo(f"\nConsider creating follow-up issues:")
+        if parent_beads_id:
+            click.echo(f"   bd create \"<description>\" --discovered-from {parent_beads_id}")
+        else:
+            click.echo(f"   bd create \"<description>\"")
+        logger.log_event("complete", "Areas needing investigation surfaced", {
+            "agent_id": agent_id,
+            "investigation_path": areas_info['investigation_path'],
+            "areas_count": len(areas_info['areas'])
+        })
+
     # Spawn background daemon
     daemon_script = Path(__file__).parent / 'cleanup_daemon.py'
 
@@ -825,6 +964,26 @@ def complete_agent_work(
         logger.log_event("complete", "Investigation recommendations surfaced", {
             "agent_id": agent_id,
             "investigation_path": rec_info['investigation_path']
+        })
+
+    # Step 4.55: Surface areas needing further investigation (defense-in-depth)
+    # Even if agents don't proactively create beads issues, prompt orchestrator
+    areas_info = surface_areas_needing_investigation(agent, project_dir)
+    if areas_info:
+        result['areas_needing_investigation'] = areas_info
+        parent_beads_id = agent.get('beads_id')
+        click.echo("\n🔍 Areas needing further investigation:")
+        for area in areas_info['areas']:
+            click.echo(f"   • {area}")
+        click.echo(f"\nConsider creating follow-up issues:")
+        if parent_beads_id:
+            click.echo(f"   bd create \"<description>\" --discovered-from {parent_beads_id}")
+        else:
+            click.echo(f"   bd create \"<description>\"")
+        logger.log_event("complete", "Areas needing investigation surfaced", {
+            "agent_id": agent_id,
+            "investigation_path": areas_info['investigation_path'],
+            "areas_count": len(areas_info['areas'])
         })
 
     # Step 4.6: Sync workspace to origin repo for cross-repo spawns
