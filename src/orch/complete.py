@@ -739,6 +739,35 @@ def complete_agent_work(
         result['success'] = True
         return result
 
+    # Step 2.5: Extract investigation_path from beads and update registry (orch-cli-57n)
+    # This fixes path mismatch where spawn predicts path but actual is determined by kb create
+    if agent.get('beads_id'):
+        beads_id = agent['beads_id']
+        beads_db_path = agent.get('beads_db_path')
+        try:
+            beads = BeadsIntegration(db_path=beads_db_path)
+            investigation_path = beads.get_investigation_path_from_comments(beads_id)
+            if investigation_path:
+                # Update registry with actual path
+                from orch.registry import AgentRegistry
+                registry = AgentRegistry()
+                registry_agent = registry.find(agent_id)
+                if registry_agent:
+                    registry_agent['primary_artifact'] = investigation_path
+                    registry.save()
+                    result['primary_artifact_updated'] = True
+                    logger.log_event("complete", "Primary artifact updated from beads", {
+                        "agent_id": agent_id,
+                        "beads_id": beads_id,
+                        "investigation_path": investigation_path
+                    })
+        except Exception as e:
+            # Non-blocking - continue with completion even if extraction fails
+            logger.log_event("complete", "Investigation path extraction failed", {
+                "agent_id": agent_id,
+                "error": str(e)
+            })
+
     # Step 3: Close beads issue if agent was spawned from beads issue
     if agent.get('beads_id'):
         beads_id = agent['beads_id']

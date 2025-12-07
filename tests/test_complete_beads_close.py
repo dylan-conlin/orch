@@ -506,3 +506,173 @@ class TestCLIBeadsClose:
 
                 # Should show beads closed message
                 assert 'beads' in result.output.lower() or result.exit_code == 0
+
+
+class TestUpdatePrimaryArtifactFromBeads:
+    """Tests for extracting investigation_path from beads and updating registry.
+
+    When completing an agent with beads_id, extract investigation_path from beads comments
+    and update the registry's primary_artifact field with the actual path.
+
+    Reference: orch-cli-57n (investigation path mismatch fix)
+    """
+
+    def test_complete_extracts_investigation_path_from_beads(self, tmp_path):
+        """Test that complete_agent_work extracts investigation_path and updates registry."""
+        from orch.complete import complete_agent_work
+
+        # Create minimal workspace structure
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text("""
+**TLDR:** Test workspace
+---
+# Workspace: test-agent
+**Phase:** Complete
+**Status:** Complete
+---
+## Verification Required
+- [x] All tests passing
+---
+## Handoff Notes
+Done.
+""")
+
+        with patch('orch.complete.get_agent_by_id') as mock_get_agent:
+            mock_get_agent.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': str(tmp_path),
+                'status': 'active',
+                'beads_id': 'orch-cli-xyz',
+                'primary_artifact': '/predicted/path/that/was/wrong.md'  # Initial incorrect path
+            }
+
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = Mock(passed=True, errors=[])
+
+                with patch('orch.complete.validate_work_committed') as mock_git:
+                    mock_git.return_value = (True, None)
+
+                    with patch('orch.complete.close_beads_issue') as mock_close:
+                        mock_close.return_value = True
+
+                        with patch('orch.complete.BeadsIntegration') as MockBeads:
+                            mock_beads = Mock()
+                            # Return actual investigation path from beads comments
+                            mock_beads.get_investigation_path_from_comments.return_value = \
+                                '/project/.kb/investigations/2025-12-06-actual-path.md'
+                            MockBeads.return_value = mock_beads
+
+                            with patch('orch.complete.clean_up_agent'):
+                                with patch('orch.registry.AgentRegistry') as MockRegistry:
+                                    mock_registry = Mock()
+                                    MockRegistry.return_value = mock_registry
+
+                                    result = complete_agent_work(
+                                        agent_id='test-agent',
+                                        project_dir=tmp_path,
+                                    )
+
+                                    # Should have attempted to get investigation path
+                                    mock_beads.get_investigation_path_from_comments.assert_called_once_with('orch-cli-xyz')
+                                    assert result['success'] is True
+
+    def test_complete_skips_path_update_when_no_beads_id(self, tmp_path):
+        """Test that path extraction is skipped when agent has no beads_id."""
+        from orch.complete import complete_agent_work
+
+        # Create minimal workspace structure
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text("""
+**TLDR:** Test workspace
+---
+# Workspace: test-agent
+**Phase:** Complete
+---
+## Handoff Notes
+Done.
+""")
+
+        with patch('orch.complete.get_agent_by_id') as mock_get_agent:
+            mock_get_agent.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': str(tmp_path),
+                'status': 'active'
+                # No beads_id
+            }
+
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = Mock(passed=True, errors=[])
+
+                with patch('orch.complete.validate_work_committed') as mock_git:
+                    mock_git.return_value = (True, None)
+
+                    with patch('orch.complete.BeadsIntegration') as MockBeads:
+                        mock_beads = Mock()
+                        MockBeads.return_value = mock_beads
+
+                        with patch('orch.complete.clean_up_agent'):
+                            result = complete_agent_work(
+                                agent_id='test-agent',
+                                project_dir=tmp_path,
+                            )
+
+                            # Should NOT have called get_investigation_path
+                            mock_beads.get_investigation_path_from_comments.assert_not_called()
+                            assert result['success'] is True
+
+    def test_complete_gracefully_handles_no_investigation_path(self, tmp_path):
+        """Test that completion succeeds even if no investigation_path in comments."""
+        from orch.complete import complete_agent_work
+
+        # Create minimal workspace structure
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text("""
+**TLDR:** Test workspace
+---
+# Workspace: test-agent
+**Phase:** Complete
+---
+## Handoff Notes
+Done.
+""")
+
+        with patch('orch.complete.get_agent_by_id') as mock_get_agent:
+            mock_get_agent.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': str(tmp_path),
+                'status': 'active',
+                'beads_id': 'orch-cli-xyz'
+            }
+
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = Mock(passed=True, errors=[])
+
+                with patch('orch.complete.validate_work_committed') as mock_git:
+                    mock_git.return_value = (True, None)
+
+                    with patch('orch.complete.close_beads_issue') as mock_close:
+                        mock_close.return_value = True
+
+                        with patch('orch.complete.BeadsIntegration') as MockBeads:
+                            mock_beads = Mock()
+                            # Return None (no investigation_path comment)
+                            mock_beads.get_investigation_path_from_comments.return_value = None
+                            MockBeads.return_value = mock_beads
+
+                            with patch('orch.complete.clean_up_agent'):
+                                result = complete_agent_work(
+                                    agent_id='test-agent',
+                                    project_dir=tmp_path,
+                                )
+
+                                # Should still succeed (graceful fallback)
+                                assert result['success'] is True
