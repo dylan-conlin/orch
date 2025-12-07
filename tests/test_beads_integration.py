@@ -620,3 +620,130 @@ class TestBeadsIntegrationDbPath:
             assert "--db" in cmd
             assert "/other/.beads/beads.db" in cmd
             assert phase == "Complete"
+
+
+class TestBeadsIntegrationGetInvestigationPath:
+    """Tests for get_investigation_path_from_comments() - extracts investigation_path from beads comments."""
+
+    def test_get_investigation_path_from_comments_success(self):
+        """Test extracting investigation_path from comments."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Planning - Starting work",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+            {
+                "id": 2,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "investigation_path: /path/to/project/.kb/investigations/2025-12-06-my-investigation.md",
+                "created_at": "2025-12-02T11:00:00Z"
+            },
+            {
+                "id": 3,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Complete - All done",
+                "created_at": "2025-12-02T12:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            path = beads.get_investigation_path_from_comments("test-id")
+
+            assert path == "/path/to/project/.kb/investigations/2025-12-06-my-investigation.md"
+
+    def test_get_investigation_path_from_comments_no_path(self):
+        """Test when no investigation_path comment exists."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Complete - Done",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            path = beads.get_investigation_path_from_comments("test-id")
+
+            assert path is None
+
+    def test_get_investigation_path_from_comments_uses_latest(self):
+        """Test that latest investigation_path is returned when multiple exist."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "investigation_path: /old/path/investigation.md",
+                "created_at": "2025-12-02T10:00:00Z"
+            },
+            {
+                "id": 2,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "investigation_path: /new/path/investigation.md",
+                "created_at": "2025-12-02T11:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            path = beads.get_investigation_path_from_comments("test-id")
+
+            # Should return the latest (second) path
+            assert path == "/new/path/investigation.md"
+
+    def test_get_investigation_path_with_db_path(self):
+        """Test get_investigation_path_from_comments uses --db flag when db_path is set."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "cross-repo-id",
+                "author": "agent",
+                "text": "investigation_path: /project/.kb/investigations/2025-12-06-test.md",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/other/.beads/beads.db")
+            path = beads.get_investigation_path_from_comments("cross-repo-id")
+
+            # Verify --db flag was included
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/other/.beads/beads.db" in cmd
+            assert path == "/project/.kb/investigations/2025-12-06-test.md"

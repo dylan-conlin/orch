@@ -257,3 +257,53 @@ class BeadsIntegration:
         """
         phase = self.get_phase_from_comments(issue_id)
         return phase is not None and phase.lower() == "complete"
+
+    def get_investigation_path_from_comments(self, issue_id: str) -> Optional[str]:
+        """Extract the investigation_path from beads issue comments.
+
+        Agents report their investigation file path via comments like:
+          bd comment <id> "investigation_path: /path/to/file.md"
+
+        This method parses comments to find the most recent "investigation_path: ..." line.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            The investigation file path or None if no investigation_path found.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        try:
+            result = subprocess.run(
+                self._build_command("comments", issue_id, "--json"),
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise BeadsIssueNotFoundError(issue_id)
+
+        try:
+            comments = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+        if not comments:
+            return None
+
+        # Find the latest "investigation_path: ..." comment (comments are chronologically ordered)
+        import re
+        latest_path = None
+        for comment in comments:
+            text = comment.get("text", "")
+            # Match "investigation_path: <path>" at start of comment
+            match = re.match(r"investigation_path:\s*(.+)", text)
+            if match:
+                latest_path = match.group(1).strip()
+
+        return latest_path
