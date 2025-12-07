@@ -101,7 +101,7 @@ class TestSpawnCheckCompleteWorkflow:
             mock_backend.build_command.return_value = 'claude "test"'
 
             with patch('subprocess.run', side_effect=mock_subprocess), \
-                 patch('orch.spawn.wait_for_claude_ready'), \
+                 patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True), \
                  patch('orch.registry.AgentRegistry', return_value=mock_registry), \
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.complete.verify_agent_work') as mock_verify, \
@@ -215,7 +215,7 @@ class TestSpawnSendCompleteWorkflow:
             mock_window.id = '@1008'
 
             with patch('subprocess.run', side_effect=mock_subprocess), \
-                 patch('orch.spawn.wait_for_claude_ready'), \
+                 patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True), \
                  patch('orch.registry.AgentRegistry', return_value=mock_registry), \
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.monitoring_commands.AgentRegistry', return_value=mock_registry), \
@@ -331,7 +331,7 @@ Implement ROADMAP-based spawning.
             mock_backend.build_command.return_value = 'claude "test"'
 
             with patch('subprocess.run', side_effect=mock_subprocess), \
-                 patch('orch.spawn.wait_for_claude_ready'), \
+                 patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True), \
                  patch('orch.registry.AgentRegistry', return_value=mock_registry), \
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.complete.verify_agent_work') as mock_verify, \
@@ -414,7 +414,7 @@ class TestMultipleAgentsWorkflow:
             mock_backend.build_command.return_value = 'claude "test"'
 
             with patch('subprocess.run', side_effect=mock_subprocess), \
-                 patch('orch.spawn.wait_for_claude_ready'), \
+                 patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True), \
                  patch('orch.registry.AgentRegistry', return_value=mock_registry), \
                  patch('orch.cli.AgentRegistry', return_value=mock_registry), \
                  patch('orch.complete.verify_agent_work') as mock_verify, \

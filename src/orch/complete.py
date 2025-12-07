@@ -664,7 +664,7 @@ def complete_agent_async(
 
     # Auto-unstash git changes if stashed during spawn (do this before daemon)
     if agent.get('stashed'):
-        from orch.spawn import git_stash_pop
+        from orch.git_utils import git_stash_pop
         project_dir = Path(agent.get('project_dir', '.'))
         click.echo("📦 Restoring stashed git changes...")
         if git_stash_pop(project_dir):
@@ -940,7 +940,7 @@ def complete_agent_work(
 
     # Step 4: Auto-unstash git changes if stashed during spawn
     if agent.get('stashed'):
-        from orch.spawn import git_stash_pop
+        from orch.git_utils import git_stash_pop
         click.echo("📦 Restoring stashed git changes...")
         if git_stash_pop(project_dir):
             click.echo("✓ Stashed changes restored")

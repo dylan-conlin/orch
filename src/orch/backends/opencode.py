@@ -29,6 +29,62 @@ if TYPE_CHECKING:
     from orch.spawn import SpawnConfig
 
 
+# ========== OpenCode Model Resolution (moved from spawn.py) ==========
+
+# Default model for OpenCode spawns
+OPENCODE_DEFAULT_MODEL = {
+    "providerID": "anthropic",
+    "modelID": "claude-opus-4-5-20251101"
+}
+
+# Model shorthand aliases for convenience
+# Model IDs from OpenCode's anthropic provider
+OPENCODE_MODEL_ALIASES = {
+    # Opus variants
+    "opus": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
+    "opus-4.5": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
+    "opus-4-5": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
+    # Sonnet variants
+    "sonnet": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
+    "sonnet-4.5": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
+    "sonnet-4-5": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
+    # Haiku variants
+    "haiku": {"providerID": "anthropic", "modelID": "claude-haiku-4-5-20251001"},
+    "haiku-4.5": {"providerID": "anthropic", "modelID": "claude-haiku-4-5-20251001"},
+}
+
+
+def resolve_opencode_model(model_spec: Optional[str]) -> Dict[str, str]:
+    """
+    Resolve model specification to OpenCode format.
+
+    Args:
+        model_spec: Model name (e.g., "opus", "sonnet", "claude-opus-4-5-20250929")
+                   or None for default
+
+    Returns:
+        Dictionary with providerID and modelID for OpenCode API
+    """
+    if not model_spec:
+        return OPENCODE_DEFAULT_MODEL
+
+    # Check aliases first
+    if model_spec.lower() in OPENCODE_MODEL_ALIASES:
+        return OPENCODE_MODEL_ALIASES[model_spec.lower()]
+
+    # If it looks like a full model ID, use it directly with anthropic provider
+    if "claude" in model_spec.lower():
+        return {"providerID": "anthropic", "modelID": model_spec}
+
+    # For other providers/models, assume format is "provider/model" or just model
+    if "/" in model_spec:
+        provider, model = model_spec.split("/", 1)
+        return {"providerID": provider, "modelID": model}
+
+    # Default: assume anthropic provider
+    return {"providerID": "anthropic", "modelID": model_spec}
+
+
 @dataclass
 class OpenCodeSession:
     """Represents an OpenCode session (analogous to a tmux window/agent)."""

@@ -16,7 +16,6 @@ import re
 import subprocess
 from datetime import datetime
 import time
-import functools
 import os
 import shlex
 
@@ -33,8 +32,13 @@ from orch.workspace_naming import (
 )
 from orch.logging import OrchLogger
 from orch.roadmap import RoadmapItem, find_roadmap_item, parse_roadmap_file_cached
-from orch.roadmap_utils import parse_roadmap, detect_project_roadmap as detect_roadmap_utils
+from orch.roadmap_utils import parse_roadmap
 from orch.backends import ClaudeBackend, CodexBackend
+from orch.backends.opencode import (
+    OPENCODE_DEFAULT_MODEL,
+    OPENCODE_MODEL_ALIASES,
+    resolve_opencode_model,
+)
 from orch.config import get_backend
 from orch.skill_discovery import (
     SkillDeliverable,
@@ -57,228 +61,22 @@ from orch.spawn_context_quality import (
     validate_spawn_context_length,
     SpawnContextTooShortError,
 )
+from orch.git_utils import (
+    check_git_dirty_state,
+    git_stash_changes,
+    git_stash_pop,
+)
+from orch.project_resolver import (
+    detect_project_roadmap,
+    _get_active_projects_file,
+    _parse_active_projects,
+    get_project_dir,
+    list_available_projects,
+    format_project_not_found_error,
+    detect_project_from_cwd,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# ========== Git State Validation ==========
-
-def check_git_dirty_state(project_dir: Path) -> Dict[str, List[str]]:
-    """
-    Check if the project directory has uncommitted changes.
-
-    Args:
-        project_dir: Path to the project directory
-
-    Returns:
-        Dictionary with 'staged', 'unstaged', and 'untracked' file lists.
-        Empty lists mean clean state.
-    """
-    result = {
-        'staged': [],
-        'unstaged': [],
-        'untracked': []
-    }
-
-    try:
-        # Check if it's a git repo
-        git_check = subprocess.run(
-            ['git', '-C', str(project_dir), 'rev-parse', '--git-dir'],
-            capture_output=True, text=True
-        )
-        if git_check.returncode != 0:
-            return result  # Not a git repo, nothing to check
-
-        # Get porcelain status (machine-readable)
-        status = subprocess.run(
-            ['git', '-C', str(project_dir), 'status', '--porcelain'],
-            capture_output=True, text=True
-        )
-
-        for line in status.stdout.rstrip('\n').split('\n'):
-            if not line:
-                continue
-            # Format: XY filename (X=staged, Y=unstaged)
-            # ?? = untracked, M = modified, A = added, D = deleted
-            index_status = line[0] if len(line) > 0 else ' '
-            worktree_status = line[1] if len(line) > 1 else ' '
-            filename = line[3:] if len(line) > 3 else ''
-
-            if index_status == '?' and worktree_status == '?':
-                result['untracked'].append(filename)
-            else:
-                if index_status not in (' ', '?'):
-                    result['staged'].append(filename)
-                if worktree_status not in (' ', '?'):
-                    result['unstaged'].append(filename)
-
-    except Exception as e:
-        logger.warning(f"Failed to check git status: {e}")
-
-    return result
-
-
-def git_stash_changes(project_dir: Path, message: str = "orch-spawn-stash") -> bool:
-    """
-    Stash uncommitted changes in the project directory.
-
-    Args:
-        project_dir: Path to the project directory
-        message: Stash message for identification
-
-    Returns:
-        True if stash was created, False if nothing to stash or error
-    """
-    try:
-        # Include untracked files in stash
-        result = subprocess.run(
-            ['git', '-C', str(project_dir), 'stash', 'push', '-u', '-m', message],
-            capture_output=True, text=True
-        )
-        # "No local changes to save" means nothing was stashed
-        if 'No local changes' in result.stdout or 'No local changes' in result.stderr:
-            return False
-        return result.returncode == 0
-    except Exception as e:
-        logger.error(f"Failed to stash changes: {e}")
-        return False
-
-
-def git_stash_pop(project_dir: Path) -> bool:
-    """
-    Pop the most recent stash in the project directory.
-
-    Args:
-        project_dir: Path to the project directory
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        result = subprocess.run(
-            ['git', '-C', str(project_dir), 'stash', 'pop'],
-            capture_output=True, text=True
-        )
-        return result.returncode == 0
-    except Exception as e:
-        logger.error(f"Failed to pop stash: {e}")
-        return False
-
-
-# ========== OpenCode Model Resolution ==========
-
-# Default model for OpenCode spawns
-OPENCODE_DEFAULT_MODEL = {
-    "providerID": "anthropic",
-    "modelID": "claude-opus-4-5-20251101"
-}
-
-# Model shorthand aliases for convenience
-# Model IDs from OpenCode's anthropic provider
-OPENCODE_MODEL_ALIASES = {
-    # Opus variants
-    "opus": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
-    "opus-4.5": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
-    "opus-4-5": {"providerID": "anthropic", "modelID": "claude-opus-4-5-20251101"},
-    # Sonnet variants
-    "sonnet": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
-    "sonnet-4.5": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
-    "sonnet-4-5": {"providerID": "anthropic", "modelID": "claude-sonnet-4-5-20250929"},
-    # Haiku variants
-    "haiku": {"providerID": "anthropic", "modelID": "claude-haiku-4-5-20251001"},
-    "haiku-4.5": {"providerID": "anthropic", "modelID": "claude-haiku-4-5-20251001"},
-}
-
-
-def resolve_opencode_model(model_spec: Optional[str]) -> Dict[str, str]:
-    """
-    Resolve model specification to OpenCode format.
-
-    Args:
-        model_spec: Model name (e.g., "opus", "sonnet", "claude-opus-4-5-20250929")
-                   or None for default
-
-    Returns:
-        Dictionary with providerID and modelID for OpenCode API
-    """
-    if not model_spec:
-        return OPENCODE_DEFAULT_MODEL
-
-    # Check aliases first
-    if model_spec.lower() in OPENCODE_MODEL_ALIASES:
-        return OPENCODE_MODEL_ALIASES[model_spec.lower()]
-
-    # If it looks like a full model ID, use it directly with anthropic provider
-    if "claude" in model_spec.lower():
-        return {"providerID": "anthropic", "modelID": model_spec}
-
-    # For other providers/models, assume format is "provider/model" or just model
-    if "/" in model_spec:
-        provider, model = model_spec.split("/", 1)
-        return {"providerID": provider, "modelID": model}
-
-    # Default: assume anthropic provider
-    return {"providerID": "anthropic", "modelID": model_spec}
-
-
-def wait_for_claude_ready(window_target: str, timeout: float = 15.0) -> bool:
-    """
-    Poll tmux pane for Claude to be ready instead of hardcoded sleep.
-
-    Checks for Claude prompt indicators in pane content with short polling intervals.
-    This is significantly faster than hardcoded sleeps while being more reliable.
-
-    Args:
-        window_target: Tmux window target (e.g., "session:1")
-        timeout: Maximum wait time in seconds (default: 5.0)
-
-    Returns:
-        True if Claude prompt detected, False if timeout reached
-    """
-    # Escape hatch for environments where Claude's tmux output no longer
-    # matches the expected ready prompt patterns. When set, we skip prompt
-    # probing entirely and assume success after a short grace period.
-    if os.getenv("ORCH_SKIP_CLAUDE_READY") == "1":
-        time.sleep(1.0)
-        return True
-
-    start = time.time()
-
-    while (time.time() - start) < timeout:
-        try:
-            # Capture pane content to check for Claude prompt
-            result = subprocess.run(
-                ["tmux", "capture-pane", "-t", window_target, "-p"],
-                capture_output=True,
-                text=True,
-                timeout=1.0
-            )
-
-            # Check for Claude prompt indicators in output
-            # Note: Based on actual Claude Code output patterns (verified from tmux panes)
-            # Actual output: "✽ Sublimating…" → separator lines "─────" → "> Try 'refactor ui.py'"
-            output_lower = result.stdout.lower()
-
-            # Skip if still in loading state (Sublimating)
-            if "sublimating" in output_lower:
-                continue  # Not ready yet, keep polling
-
-            # Check for actual Claude Code ready indicators
-            if any(indicator in output_lower for indicator in [
-                "> try",              # Prompt with suggestion (e.g., "> Try 'refactor ui.py'")
-                "─────",              # Separator lines (frame around prompt)
-            ]):
-                return True
-
-        except (subprocess.SubprocessError, subprocess.TimeoutExpired):
-            # Ignore subprocess errors and continue polling
-            pass
-
-        # Short polling interval (100ms)
-        time.sleep(0.1)
-
-    # Timeout reached without detecting Claude
-    return False
 
 
 # Data Classes imported from skill_discovery:
@@ -401,43 +199,6 @@ def validate_feature_impl_config(
 
 
 # Heuristics
-def looks_small_change(text: str) -> bool:
-    """
-    Heuristic: does the task look like a small/surgical change?
-
-    Signals 'small' when:
-    - Contains common quick-change keywords (typo, rename, docs, format, lint, bump, minor, one-liner)
-    - Mentions single-file scope
-    - Very short task description (<= 10 words) without "design/architecture" indicators
-    """
-    if not text:
-        return False
-
-    t = text.lower()
-
-    # Obvious large/complex indicators
-    large_indicators = [
-        "architecture", "architect", "design", "multi-day", "multi step", "multi-step",
-        "end-to-end", "across modules", "across services", "system", "component",
-        "schema migration", "migration", "integration plan", "roadmap",
-    ]
-    if any(k in t for k in large_indicators):
-        return False
-
-    small_indicators = [
-        "typo", "rename", "minor", "quick", "one-liner", "oneliner", "small",
-        "single file", "single-file", "docs", "documentation", "readme", "changelog",
-        "comment", "format", "formatting", "lint", "linter", "bump version", "version bump",
-        "config", "configuration", "log message", "logging",
-    ]
-    if any(k in t for k in small_indicators):
-        return True
-
-    # Length-based fallback
-    words = re.findall(r"\b\w+\b", t)
-    return len(words) <= 10
-
-
 def looks_trivial_bug(text: str) -> bool:
     """
     Heuristic: does the task look like an obvious/localized failure suitable for quick-debugging?
@@ -1248,226 +1009,7 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
         raise
 
 
-def detect_project_roadmap() -> Optional[Path]:
-    """
-    Detect if we're in a project context with its own ROADMAP file.
-
-    Searches current directory and parents for .orch/ROADMAP.{md,org}.
-    Delegates to roadmap_utils for format-agnostic detection.
-
-    Returns:
-        Path to project ROADMAP if found, None otherwise
-    """
-    return detect_roadmap_utils()
-
-
 # Skill-Based Mode
-
-# Active Projects Parsing (with caching)
-def _get_active_projects_file() -> Optional[Path]:
-    """
-    Locate the active-projects.md file.
-
-    Returns:
-        Path to active-projects.md if found, None otherwise
-    """
-    # Prefer default under home (patched in tests)
-    active_projects_file = Path.home() / "orch-knowledge" / ".orch" / "active-projects.md"
-    if not active_projects_file.exists():
-        try:
-            from orch.config import get_active_projects_file
-            cfg_file = get_active_projects_file()
-            if cfg_file.exists():
-                active_projects_file = cfg_file
-        except Exception:
-            pass
-
-    return active_projects_file if active_projects_file.exists() else None
-
-
-@functools.lru_cache(maxsize=1)
-def _parse_active_projects(file_path: str, file_mtime: float) -> Dict[str, Path]:
-    """
-    Parse active-projects.md and return mapping of project names to paths.
-
-    Args:
-        file_path: Path to active-projects.md (as string for cache key)
-        file_mtime: Modification time (for cache invalidation)
-
-    Returns:
-        Dictionary mapping project name to resolved Path
-    """
-    projects = {}
-    current_project = None
-
-    with open(file_path, 'r') as f:
-        for line in f:
-            # Project names are headers: ## project-name
-            if line.strip().startswith('## '):
-                project_name = line.strip()[3:].strip()
-                # Skip meta-sections
-                if project_name.lower() not in ['instructions', 'inactive projects', 'active projects']:
-                    current_project = project_name
-            # Extract path for current project
-            elif current_project and '**Path:**' in line:
-                if '`' in line:
-                    path_part = line.split('`')[1].strip()
-                    projects[current_project] = Path(path_part).expanduser()
-                    current_project = None  # Reset after finding path
-
-    return projects
-
-
-def get_project_dir(project_name_or_path: str) -> Optional[Path]:
-    """
-    Get project directory from active-projects.md (cached).
-
-    Accepts either a project name or full path for flexibility with AI agents.
-
-    Args:
-        project_name_or_path: Either:
-          - Project name (e.g., "price-watch")
-          - Full path (e.g., "/Users/.../price-watch")
-          - Tilde path (e.g., "~/Documents/.../price-watch")
-          - Relative path (e.g., ".", "..", "./subdir")
-
-    Returns:
-        Path to project directory or None if not found
-    """
-    active_projects_file = _get_active_projects_file()
-    if not active_projects_file:
-        return None
-
-    # Get cached projects (with mtime-based invalidation)
-    try:
-        mtime = os.path.getmtime(active_projects_file)
-    except (OSError, FileNotFoundError):
-        return None
-
-    projects = _parse_active_projects(str(active_projects_file), mtime)
-
-    # If input looks like a path (contains / or is . or ..), try to match by resolved path first
-    if '/' in project_name_or_path or project_name_or_path in ('.', '..'):
-        try:
-            input_path = Path(project_name_or_path).expanduser().resolve()
-            # Match by resolved path
-            for project_name, project_path in projects.items():
-                if project_path.resolve() == input_path:
-                    return project_path
-        except Exception:
-            # Invalid path, fall through to name matching
-            pass
-
-    # Fall back to name matching (case-insensitive)
-    for project_name, project_path in projects.items():
-        if project_name.lower() == project_name_or_path.lower():
-            return project_path
-
-    # Final fallback: check if cwd matches project name and has .orch/
-    # This ensures consistency with detect_project_from_cwd() which allows
-    # projects not in active-projects.md if they have .orch/ directory
-    try:
-        from orch.path_utils import find_orch_root
-        orch_root = find_orch_root()
-        if orch_root:
-            orch_root_path = Path(orch_root)
-            # Check if directory name matches requested project name (case-insensitive)
-            if orch_root_path.name.lower() == project_name_or_path.lower():
-                return orch_root_path
-    except Exception:
-        # Ignore errors in fallback
-        pass
-
-    return None
-
-
-def list_available_projects() -> List[str]:
-    """
-    List all available project names from active-projects.md (cached).
-
-    Returns:
-        List of project names (empty list if file doesn't exist or has no projects)
-    """
-    active_projects_file = _get_active_projects_file()
-    if not active_projects_file:
-        return []
-
-    # Get cached projects (with mtime-based invalidation)
-    try:
-        mtime = os.path.getmtime(active_projects_file)
-    except (OSError, FileNotFoundError):
-        return []
-
-    projects = _parse_active_projects(str(active_projects_file), mtime)
-    return list(projects.keys())
-
-
-def format_project_not_found_error(project_name: str, context: str = "") -> str:
-    """
-    Format a helpful "project not found" error message with available projects.
-
-    Args:
-        project_name: The project name that wasn't found
-        context: Optional context about where the project was specified (e.g., "--project", "ROADMAP :Project:")
-
-    Returns:
-        Formatted error message with available projects listed
-    """
-    available = list_available_projects()
-    if available:
-        available_str = ', '.join(available[:10])
-        if len(available) > 10:
-            available_str += f", ... ({len(available)} total)"
-        hint = f"\nAvailable projects: {available_str}"
-    else:
-        hint = "\nNo projects found in ~/.claude/active-projects.md"
-
-    source = f" (from {context})" if context else ""
-    return f"❌ Project '{project_name}' not found{source}.{hint}"
-
-
-def detect_project_from_cwd() -> Optional[tuple]:
-    """
-    Auto-detect project from current working directory.
-
-    Walks up directory tree looking for .orch/ directory, then matches
-    against active-projects.md to get canonical project name.
-
-    Returns:
-        Tuple of (project_name, project_dir) if detected, None otherwise.
-        If project has .orch/ but isn't in active-projects.md, returns
-        (directory_name, project_dir) as fallback.
-    """
-    from orch.path_utils import find_orch_root
-
-    # Find project root by looking for .orch/ directory
-    project_root = find_orch_root()
-    if not project_root:
-        return None
-
-    project_dir = Path(project_root)
-
-    # Try to find matching project in active-projects.md
-    # get_project_dir accepts paths and matches by resolved path
-    matched_dir = get_project_dir(str(project_dir))
-    if matched_dir:
-        # Found in active-projects.md - get the canonical project name
-        active_projects_file = _get_active_projects_file()
-        if active_projects_file:
-            try:
-                mtime = os.path.getmtime(active_projects_file)
-                projects = _parse_active_projects(str(active_projects_file), mtime)
-                # Find project name by path match
-                for name, path in projects.items():
-                    if path.resolve() == matched_dir.resolve():
-                        return (name, matched_dir)
-            except (OSError, FileNotFoundError):
-                pass
-
-    # Fallback: project has .orch/ but isn't in active-projects.md
-    # Use directory name as project identifier
-    return (project_dir.name, project_dir)
-
 
 def spawn_interactive(
     context: str,
@@ -1713,7 +1255,8 @@ def spawn_interactive(
     # Wait for claude to start (intelligent polling instead of blocking sleep)
     # Allow override via environment variable for slow systems
     spawn_timeout = float(os.getenv("ORCH_SPAWN_TIMEOUT") or "15.0")
-    if not wait_for_claude_ready(actual_window_target, timeout=spawn_timeout):
+    backend = ClaudeBackend()
+    if not backend.wait_for_ready(actual_window_target, timeout=spawn_timeout):
         raise RuntimeError(
             f"Claude failed to start in window {actual_window_target} within {spawn_timeout} seconds. "
             f"Check tmux session manually for error messages. "

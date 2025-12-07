@@ -36,7 +36,7 @@ def _get_skill_deliverables(skill_name: str) -> List[str]:
     Returns:
         List of deliverable types (e.g., ['workspace', 'investigation'])
     """
-    from orch.spawn import discover_skills
+    from orch.skill_discovery import discover_skills
 
     # Discover all skills and get metadata for the requested skill
     skills = discover_skills()

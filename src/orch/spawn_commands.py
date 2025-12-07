@@ -165,14 +165,14 @@ def register_spawn_commands(cli):
                 # Auto-detect project directory
                 project_dir = None
                 if project:
-                    from orch.spawn import get_project_dir, format_project_not_found_error
+                    from orch.project_resolver import get_project_dir, format_project_not_found_error
                     project_dir = get_project_dir(project)
                     if not project_dir:
                         click.echo(format_project_not_found_error(project, "--project"), err=True)
                         raise click.Abort()
                 else:
                     # Try auto-detection
-                    from orch.spawn import detect_project_from_cwd
+                    from orch.project_resolver import detect_project_from_cwd
                     detected = detect_project_from_cwd()
                     if detected:
                         project, project_dir = detected

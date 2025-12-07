@@ -5,7 +5,10 @@ Git utilities for tracking agent commits.
 import subprocess
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 
 
@@ -441,4 +444,108 @@ def commit_roadmap_update(roadmap_path: Path, workspace_name: str, project_dir: 
 
         return True
     except subprocess.CalledProcessError:
+        return False
+
+
+# ========== Git State Management (moved from spawn.py) ==========
+
+def check_git_dirty_state(project_dir: Path) -> Dict[str, List[str]]:
+    """
+    Check if the project directory has uncommitted changes.
+
+    Args:
+        project_dir: Path to the project directory
+
+    Returns:
+        Dictionary with 'staged', 'unstaged', and 'untracked' file lists.
+        Empty lists mean clean state.
+    """
+    result = {
+        'staged': [],
+        'unstaged': [],
+        'untracked': []
+    }
+
+    try:
+        # Check if it's a git repo
+        git_check = subprocess.run(
+            ['git', '-C', str(project_dir), 'rev-parse', '--git-dir'],
+            capture_output=True, text=True
+        )
+        if git_check.returncode != 0:
+            return result  # Not a git repo, nothing to check
+
+        # Get porcelain status (machine-readable)
+        status = subprocess.run(
+            ['git', '-C', str(project_dir), 'status', '--porcelain'],
+            capture_output=True, text=True
+        )
+
+        for line in status.stdout.rstrip('\n').split('\n'):
+            if not line:
+                continue
+            # Format: XY filename (X=staged, Y=unstaged)
+            # ?? = untracked, M = modified, A = added, D = deleted
+            index_status = line[0] if len(line) > 0 else ' '
+            worktree_status = line[1] if len(line) > 1 else ' '
+            filename = line[3:] if len(line) > 3 else ''
+
+            if index_status == '?' and worktree_status == '?':
+                result['untracked'].append(filename)
+            else:
+                if index_status not in (' ', '?'):
+                    result['staged'].append(filename)
+                if worktree_status not in (' ', '?'):
+                    result['unstaged'].append(filename)
+
+    except Exception as e:
+        logger.warning(f"Failed to check git status: {e}")
+
+    return result
+
+
+def git_stash_changes(project_dir: Path, message: str = "orch-spawn-stash") -> bool:
+    """
+    Stash uncommitted changes in the project directory.
+
+    Args:
+        project_dir: Path to the project directory
+        message: Stash message for identification
+
+    Returns:
+        True if stash was created, False if nothing to stash or error
+    """
+    try:
+        # Include untracked files in stash
+        result = subprocess.run(
+            ['git', '-C', str(project_dir), 'stash', 'push', '-u', '-m', message],
+            capture_output=True, text=True
+        )
+        # "No local changes to save" means nothing was stashed
+        if 'No local changes' in result.stdout or 'No local changes' in result.stderr:
+            return False
+        return result.returncode == 0
+    except Exception as e:
+        logger.error(f"Failed to stash changes: {e}")
+        return False
+
+
+def git_stash_pop(project_dir: Path) -> bool:
+    """
+    Pop the most recent stash in the project directory.
+
+    Args:
+        project_dir: Path to the project directory
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(project_dir), 'stash', 'pop'],
+            capture_output=True, text=True
+        )
+        return result.returncode == 0
+    except Exception as e:
+        logger.error(f"Failed to pop stash: {e}")
         return False

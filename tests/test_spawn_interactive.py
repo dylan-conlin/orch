@@ -252,7 +252,7 @@ deliverables:
                  patch('subprocess.run') as mock_run, \
                  patch('orch.tmux_utils.get_window_by_target', return_value=True), \
                  patch('orch.spawn.register_agent'), \
-                 patch('orch.spawn.wait_for_claude_ready', return_value=True):
+                 patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
                 mock_run.return_value = Mock(returncode=0, stdout="10:@1008\n", stderr="")
 
@@ -335,7 +335,7 @@ deliverables:
              patch('subprocess.run', side_effect=create_subprocess_mock()), \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('orch.spawn.register_agent'), \
-             patch('orch.spawn.wait_for_claude_ready', return_value=True):
+             patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
             # Call spawn_with_skill WITH --yes flag
             result = spawn_with_skill(
@@ -394,7 +394,7 @@ class TestInteractiveMode:
              patch('subprocess.run') as mock_run, \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('orch.spawn.register_agent'), \
-             patch('orch.spawn.wait_for_claude_ready', return_value=True):
+             patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
             # Mock subprocess.run to return success
             mock_run.return_value = Mock(returncode=0, stdout="10:@1008\n", stderr="")
@@ -473,7 +473,7 @@ class TestInteractiveMode:
              patch('subprocess.run') as mock_run, \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('orch.spawn.register_agent') as mock_register, \
-             patch('orch.spawn.wait_for_claude_ready', return_value=True):
+             patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
             mock_run.return_value = Mock(returncode=0, stdout="10:@1008\n", stderr="")
 
@@ -556,7 +556,7 @@ class TestInteractiveMode:
              patch('subprocess.run', return_value=Mock(returncode=0, stdout="10:@1008\n", stderr="")), \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('orch.spawn.register_agent'), \
-             patch('orch.spawn.wait_for_claude_ready', return_value=True):
+             patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
             # Call spawn_interactive with descriptive context
             result = spawn_interactive(
@@ -617,7 +617,7 @@ class TestInteractiveMode:
              patch('subprocess.run', return_value=Mock(returncode=0, stdout="10:@1008\n", stderr="")), \
              patch('orch.tmux_utils.get_window_by_target', return_value=True), \
              patch('orch.spawn.register_agent'), \
-             patch('orch.spawn.wait_for_claude_ready', return_value=True):
+             patch('orch.backends.claude.ClaudeBackend.wait_for_ready', return_value=True):
 
             # Call spawn_interactive with empty context
             result = spawn_interactive(
