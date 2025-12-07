@@ -69,6 +69,29 @@ def find_orch_directory():
     return None
 
 
+def load_kn_recent():
+    """Load recent kn entries if .kn exists."""
+    kn_dir = Path.cwd() / '.kn'
+    if not kn_dir.exists():
+        return None
+
+    try:
+        result = subprocess.run(
+            ['kn', 'recent', '--limit', '10'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        return result.stdout.strip()
+
+    except (subprocess.TimeoutExpired, Exception):
+        return None
+
+
 def load_active_agents():
     """Load active agents via orch status."""
     try:
@@ -156,6 +179,16 @@ def main():
     if agents:
         context_parts.append("## Active Agents\n\n")
         context_parts.append(agents)
+
+    # Load recent kn entries
+    kn_recent = load_kn_recent()
+    if kn_recent:
+        context_parts.append("\n## Recent Knowledge (kn)\n\n")
+        context_parts.append("*Quick decisions, constraints, failed attempts, questions*\n\n")
+        context_parts.append("```\n")
+        context_parts.append(kn_recent)
+        context_parts.append("\n```\n\n")
+        context_parts.append("*Run `kn context \"<topic>\"` to get knowledge about a specific area*\n")
 
     # Output if we have context
     if len(context_parts) > 2:
