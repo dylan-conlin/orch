@@ -422,7 +422,7 @@ class TestSpawnPromptInvestigationPathReporting:
             workspace_name="test-workspace",
             skill_name="investigation",
             beads_id="test-123",
-            requires_workspace=False,  # Investigation skills use investigation file, not workspace
+            beads_only=False,  # Investigation skills use investigation file, not beads-only
             deliverables=DEFAULT_DELIVERABLES
         )
 
@@ -444,7 +444,7 @@ class TestSpawnPromptInvestigationPathReporting:
             workspace_name="test-workspace",
             skill_name="investigation",
             beads_id="test-123",
-            requires_workspace=False,  # Investigation skills use investigation file, not workspace
+            beads_only=False,  # Investigation skills use investigation file, not beads-only
             deliverables=DEFAULT_DELIVERABLES
         )
 
@@ -466,14 +466,14 @@ class TestSpawnPromptInvestigationPathReporting:
             workspace_name="test-workspace",
             skill_name="feature-impl",
             beads_id="test-123",
-            requires_workspace=True,  # feature-impl requires workspace
+            beads_only=True,  # feature-impl uses beads-only coordination
             deliverables=DEFAULT_DELIVERABLES
         )
 
         prompt = build_spawn_prompt(config_feature)
 
         # feature-impl should NOT have investigation_path instruction
-        # (feature-impl uses requires_workspace=True path, not investigation path)
+        # (feature-impl uses beads_only=True path, not investigation path)
         # The kb create instruction is only for investigation skills
         assert "Run `kb create investigation" not in prompt or "investigation_path" not in prompt, (
             "Non-investigation skills should not have kb create investigation instructions.\n"

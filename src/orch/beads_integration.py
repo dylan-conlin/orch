@@ -307,3 +307,171 @@ class BeadsIntegration:
                 latest_path = match.group(1).strip()
 
         return latest_path
+
+    def add_comment(self, issue_id: str, comment: str) -> None:
+        """Add a comment to a beads issue.
+
+        Args:
+            issue_id: The beads issue ID
+            comment: The comment text to add
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        try:
+            result = subprocess.run(
+                self._build_command("comment", issue_id, comment),
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise BeadsIssueNotFoundError(issue_id)
+
+    def add_agent_metadata(
+        self,
+        issue_id: str,
+        agent_id: str,
+        window_id: str,
+        skill: Optional[str] = None,
+        project_dir: Optional[str] = None
+    ) -> None:
+        """Store agent metadata in beads comments for registry-less operation.
+
+        This is Phase 1 of registry removal: store agent metadata in beads
+        so we can later look up agents without the JSON registry file.
+
+        The metadata is stored as a structured comment:
+          agent_metadata: {"agent_id": "...", "window_id": "...", "skill": "...", "project_dir": "..."}
+
+        Args:
+            issue_id: The beads issue ID
+            agent_id: Agent identifier (workspace name)
+            window_id: Tmux window ID (e.g., "@123")
+            skill: Optional skill name
+            project_dir: Optional project directory path
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        metadata = {
+            "agent_id": agent_id,
+            "window_id": window_id,
+        }
+        if skill:
+            metadata["skill"] = skill
+        if project_dir:
+            metadata["project_dir"] = project_dir
+
+        comment = f"agent_metadata: {json.dumps(metadata)}"
+        self.add_comment(issue_id, comment)
+
+    def get_agent_metadata(self, issue_id: str) -> Optional[dict]:
+        """Extract agent metadata from beads issue comments.
+
+        Looks for the most recent "agent_metadata: {...}" comment.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            Dict with agent metadata (agent_id, window_id, skill, project_dir)
+            or None if no metadata found.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        try:
+            result = subprocess.run(
+                self._build_command("comments", issue_id, "--json"),
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise BeadsIssueNotFoundError(issue_id)
+
+        try:
+            comments = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+        if not comments:
+            return None
+
+        # Find the latest "agent_metadata: {...}" comment
+        import re
+        latest_metadata = None
+        for comment in comments:
+            text = comment.get("text", "")
+            # Match "agent_metadata: {...}" at start of comment
+            match = re.match(r"agent_metadata:\s*(\{.+\})", text)
+            if match:
+                try:
+                    latest_metadata = json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
+
+        return latest_metadata
+
+    def list_active_agents(self) -> list:
+        """List active agents by querying beads issues with in_progress status.
+
+        This is part of Phase 2 of registry removal: use beads to find
+        active agents instead of reading from agent-registry.json.
+
+        Returns:
+            List of dicts with agent metadata for active issues.
+            Each dict has keys: beads_id, title, agent_id, window_id, skill, project_dir
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+        """
+        try:
+            result = subprocess.run(
+                self._build_command("list", "--status=in_progress", "--json"),
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            return []
+
+        try:
+            issues = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return []
+
+        agents = []
+        for issue in issues:
+            issue_id = issue.get("id")
+            if not issue_id:
+                continue
+
+            # Get agent metadata from comments
+            try:
+                metadata = self.get_agent_metadata(issue_id)
+            except (BeadsCLINotFoundError, BeadsIssueNotFoundError):
+                metadata = None
+
+            agent_info = {
+                "beads_id": issue_id,
+                "title": issue.get("title", ""),
+                "status": issue.get("status", ""),
+            }
+
+            if metadata:
+                agent_info.update(metadata)
+
+            agents.append(agent_info)
+
+        return agents

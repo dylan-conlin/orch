@@ -747,3 +747,282 @@ class TestBeadsIntegrationGetInvestigationPath:
             assert "--db" in cmd
             assert "/other/.beads/beads.db" in cmd
             assert path == "/project/.kb/investigations/2025-12-06-test.md"
+
+
+class TestBeadsIntegrationAddComment:
+    """Tests for add_comment() - Phase 1 of registry removal."""
+
+    def test_add_comment_success(self):
+        """Test adding a comment to a beads issue."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.add_comment("test-id", "Test comment text")
+
+            # Verify the command was called correctly
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "bd" in cmd
+            assert "comment" in cmd
+            assert "test-id" in cmd
+            assert "Test comment text" in cmd
+
+    def test_add_comment_cli_not_found(self):
+        """Test error when bd CLI is not installed."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("bd not found")
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsCLINotFoundError):
+                beads.add_comment("test-id", "Test comment")
+
+    def test_add_comment_issue_not_found(self):
+        """Test error when issue doesn't exist."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error: issue not found",
+            )
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsIssueNotFoundError):
+                beads.add_comment("nonexistent-id", "Test comment")
+
+
+class TestBeadsIntegrationAgentMetadata:
+    """Tests for agent metadata functions - Phase 1 of registry removal."""
+
+    def test_add_agent_metadata_success(self):
+        """Test storing agent metadata in beads comments."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.add_agent_metadata(
+                issue_id="test-id",
+                agent_id="feat-test-agent-06dec",
+                window_id="@123",
+                skill="investigation",
+                project_dir="/path/to/project"
+            )
+
+            # Verify the command was called with JSON metadata
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "comment" in cmd
+            comment_text = cmd[-1]  # Last argument is the comment
+            assert "agent_metadata:" in comment_text
+            assert '"agent_id": "feat-test-agent-06dec"' in comment_text
+            assert '"window_id": "@123"' in comment_text
+            assert '"skill": "investigation"' in comment_text
+            assert '"project_dir": "/path/to/project"' in comment_text
+
+    def test_add_agent_metadata_minimal(self):
+        """Test storing minimal agent metadata (only required fields)."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.add_agent_metadata(
+                issue_id="test-id",
+                agent_id="test-agent",
+                window_id="@456"
+            )
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            comment_text = cmd[-1]
+            assert "agent_metadata:" in comment_text
+            assert '"agent_id": "test-agent"' in comment_text
+            assert '"window_id": "@456"' in comment_text
+            # Optional fields should not be in the output
+            assert '"skill"' not in comment_text
+            assert '"project_dir"' not in comment_text
+
+    def test_get_agent_metadata_success(self):
+        """Test extracting agent metadata from comments."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "orchestrator",
+                "text": "agent_metadata: {\"agent_id\": \"feat-test-06dec\", \"window_id\": \"@789\", \"skill\": \"feature-impl\", \"project_dir\": \"/home/user/project\"}",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            metadata = beads.get_agent_metadata("test-id")
+
+            assert metadata is not None
+            assert metadata["agent_id"] == "feat-test-06dec"
+            assert metadata["window_id"] == "@789"
+            assert metadata["skill"] == "feature-impl"
+            assert metadata["project_dir"] == "/home/user/project"
+
+    def test_get_agent_metadata_no_metadata(self):
+        """Test when no agent_metadata comment exists."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "agent",
+                "text": "Phase: Planning - Starting work",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            metadata = beads.get_agent_metadata("test-id")
+
+            assert metadata is None
+
+    def test_get_agent_metadata_uses_latest(self):
+        """Test that latest agent_metadata is returned when multiple exist."""
+        mock_output = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "test-id",
+                "author": "orchestrator",
+                "text": "agent_metadata: {\"agent_id\": \"old-agent\", \"window_id\": \"@100\"}",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+            {
+                "id": 2,
+                "issue_id": "test-id",
+                "author": "orchestrator",
+                "text": "agent_metadata: {\"agent_id\": \"new-agent\", \"window_id\": \"@200\"}",
+                "created_at": "2025-12-06T11:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            metadata = beads.get_agent_metadata("test-id")
+
+            # Should return the latest (second) metadata
+            assert metadata["agent_id"] == "new-agent"
+            assert metadata["window_id"] == "@200"
+
+
+class TestBeadsIntegrationListActiveAgents:
+    """Tests for list_active_agents() - Phase 2 of registry removal."""
+
+    def test_list_active_agents_success(self):
+        """Test listing active agents from in_progress beads issues."""
+        # First call: list issues
+        mock_issues = json.dumps([
+            {
+                "id": "orch-cli-abc",
+                "title": "Implement feature X",
+                "status": "in_progress"
+            },
+            {
+                "id": "orch-cli-def",
+                "title": "Fix bug Y",
+                "status": "in_progress"
+            },
+        ])
+
+        # Subsequent calls: get comments for each issue
+        mock_comments_1 = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "orch-cli-abc",
+                "author": "orchestrator",
+                "text": "agent_metadata: {\"agent_id\": \"feat-x-06dec\", \"window_id\": \"@123\", \"skill\": \"feature-impl\"}",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+        mock_comments_2 = json.dumps([
+            {
+                "id": 1,
+                "issue_id": "orch-cli-def",
+                "author": "orchestrator",
+                "text": "agent_metadata: {\"agent_id\": \"fix-y-06dec\", \"window_id\": \"@456\", \"skill\": \"systematic-debugging\"}",
+                "created_at": "2025-12-06T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=mock_issues, stderr=""),
+                MagicMock(returncode=0, stdout=mock_comments_1, stderr=""),
+                MagicMock(returncode=0, stdout=mock_comments_2, stderr=""),
+            ]
+
+            beads = BeadsIntegration()
+            agents = beads.list_active_agents()
+
+            assert len(agents) == 2
+
+            # First agent
+            assert agents[0]["beads_id"] == "orch-cli-abc"
+            assert agents[0]["title"] == "Implement feature X"
+            assert agents[0]["agent_id"] == "feat-x-06dec"
+            assert agents[0]["window_id"] == "@123"
+            assert agents[0]["skill"] == "feature-impl"
+
+            # Second agent
+            assert agents[1]["beads_id"] == "orch-cli-def"
+            assert agents[1]["title"] == "Fix bug Y"
+            assert agents[1]["agent_id"] == "fix-y-06dec"
+
+    def test_list_active_agents_no_agents(self):
+        """Test when no active agents exist."""
+        mock_output = json.dumps([])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            agents = beads.list_active_agents()
+
+            assert agents == []
+
+    def test_list_active_agents_cli_not_found(self):
+        """Test error when bd CLI is not installed."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("bd not found")
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsCLINotFoundError):
+                beads.list_active_agents()

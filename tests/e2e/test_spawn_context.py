@@ -211,7 +211,7 @@ class TestSpawnContextSkillContent:
             skill_name="investigation",
             beads_id="test-123",
             investigation_type="simple",
-            requires_workspace=False,
+            beads_only=False,
         )
 
         prompt = build_spawn_prompt(config)
@@ -374,7 +374,7 @@ class TestSpawnContextInvestigationPath:
             workspace_name="test-workspace",
             skill_name="investigation",
             beads_id="test-123",
-            requires_workspace=False,  # Investigations use investigation file
+            beads_only=False,  # Investigations use investigation file
         )
 
         prompt = build_spawn_prompt(config)
@@ -392,7 +392,7 @@ class TestSpawnContextInvestigationPath:
             workspace_name="test-workspace",
             skill_name="feature-impl",
             beads_id="test-123",
-            requires_workspace=True,  # feature-impl uses workspace
+            beads_only=True,  # feature-impl uses beads-only
         )
 
         prompt = build_spawn_prompt(config)

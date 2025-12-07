@@ -311,7 +311,7 @@ class SpawnConfig:
     backend: str = "claude"  # Backend to use: "claude" (default), "codex", etc.
     model: Optional[str] = None  # Model to use (e.g., "sonnet", "opus", or "claude-sonnet-4-5-20250929")
     # Coordination metadata
-    requires_workspace: bool = True  # Whether WORKSPACE.md is the coordination artifact
+    beads_only: bool = True  # True = use beads comments only, False = use investigation file as primary artifact
     primary_artifact: Optional[Path] = None  # Path to coordination artifact when not using workspace
     # Feature tracking (backlog.json integration)
     feature_id: Optional[str] = None  # Feature ID from backlog.json for lifecycle tracking
@@ -1165,7 +1165,7 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
         skill_metadata=skill_metadata,  # Phase 3: Pass full metadata for verification
         backend=get_backend(cli_backend=backend),  # Phase 4: Backend configuration
         model=model,  # Model selection (e.g., "sonnet", "opus")
-        requires_workspace=not skip_workspace,
+        beads_only=not skip_workspace,
         origin_dir=origin_dir if cross_repo else None
     )
 
@@ -1179,7 +1179,7 @@ def spawn_from_roadmap(title: str, yes: bool = False, resume: bool = False, back
         if skip_workspace and config.deliverables:
             config.deliverables = [d for d in config.deliverables if d.type != "workspace"]
 
-        if not config.requires_workspace:
+        if not config.beads_only:
             config.primary_artifact = determine_primary_artifact(config)
 
         # Show preview
@@ -2057,7 +2057,7 @@ def spawn_with_skill(
         # Backend configuration (Phase 4)
         backend=get_backend(cli_backend=backend),
         model=model,  # Model selection (e.g., "sonnet", "opus")
-        requires_workspace=not skip_workspace,
+        beads_only=not skip_workspace,
         # Feature tracking (backlog.json integration)
         feature_id=feature_id,
         context_ref=context_ref,  # Design context file to include in spawn prompt
@@ -2084,7 +2084,7 @@ def spawn_with_skill(
     if skip_workspace and config.deliverables:
         config.deliverables = [d for d in config.deliverables if d.type != "workspace"]
 
-    if not config.requires_workspace:
+    if not config.beads_only:
         config.primary_artifact = determine_primary_artifact(config)
 
     # Map skill name to workspace type (used when we DO create a workspace)
@@ -2168,14 +2168,28 @@ def spawn_with_skill(
             if stashed:
                 click.echo(f"   ⚠️  Git changes stashed (will auto-unstash on complete)")
 
-        # Update beads issue with workspace link if spawned from beads
+        # Update beads issue with workspace link and agent metadata if spawned from beads
         if config.beads_id:
             try:
                 from orch.beads_integration import BeadsIntegration
-                beads = BeadsIntegration()
+                beads = BeadsIntegration(db_path=config.beads_db_path)
                 workspace_rel = f".orch/workspace/{config.workspace_name}"
                 beads.add_workspace_link(config.beads_id, workspace_rel)
-                click.echo(f"   Beads: {config.beads_id} → workspace linked")
+
+                # Phase 1 of registry removal: store agent metadata in beads
+                # This enables future lookups without the JSON registry file
+                window_id = spawn_info.get('window_id')
+                if window_id:
+                    beads.add_agent_metadata(
+                        issue_id=config.beads_id,
+                        agent_id=config.workspace_name,
+                        window_id=window_id,
+                        skill=config.skill_name,
+                        project_dir=str(config.project_dir)
+                    )
+                    click.echo(f"   Beads: {config.beads_id} → agent metadata stored")
+                else:
+                    click.echo(f"   Beads: {config.beads_id} → workspace linked")
             except Exception as e:
                 # Don't fail spawn if beads update fails
                 click.echo(f"   ⚠️  Could not update beads issue: {e}", err=True)

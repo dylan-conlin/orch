@@ -735,11 +735,9 @@ After your final commit, BEFORE typing anything else:
     prompt = prompt.replace("workspace-name", config.workspace_name)
 
     workspace_path = config.project_dir / ".orch" / "workspace" / config.workspace_name
-    workspace_file = workspace_path / "WORKSPACE.md"
-    workspace_check_path = f"{workspace_path}/WORKSPACE.md"
     coordination_artifact_path = str(config.primary_artifact) if config.primary_artifact else "your investigation file deliverable"
 
-    if config.requires_workspace:
+    if config.beads_only:
         # Beads is now source of truth - simplified coordination without WORKSPACE.md instructions
         coordination_check = (
             "**REPORT phase via beads:** `bd comment <beads-id> \"Phase: Planning - [task description]\"`\n"
@@ -780,11 +778,11 @@ After your final commit, BEFORE typing anything else:
         )
         coordination_phase = "Update Status: field when done (Active → Complete)"
 
-    # Build STATUS UPDATES section based on requires_workspace
-    coordination_artifact_name = "investigation file" if not config.requires_workspace else "beads comments"
-    blocked_location = "investigation file" if not config.requires_workspace else "beads comments"
+    # Build STATUS UPDATES section based on beads_only
+    coordination_artifact_name = "investigation file" if not config.beads_only else "beads comments"
+    blocked_location = "investigation file" if not config.beads_only else "beads comments"
 
-    if config.requires_workspace:
+    if config.beads_only:
         status_updates = """STATUS UPDATES (CRITICAL):
 Report phase transitions via `bd comment <beads-id>`:
 - Phase: Planning
@@ -985,7 +983,7 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
             additional_parts.append(f"- {deliverable.type}: {rendered_path} ({required_str})")
 
     # Coordination artifact note
-    if config.requires_workspace:
+    if config.beads_only:
         # Beads is source of truth - no workspace file needed
         additional_parts.append(f"\nWORKSPACE DIR: {workspace_path}")
         additional_parts.append("(Use `bd comment <beads-id>` for progress tracking)\n")

@@ -136,7 +136,7 @@ class TestSpawnPromptKbPaths:
             project_dir=tmp_path,
             workspace_name="test-workspace",
             investigation_type="simple",
-            requires_workspace=False,
+            beads_only=False,
         )
 
         prompt = build_spawn_prompt(config)
