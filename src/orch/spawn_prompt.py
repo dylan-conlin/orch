@@ -46,40 +46,50 @@ def load_kn_context(task: str, project_dir: Path) -> Optional[str]:
         return None
 
     # Extract keywords from task (first 5 meaningful words)
-    keywords = ' '.join(extract_meaningful_words(task)[:5])
-    if not keywords:
+    all_keywords = extract_meaningful_words(task)[:5]
+    if not all_keywords:
         return None
 
-    try:
-        result = subprocess.run(
-            ['kn', 'context', keywords],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
+    # Try progressively fewer keywords until we get a match
+    # kn context does AND matching, so fewer keywords = more matches
+    output = None
+    keywords = None
+    for num_keywords in [len(all_keywords), 3, 2, 1]:
+        if num_keywords > len(all_keywords):
+            continue
+        keywords = ' '.join(all_keywords[:num_keywords])
+        try:
+            result = subprocess.run(
+                ['kn', 'context', keywords],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5
+            )
+            stdout = result.stdout.strip()
+            # Check for actual results (not "No context found" message)
+            if result.returncode == 0 and stdout and not stdout.startswith("No context found"):
+                output = stdout
+                break
+        except Exception:
+            continue
 
-        output = result.stdout.strip()
-
-        # Format the context
-        lines = ["## PRIOR KNOWLEDGE (from kn)\n"]
-        lines.append("*Relevant knowledge discovered. CONSTRAINTS must be respected.*\n")
-        lines.append("```")
-        lines.append(output)
-        lines.append("```\n")
-        lines.append("*If you discover new constraints, decisions, or failed approaches, record them:*")
-        lines.append("- `kn constrain \"<rule>\" --reason \"<why>\"`")
-        lines.append("- `kn decide \"<what>\" --reason \"<why>\"`")
-        lines.append("- `kn tried \"<what>\" --failed \"<why>\"`\n")
-
-        return "\n".join(lines)
-
-    except (subprocess.TimeoutExpired, Exception) as e:
-        logger.debug(f"Error loading kn context: {e}")
+    if not output:
         return None
+
+    # Format the context
+    lines = ["## PRIOR KNOWLEDGE (from kn)\n"]
+    lines.append("*Relevant knowledge discovered. CONSTRAINTS must be respected.*\n")
+    lines.append("```")
+    lines.append(output)
+    lines.append("```\n")
+    lines.append("*If you discover new constraints, decisions, or failed approaches, record them:*")
+    lines.append("- `kn constrain \"<rule>\" --reason \"<why>\"`")
+    lines.append("- `kn decide \"<what>\" --reason \"<why>\"`")
+    lines.append("- `kn tried \"<what>\" --failed \"<why>\"`\n")
+
+    return "\n".join(lines)
 
 
 # ========== Default Verification Requirements ==========
