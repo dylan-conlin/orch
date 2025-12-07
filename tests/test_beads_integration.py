@@ -1026,3 +1026,339 @@ class TestBeadsIntegrationListActiveAgents:
             beads = BeadsIntegration()
             with pytest.raises(BeadsCLINotFoundError):
                 beads.list_active_agents()
+
+
+class TestBeadsIntegrationNotesMetadata:
+    """Tests for notes-based agent metadata storage (Phase 3 of registry removal).
+
+    This replaces comment-based storage with notes field for real-time UI updates.
+    The notes field stores JSON with: phase, skill, agent_id, updated_at, investigation_path.
+    """
+
+    def test_update_agent_notes_full(self):
+        """Test updating notes with all agent metadata fields."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.update_agent_notes(
+                issue_id="test-id",
+                agent_id="feat-test-06dec",
+                window_id="@123",
+                phase="Implementing",
+                skill="feature-impl",
+                project_dir="/path/to/project",
+                investigation_path="/path/to/investigation.md"
+            )
+
+            # Verify bd update --notes was called with JSON
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "update" in cmd
+            assert "--notes" in cmd
+            # Find notes value after --notes flag
+            notes_idx = cmd.index("--notes") + 1
+            notes_value = cmd[notes_idx]
+            notes_json = json.loads(notes_value)
+
+            assert notes_json["agent_id"] == "feat-test-06dec"
+            assert notes_json["window_id"] == "@123"
+            assert notes_json["phase"] == "Implementing"
+            assert notes_json["skill"] == "feature-impl"
+            assert notes_json["project_dir"] == "/path/to/project"
+            assert notes_json["investigation_path"] == "/path/to/investigation.md"
+            # Should include updated_at timestamp
+            assert "updated_at" in notes_json
+
+    def test_update_agent_notes_minimal(self):
+        """Test updating notes with only required fields."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            beads.update_agent_notes(
+                issue_id="test-id",
+                agent_id="test-agent",
+                window_id="@456"
+            )
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            notes_idx = cmd.index("--notes") + 1
+            notes_value = cmd[notes_idx]
+            notes_json = json.loads(notes_value)
+
+            assert notes_json["agent_id"] == "test-agent"
+            assert notes_json["window_id"] == "@456"
+            assert "updated_at" in notes_json
+            # Optional fields should not be present when not provided
+            assert notes_json.get("skill") is None
+            assert notes_json.get("phase") is None
+
+    def test_update_agent_notes_preserves_existing(self):
+        """Test that updating notes preserves existing fields not being updated."""
+        # First call: show to get existing notes
+        mock_show = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "test-agent",
+                "window_id": "@123",
+                "phase": "Planning",
+                "skill": "feature-impl"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=mock_show, stderr=""),  # show
+                MagicMock(returncode=0, stdout="", stderr=""),  # update
+            ]
+
+            beads = BeadsIntegration()
+            beads.update_agent_notes(
+                issue_id="test-id",
+                phase="Implementing"  # Only update phase
+            )
+
+            # Should have called update with merged notes
+            update_call = mock_run.call_args_list[1]
+            cmd = update_call[0][0]
+            notes_idx = cmd.index("--notes") + 1
+            notes_json = json.loads(cmd[notes_idx])
+
+            # Existing fields preserved
+            assert notes_json["agent_id"] == "test-agent"
+            assert notes_json["window_id"] == "@123"
+            assert notes_json["skill"] == "feature-impl"
+            # New field updated
+            assert notes_json["phase"] == "Implementing"
+
+    def test_get_agent_notes_success(self):
+        """Test reading agent metadata from notes field."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "feat-test-06dec",
+                "window_id": "@789",
+                "phase": "Complete",
+                "skill": "investigation",
+                "project_dir": "/home/user/project",
+                "updated_at": "2025-12-06T10:00:00Z"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            notes = beads.get_agent_notes("test-id")
+
+            assert notes is not None
+            assert notes["agent_id"] == "feat-test-06dec"
+            assert notes["window_id"] == "@789"
+            assert notes["phase"] == "Complete"
+            assert notes["skill"] == "investigation"
+            assert notes["project_dir"] == "/home/user/project"
+
+    def test_get_agent_notes_empty(self):
+        """Test when notes field is empty or None."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": None
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            notes = beads.get_agent_notes("test-id")
+
+            assert notes is None
+
+    def test_get_agent_notes_not_json(self):
+        """Test when notes field contains non-JSON string."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": "workspace: .orch/workspace/old-format"
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            notes = beads.get_agent_notes("test-id")
+
+            # Should return None for non-JSON notes
+            assert notes is None
+
+    def test_get_phase_from_notes(self):
+        """Test extracting phase from notes field."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "test-agent",
+                "phase": "Implementing",
+                "updated_at": "2025-12-06T10:00:00Z"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            phase = beads.get_phase_from_notes("test-id")
+
+            assert phase == "Implementing"
+
+    def test_get_phase_from_notes_no_phase(self):
+        """Test when notes exists but has no phase field."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "test-agent",
+                "window_id": "@123"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            phase = beads.get_phase_from_notes("test-id")
+
+            assert phase is None
+
+    def test_get_investigation_path_from_notes(self):
+        """Test extracting investigation_path from notes field."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "test-agent",
+                "investigation_path": "/path/to/investigation.md",
+                "updated_at": "2025-12-06T10:00:00Z"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            path = beads.get_investigation_path_from_notes("test-id")
+
+            assert path == "/path/to/investigation.md"
+
+    def test_update_phase_via_notes(self):
+        """Test updating just the phase in notes."""
+        # Existing notes
+        mock_show = json.dumps([{
+            "id": "test-id",
+            "title": "Test Issue",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": json.dumps({
+                "agent_id": "test-agent",
+                "window_id": "@123",
+                "phase": "Planning"
+            })
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=mock_show, stderr=""),  # show
+                MagicMock(returncode=0, stdout="", stderr=""),  # update
+            ]
+
+            beads = BeadsIntegration()
+            beads.update_phase("test-id", "Complete")
+
+            # Verify phase was updated in notes
+            update_call = mock_run.call_args_list[1]
+            cmd = update_call[0][0]
+            notes_idx = cmd.index("--notes") + 1
+            notes_json = json.loads(cmd[notes_idx])
+
+            assert notes_json["phase"] == "Complete"
+            # Other fields preserved
+            assert notes_json["agent_id"] == "test-agent"
+
+    def test_update_agent_notes_with_db_path(self):
+        """Test that update_agent_notes uses --db flag when db_path is set."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/other/repo/.beads")
+            beads.update_agent_notes(
+                issue_id="cross-repo-id",
+                agent_id="test-agent",
+                window_id="@123"
+            )
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/other/repo/.beads" in cmd
