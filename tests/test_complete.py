@@ -274,7 +274,7 @@ class TestCompleteIntegration:
 
         assert result['success'] is True
         assert result.get('beads_closed') is True
-        mock_close.assert_called_once_with('test-project-abc')
+        mock_close.assert_called_once_with('test-project-abc', db_path=None)
 
 
 class TestSessionPreservation:
