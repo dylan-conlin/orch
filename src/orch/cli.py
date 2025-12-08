@@ -224,8 +224,9 @@ def clean(all, pattern_violations, dry_run):
 @cli.command()
 @click.argument('agent_ids', nargs=-1, required=True)
 @click.option('--reason', help='Reason for abandonment')
-@click.option('--force', is_flag=True, help='Skip confirmation prompt')
-def abandon(agent_ids, reason, force):
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt (alias for --yes)')
+def abandon(agent_ids, reason, yes, force):
     """
     Abandon stuck or frozen agents.
 
@@ -235,8 +236,8 @@ def abandon(agent_ids, reason, force):
     Examples:
       orch abandon agent-id
       orch abandon agent-id --reason "Timeout: No progress for 30 minutes"
-      orch abandon agent-id --force
-      orch abandon agent-1 agent-2 agent-3
+      orch abandon agent-id -y
+      orch abandon agent-1 agent-2 agent-3 -y
     """
     # Initialize logger
     orch_logger = OrchLogger()
@@ -280,8 +281,8 @@ def abandon(agent_ids, reason, force):
         click.echo(f"\nReason: {reason}")
     click.echo()
 
-    # Confirm unless --force
-    if not force:
+    # Confirm unless --yes or --force
+    if not (yes or force):
         if not click.confirm('Proceed with abandonment?'):
             click.echo("Cancelled.")
             return
