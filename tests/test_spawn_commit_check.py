@@ -94,8 +94,9 @@ class TestSpawnCommitCheckStatusFiltering:
         self, mock_detect, mock_find_commits, mock_beads_cls, mock_spawn
     ):
         """
-        When issue status is 'closed', commit check SHOULD run.
+        When issue status is 'closed', commit check SHOULD run (after --force).
         Closed = work supposedly complete, warns about re-spawning.
+        Note: --force is needed to bypass closed issue refusal check.
         """
         # Setup: issue with status='closed'
         mock_beads = MagicMock()
@@ -112,7 +113,8 @@ class TestSpawnCommitCheckStatusFiltering:
         mock_find_commits.return_value = []
 
         runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
-        result = runner.invoke(cli, ['spawn', '--issue', 'test-xyz', '-y'])
+        # --force is needed to bypass closed issue refusal, then commit check runs
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-xyz', '--force', '-y'])
 
         # Commit check SHOULD be called for closed issues
         mock_find_commits.assert_called_once()
@@ -122,7 +124,11 @@ class TestSpawnCommitCheckStatusFiltering:
 
 
 class TestSpawnCommitCheckYesFlag:
-    """Tests for -y flag suppressing warning OUTPUT (not just prompt)."""
+    """Tests for -y flag suppressing warning OUTPUT (not just prompt).
+
+    Note: These tests use --force because closed issues are now refused by default.
+    The commit check only runs after --force bypasses the closed issue check.
+    """
 
     @patch('orch.spawn.spawn_with_skill')
     @patch('orch.spawn_commands.BeadsIntegration')
@@ -135,6 +141,7 @@ class TestSpawnCommitCheckYesFlag:
         """
         With -y flag, warning about prior commits should NOT be displayed.
         The -y flag should suppress both the warning text AND the confirmation prompt.
+        Note: --force is needed to bypass closed issue refusal.
         """
         # Setup: closed issue with prior commits
         mock_beads = MagicMock()
@@ -155,7 +162,8 @@ class TestSpawnCommitCheckYesFlag:
         mock_find_commits.return_value = [mock_commit]
 
         runner = CliRunner(mix_stderr=False, env={'CLAUDE_CONTEXT': ''})
-        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed', '-y'])
+        # --force to bypass closed issue check, -y to suppress commit warning
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed', '--force', '-y'])
 
         # Warning text should NOT appear in output with -y flag
         # Check both stdout and stderr
@@ -176,6 +184,7 @@ class TestSpawnCommitCheckYesFlag:
     ):
         """
         Without -y flag, warning about prior commits SHOULD be displayed.
+        Note: --force is needed to bypass closed issue refusal.
         """
         # Setup: closed issue with prior commits
         mock_beads = MagicMock()
@@ -196,8 +205,9 @@ class TestSpawnCommitCheckYesFlag:
         mock_find_commits.return_value = [mock_commit]
 
         runner = CliRunner(mix_stderr=False, env={'CLAUDE_CONTEXT': ''})
-        # Without -y, user declines
-        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed'], input='n\n')
+        # --force to bypass closed issue check, no -y so warning displayed
+        # User declines the spawn
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed', '--force'], input='n\n')
 
         # Warning text SHOULD appear in stderr
         combined_output = result.output + (result.stderr or "")
@@ -205,3 +215,141 @@ class TestSpawnCommitCheckYesFlag:
 
         # Spawn should NOT be called since user declined
         mock_spawn.assert_not_called()
+
+
+class TestSpawnClosedIssueRefusal:
+    """Tests for refusing to spawn from closed beads issues."""
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_refuses_closed_issue_without_force(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        Spawn should REFUSE closed issues by default with a clear message.
+        This prevents wasting time re-spawning for already-completed work.
+        """
+        # Setup: issue with status='closed'
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-closed",
+            title="Already completed",
+            description="",
+            status="closed",
+            notes=None
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(mix_stderr=False, env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed', '-y'])
+
+        # Should be refused - exit code should be non-zero (Abort)
+        assert result.exit_code != 0
+
+        # Should show clear error message
+        combined_output = result.output + (result.stderr or "")
+        assert "closed" in combined_output.lower()
+        assert "test-closed" in combined_output
+        assert "--force" in combined_output
+
+        # Spawn should NOT be called
+        mock_spawn.assert_not_called()
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_allows_closed_issue_with_force_flag(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        With --force flag, closed issues should be allowed.
+        This provides an escape hatch for legitimate re-spawns.
+        """
+        # Setup: issue with status='closed'
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-closed",
+            title="Already completed",
+            description="",
+            status="closed",
+            notes=None
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-closed', '--force', '-y'])
+
+        # Should succeed with --force
+        assert result.exit_code == 0
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_open_issue_allowed_without_force(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        Open issues should spawn normally without --force.
+        Only closed issues require the --force flag.
+        """
+        # Setup: issue with status='open'
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-open",
+            title="New task",
+            description="",
+            status="open",
+            notes=None
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-open', '-y'])
+
+        # Should succeed without --force
+        assert result.exit_code == 0
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_in_progress_issue_allowed_without_force(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        In-progress issues should spawn normally without --force.
+        Only closed issues require the --force flag.
+        """
+        # Setup: issue with status='in_progress'
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-inprogress",
+            title="WIP task",
+            description="",
+            status="in_progress",
+            notes=None
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-inprogress', '-y'])
+
+        # Should succeed without --force
+        assert result.exit_code == 0
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()

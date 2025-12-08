@@ -91,7 +91,8 @@ def register_spawn_commands(cli):
     @click.option('--context-ref', help='Path to context file (design doc, investigation) to include in spawn prompt')
     @click.option('--parallel', is_flag=True, help='Use parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)')
     @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail):
+    @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
+    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force):
         """
         Spawn a new worker agent or interactive session.
 
@@ -191,6 +192,12 @@ def register_spawn_commands(cli):
                 except BeadsIssueNotFoundError:
                     click.echo(f"❌ Beads issue '{issue_id}' not found", err=True)
                     click.echo("   Run 'bd list' to see available issues.", err=True)
+                    raise click.Abort()
+
+                # Refuse closed issues unless --force is provided
+                if issue.status == 'closed' and not force:
+                    click.echo(f"❌ Issue '{issue_id}' is already closed.", err=True)
+                    click.echo("   Use --force to spawn anyway.", err=True)
                     raise click.Abort()
 
                 # Check for prior commits mentioning this issue
