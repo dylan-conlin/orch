@@ -195,22 +195,24 @@ def register_spawn_commands(cli):
 
                 # Check for prior commits mentioning this issue
                 # Prevents spawning for already-completed work
-                if project_dir:
+                # Skip check for open/in_progress issues - commits are from issue creation or WIP
+                if project_dir and issue.status not in ('open', 'in_progress'):
                     prior_commits = find_commits_mentioning_issue(Path(project_dir), issue_id)
                     if prior_commits:
-                        click.echo("")
-                        click.echo(f"⚠️  Found {len(prior_commits)} prior commit(s) mentioning {issue_id}:", err=True)
-                        for commit in prior_commits[:5]:  # Show first 5
-                            click.echo(f"   • {commit.short_hash} {commit.short_message[:60]}", err=True)
-                        if len(prior_commits) > 5:
-                            click.echo(f"   ... and {len(prior_commits) - 5} more", err=True)
-                        click.echo("")
-                        click.echo("   Work may already be completed for this issue.", err=True)
-                        click.echo(f"   Review: git log --grep='{issue_id}'", err=True)
-                        click.echo("")
-
-                        # Prompt to continue or abort
+                        # Only show warning and prompt if not using -y flag
                         if not yes:
+                            click.echo("")
+                            click.echo(f"⚠️  Found {len(prior_commits)} prior commit(s) mentioning {issue_id}:", err=True)
+                            for commit in prior_commits[:5]:  # Show first 5
+                                click.echo(f"   • {commit.short_hash} {commit.short_message[:60]}", err=True)
+                            if len(prior_commits) > 5:
+                                click.echo(f"   ... and {len(prior_commits) - 5} more", err=True)
+                            click.echo("")
+                            click.echo("   Work may already be completed for this issue.", err=True)
+                            click.echo(f"   Review: git log --grep='{issue_id}'", err=True)
+                            click.echo("")
+
+                            # Prompt to continue or abort
                             if not click.confirm("Spawn agent anyway?", default=False):
                                 raise click.Abort()
 
