@@ -113,11 +113,18 @@ def get_project_dir(project_name_or_path: str) -> Optional[Path]:
 
     projects = _parse_active_projects(str(active_projects_file), mtime)
 
-    # If input looks like a path (contains / or is . or ..), try to match by resolved path first
+    # If input looks like a path (contains / or is . or ..), handle as filesystem path
     if '/' in project_name_or_path or project_name_or_path in ('.', '..'):
         try:
             input_path = Path(project_name_or_path).expanduser().resolve()
-            # Match by resolved path
+
+            # First check if path exists as a directory - accept it directly
+            # This enables cross-repo spawning to unregistered projects
+            if input_path.is_dir():
+                return input_path
+
+            # Path doesn't exist - try matching against registered projects
+            # (in case user provided an alias path that differs from canonical path)
             for project_name, project_path in projects.items():
                 if project_path.resolve() == input_path:
                     return project_path
