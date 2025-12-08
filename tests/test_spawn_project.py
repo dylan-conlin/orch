@@ -187,6 +187,96 @@ class TestProjectAutoDetection:
             os.chdir(original_cwd)
 
 
+class TestGetProjectDirPathAcceptance:
+    """Tests for get_project_dir() accepting filesystem paths directly.
+
+    When --project is given a filesystem path (not just a name), it should:
+    - Accept absolute paths to existing directories
+    - Accept tilde-expanded paths (~/...)
+    - Accept relative paths (./..., ../...)
+    - NOT require the path to be registered in active-projects.md
+
+    This enables cross-repo spawning to projects that aren't registered.
+    See beads issue: orch-cli-ate
+    """
+
+    def test_get_project_dir_accepts_absolute_path(self, tmp_path):
+        """Test get_project_dir() accepts absolute paths to existing directories."""
+        # Create a directory that exists but is NOT in active-projects.md
+        project_dir = tmp_path / "unregistered-project"
+        project_dir.mkdir()
+
+        # Create empty active-projects.md (project not registered)
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        with patch('orch.project_resolver.Path.home', return_value=tmp_path):
+            # Should accept the absolute path directly
+            result = get_project_dir(str(project_dir))
+
+        assert result is not None
+        assert result.resolve() == project_dir.resolve()
+
+    def test_get_project_dir_accepts_tilde_path(self, tmp_path, monkeypatch):
+        """Test get_project_dir() accepts ~/... paths."""
+        # Create a directory under the mocked home
+        project_dir = tmp_path / "Documents" / "projects" / "my-project"
+        project_dir.mkdir(parents=True)
+
+        # Create empty active-projects.md
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        # Mock HOME environment variable so expanduser() works correctly
+        monkeypatch.setenv('HOME', str(tmp_path))
+
+        with patch('orch.project_resolver.Path.home', return_value=tmp_path):
+            # Use tilde path relative to mocked home
+            result = get_project_dir("~/Documents/projects/my-project")
+
+        assert result is not None
+        assert result.resolve() == project_dir.resolve()
+
+    def test_get_project_dir_rejects_nonexistent_path(self, tmp_path):
+        """Test get_project_dir() rejects paths that don't exist."""
+        # Create empty active-projects.md
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text("# Active Projects\n")
+
+        with patch('orch.project_resolver.Path.home', return_value=tmp_path):
+            # Path doesn't exist - should return None
+            result = get_project_dir("/nonexistent/path/to/project")
+
+        assert result is None
+
+    def test_get_project_dir_registered_path_still_works(self, tmp_path):
+        """Test that registered project paths still work."""
+        # Create a directory that IS registered
+        project_dir = tmp_path / "registered-project"
+        project_dir.mkdir()
+
+        # Create active-projects.md with this project registered
+        meta_orch = tmp_path / "orch-knowledge" / ".orch"
+        meta_orch.mkdir(parents=True)
+        active_projects = meta_orch / "active-projects.md"
+        active_projects.write_text(f"""## registered-project
+- **Path:** `{project_dir}`
+""")
+
+        with patch('orch.project_resolver.Path.home', return_value=tmp_path):
+            # Should still work via path
+            result = get_project_dir(str(project_dir))
+
+        assert result is not None
+        assert result.resolve() == project_dir.resolve()
+
+
 class TestGetProjectDirCwdFallback:
     """Tests for get_project_dir() falling back to current working directory.
 
