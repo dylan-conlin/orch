@@ -263,6 +263,42 @@ class TestSwitchWorkersClient:
             assert "/dev/ttys043" in third_call  # NOT ttys000 (current/orchestrator)
             assert "/dev/ttys000" not in third_call
 
+    def test_switch_workers_client_failsafe_when_cant_determine_current(self):
+        """Test fail-safe: if can't determine current client, don't switch anyone.
+
+        This prevents accidentally switching orchestrator if tmux display-message fails.
+        """
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run:
+            # Scenario: display-message fails or returns empty (can't determine current client)
+            # In this case, we should NOT switch anyone to be safe
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="", stderr=""),  # current client = EMPTY (can't determine)
+            ]
+
+            result = switch_workers_client("workers-new-project")
+
+            # Should return False without attempting to switch
+            assert result is False
+            # Should only call display-message, not list-clients or switch-client
+            assert mock_run.call_count == 1
+
+    def test_switch_workers_client_failsafe_when_display_message_fails(self):
+        """Test fail-safe when tmux display-message command fails."""
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run:
+            # display-message returns non-zero (failure)
+            mock_run.side_effect = [
+                Mock(returncode=1, stdout="", stderr="error"),  # display-message failed
+            ]
+
+            result = switch_workers_client("workers-new-project")
+
+            assert result is False
+            assert mock_run.call_count == 1
+
 
 class TestSpawnInTmuxPerProjectSession:
     """Tests for spawn_in_tmux using per-project sessions."""

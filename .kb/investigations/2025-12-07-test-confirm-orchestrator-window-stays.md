@@ -160,10 +160,21 @@ tmux list-sessions -F '#{session_name}: #{session_windows} windows'
 - Initial question: Does the orchestrator window stay put during spawn?
 - Context: Confirming expected behavior of per-project workers sessions
 
-**2025-12-07 ~14:45:** Investigation completed
+**2025-12-07 ~14:45:** Initial investigation completed
 - Final confidence: Very High (95%)
 - Status: Complete
 - Key outcome: Confirmed orchestrator window stays put via empirical test and code review
+
+**2025-12-07 ~15:00:** Bug recurrence reported
+- User reported bug when spawning for a new project (kb-cli) from orchestrator in orch-knowledge
+- Orchestrator window switched to workers-kb-cli unexpectedly
+- Indicates the exclusion fix has a gap
+
+**2025-12-07 ~15:15:** Root cause identified and fixed
+- Gap: If `_get_current_client_tty()` returns `None`, exclusion check always fails
+- Fix: Added fail-safe - if can't determine current client, don't switch anyone
+- Applied to both `switch_workers_client()` and `get_workers_client_tty()`
+- Added 2 new tests for fail-safe behavior (22 total tests pass)
 
 ---
 

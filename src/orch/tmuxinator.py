@@ -141,6 +141,11 @@ def switch_workers_client(session_name: str) -> bool:
     # This prevents the orchestrator from switching itself
     current_client_tty = _get_current_client_tty()
 
+    # FAIL-SAFE: If we can't determine current client, don't switch anyone
+    # This prevents accidentally switching the orchestrator if tmux display-message fails
+    if not current_client_tty:
+        return False
+
     # Find any workers client by looking for clients attached to workers* sessions
     # We need to get the TTY of the client that's showing workers content
     result = subprocess.run(
@@ -161,7 +166,8 @@ def switch_workers_client(session_name: str) -> bool:
         if len(parts) == 2:
             tty, session = parts
             # Skip the current client to avoid switching the orchestrator
-            if current_client_tty and tty == current_client_tty:
+            # Note: current_client_tty is guaranteed non-None due to fail-safe above
+            if tty == current_client_tty:
                 continue
             if session.startswith('workers'):
                 workers_client_tty = tty
@@ -198,6 +204,11 @@ def get_workers_client_tty(exclude_current: bool = True) -> Optional[str]:
     """
     # Get current client TTY to optionally exclude it
     current_client_tty = _get_current_client_tty() if exclude_current else None
+
+    # FAIL-SAFE: If exclusion requested but can't determine current client, return None
+    # This prevents returning potentially wrong client (e.g., orchestrator on workers session)
+    if exclude_current and not current_client_tty:
+        return None
 
     result = subprocess.run(
         ["tmux", "list-clients", "-F", "#{client_tty} #{session_name}"],
