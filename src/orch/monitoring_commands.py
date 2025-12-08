@@ -164,8 +164,8 @@ def register_monitoring_commands(cli):
             agent_sessions = set()
             for agent in registry.list_active_agents():
                 # Extract session name from window target (e.g., "workers-price-watch:5" -> "workers-price-watch")
-                window_target = agent.get('window', '')
-                if ':' in window_target:
+                window_target = agent.get('window') or ''
+                if window_target and ':' in window_target:
                     session_name = window_target.split(':')[0]
                     agent_sessions.add(session_name)
 
