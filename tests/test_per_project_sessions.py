@@ -396,8 +396,8 @@ class TestSpawnInTmuxPerProjectSession:
 
             spawn_in_tmux(config)
 
-            # Verify switch was called with per-project session
-            mock_switch.assert_called_once_with("workers-orch-cli")
+            # Verify switch was called with per-project session and context check enabled
+            mock_switch.assert_called_once_with("workers-orch-cli", check_orchestrator_context=True)
 
     def test_spawn_continues_if_switch_fails(self, tmp_path):
         """Test that spawn completes even if client switch fails."""

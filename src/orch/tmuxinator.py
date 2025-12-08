@@ -119,7 +119,42 @@ def _get_current_client_tty() -> Optional[str]:
     return tty if tty else None
 
 
-def switch_workers_client(session_name: str) -> bool:
+def get_orchestrator_current_project() -> Optional[str]:
+    """
+    Get the project name the orchestrator session is currently working in.
+
+    Checks the current pane's working directory in the orchestrator session
+    and extracts the project name from the path.
+
+    Returns:
+        Project name (e.g., 'orch-cli') or None if can't determine
+    """
+    result = subprocess.run(
+        ["tmux", "display-message", "-t", "orchestrator", "-p", "#{pane_current_path}"],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        return None
+
+    cwd = result.stdout.strip()
+    if not cwd:
+        return None
+
+    # Extract project name from path (last component of git root or cwd)
+    # Try to find .git to identify project root
+    path = Path(cwd)
+    while path != path.parent:
+        if (path / '.git').exists():
+            return path.name
+        path = path.parent
+
+    # Fallback to directory name
+    return Path(cwd).name
+
+
+def switch_workers_client(session_name: str, check_orchestrator_context: bool = False) -> bool:
     """
     Switch the workers tmux client to a different session.
 
@@ -132,11 +167,28 @@ def switch_workers_client(session_name: str) -> bool:
 
     Args:
         session_name: Target session name (e.g., 'workers-orch-cli')
+        check_orchestrator_context: If True, only switch if orchestrator is
+            still in the same project. Prevents race conditions when user
+            quickly switches orchestrator context after spawning.
 
     Returns:
-        True if switch succeeded, False if no workers client found
-        or switch failed
+        True if switch succeeded, False if no workers client found,
+        switch failed, or orchestrator context doesn't match
     """
+    # Check orchestrator context if requested (prevents race condition)
+    if check_orchestrator_context:
+        # Extract project name from session_name (e.g., 'workers-orch-cli' -> 'orch-cli')
+        if session_name.startswith('workers-'):
+            target_project = session_name[8:]  # Remove 'workers-' prefix
+        else:
+            target_project = session_name
+
+        orchestrator_project = get_orchestrator_current_project()
+        if orchestrator_project and orchestrator_project != target_project:
+            # Orchestrator has switched to a different project - skip the switch
+            # This prevents disrupting the user who has already moved on
+            return False
+
     # Get current client TTY to exclude it from selection
     # This prevents the orchestrator from switching itself
     current_client_tty = _get_current_client_tty()

@@ -611,9 +611,11 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
 
         # Switch workers Ghostty client to show this per-project session
         # This auto-switches the workers window when spawning for a different project
+        # Use check_orchestrator_context=True to prevent race conditions when user
+        # quickly switches orchestrator context after requesting spawn
         # Failure to switch is not fatal - just log and continue
-        if not switch_workers_client(session_name):
-            logger.debug(f"Could not switch workers client to {session_name} (no workers client attached?)")
+        if not switch_workers_client(session_name, check_orchestrator_context=True):
+            logger.debug(f"Could not switch workers client to {session_name} (no workers client attached or context changed?)")
 
         return {
             'window': actual_window_target,
