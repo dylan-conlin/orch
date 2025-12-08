@@ -300,6 +300,132 @@ class TestSwitchWorkersClient:
             assert mock_run.call_count == 1
 
 
+class TestOrchestratorContextSwitchPrevention:
+    """Tests for preventing context switch when orchestrator has moved on."""
+
+    def test_get_orchestrator_current_project_extracts_project_name(self):
+        """Test getting the current project from orchestrator session."""
+        from orch.tmuxinator import get_orchestrator_current_project
+
+        with patch('subprocess.run') as mock_run:
+            # Simulate orchestrator in orch-cli project
+            mock_run.return_value = Mock(
+                returncode=0,
+                stdout="/Users/dylan/Documents/personal/orch-cli\n",
+                stderr=""
+            )
+
+            # Mock Path operations to find .git
+            with patch('pathlib.Path.exists', return_value=True):
+                result = get_orchestrator_current_project()
+
+            assert result == "orch-cli"
+            # Verify it queried the orchestrator session
+            call_args = mock_run.call_args[0][0]
+            assert "orchestrator" in call_args
+            assert "pane_current_path" in " ".join(call_args)
+
+    def test_get_orchestrator_current_project_returns_none_on_failure(self):
+        """Test graceful handling when tmux command fails."""
+        from orch.tmuxinator import get_orchestrator_current_project
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=1, stdout="", stderr="error")
+
+            result = get_orchestrator_current_project()
+
+            assert result is None
+
+    def test_switch_workers_client_skips_when_context_changed(self):
+        """Test that switch is skipped when orchestrator moved to different project.
+
+        Scenario: Spawn was for orch-cli, but orchestrator now in beads.
+        Expected: No switch (return False without error).
+        """
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run, \
+             patch('orch.tmuxinator.get_orchestrator_current_project', return_value='beads'):
+
+            result = switch_workers_client("workers-orch-cli", check_orchestrator_context=True)
+
+            # Should return False without attempting switch (orchestrator moved to beads)
+            assert result is False
+            # Should NOT have called switch-client since context check failed
+            for call in mock_run.call_args_list:
+                assert "switch-client" not in str(call)
+
+    def test_switch_workers_client_proceeds_when_context_matches(self):
+        """Test that switch proceeds when orchestrator still in same project.
+
+        Scenario: Spawn was for orch-cli, orchestrator still in orch-cli.
+        Expected: Proceed with switch.
+        """
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run, \
+             patch('orch.tmuxinator.get_orchestrator_current_project', return_value='orch-cli'):
+
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client
+                Mock(returncode=0, stdout="/dev/ttys043 workers\n", stderr=""),  # list-clients
+                Mock(returncode=0, stdout="", stderr=""),  # switch-client
+            ]
+
+            result = switch_workers_client("workers-orch-cli", check_orchestrator_context=True)
+
+            assert result is True
+            # Should have called switch-client since context matched
+            assert mock_run.call_count == 3
+            switch_call = mock_run.call_args_list[2][0][0]
+            assert "switch-client" in switch_call
+
+    def test_switch_workers_client_proceeds_when_context_unavailable(self):
+        """Test that switch proceeds when orchestrator context can't be determined.
+
+        If we can't check the orchestrator context (session doesn't exist, etc.),
+        we should proceed with the switch rather than blocking.
+        """
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run, \
+             patch('orch.tmuxinator.get_orchestrator_current_project', return_value=None):
+
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client
+                Mock(returncode=0, stdout="/dev/ttys043 workers\n", stderr=""),  # list-clients
+                Mock(returncode=0, stdout="", stderr=""),  # switch-client
+            ]
+
+            result = switch_workers_client("workers-orch-cli", check_orchestrator_context=True)
+
+            # Should proceed since we can't determine context (orchestrator_project=None)
+            # But actually looking at the code - when orchestrator_project is None,
+            # the condition `orchestrator_project and orchestrator_project != target_project`
+            # is False (short-circuit on None), so it proceeds.
+            assert result is True
+
+    def test_switch_workers_client_context_check_disabled_by_default(self):
+        """Test that context check is not performed when flag is False (default)."""
+        from orch.tmuxinator import switch_workers_client
+
+        with patch('subprocess.run') as mock_run, \
+             patch('orch.tmuxinator.get_orchestrator_current_project') as mock_get_project:
+
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="/dev/ttys000\n", stderr=""),  # current client
+                Mock(returncode=0, stdout="/dev/ttys043 workers\n", stderr=""),  # list-clients
+                Mock(returncode=0, stdout="", stderr=""),  # switch-client
+            ]
+
+            # Call without check_orchestrator_context flag
+            result = switch_workers_client("workers-orch-cli")
+
+            assert result is True
+            # Should NOT have called get_orchestrator_current_project
+            mock_get_project.assert_not_called()
+
+
 class TestSpawnInTmuxPerProjectSession:
     """Tests for spawn_in_tmux using per-project sessions."""
 
