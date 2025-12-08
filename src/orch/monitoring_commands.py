@@ -156,34 +156,49 @@ def register_monitoring_commands(cli):
                 click.echo("   Showing registry state only (may be stale).\n")
             # Skip reconciliation, continue with registry state
         else:
-            # Get active windows from tmux
-            session_obj = find_session(session)
-            if not session_obj:
-                if output_format == 'human':
-                    click.echo(f"⚠️  Tmux session '{session}' not found.")
-                    click.echo("   Showing registry state only (may be stale).\n")
-            else:
-                # Reconcile registry with tmux
-                windows = list_windows(session)
+            # Collect active window IDs from ALL sessions where agents are registered
+            # This fixes the bug where agents in workers-* sessions were incorrectly
+            # marked as completed when status only checked the orchestrator session
 
-                # Legacy migration: upgrade agents missing window_id (one-time migration)
-                # Build map from window target (session:index) to stable window_id
-                target_to_id = {f"{session}:{w['index']}": w['id'] for w in windows}
+            # Find all unique sessions from registered agents
+            agent_sessions = set()
+            for agent in registry.list_active_agents():
+                # Extract session name from window target (e.g., "workers-price-watch:5" -> "workers-price-watch")
+                window_target = agent.get('window', '')
+                if ':' in window_target:
+                    session_name = window_target.split(':')[0]
+                    agent_sessions.add(session_name)
 
-                # Upgrade active agents that don't have window_id
-                migrated_count = 0
-                for agent in registry.list_active_agents():
-                    if not agent.get('window_id') and agent['window'] in target_to_id:
-                        agent['window_id'] = target_to_id[agent['window']]
-                        migrated_count += 1
+            # Also include the default session (for backward compatibility)
+            agent_sessions.add(session)
 
-                # Save if any migrations occurred
-                if migrated_count > 0:
-                    registry.save()
+            # Build combined active_window_ids from all relevant sessions
+            all_active_window_ids = []
+            target_to_id = {}  # For legacy migration
 
-                # Use stable window IDs instead of indices (which change when tmux renumbers)
-                active_window_ids = [w['id'] for w in windows]
-                registry.reconcile(active_window_ids)
+            for sess in agent_sessions:
+                session_obj = find_session(sess)
+                if session_obj:
+                    windows = list_windows(sess)
+                    # Add to combined list
+                    all_active_window_ids.extend([w['id'] for w in windows])
+                    # Build legacy migration map
+                    for w in windows:
+                        target_to_id[f"{sess}:{w['index']}"] = w['id']
+
+            # Legacy migration: upgrade agents missing window_id (one-time migration)
+            migrated_count = 0
+            for agent in registry.list_active_agents():
+                if not agent.get('window_id') and agent['window'] in target_to_id:
+                    agent['window_id'] = target_to_id[agent['window']]
+                    migrated_count += 1
+
+            # Save if any migrations occurred
+            if migrated_count > 0:
+                registry.save()
+
+            # Always reconcile - even if no windows found, this detects agents whose windows closed
+            registry.reconcile(all_active_window_ids)
 
         # Also reconcile opencode agents (separate from tmux)
         registry.reconcile_opencode()
