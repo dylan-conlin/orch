@@ -921,8 +921,7 @@ def spawn_interactive(
     if resolved_backend == "opencode":
         raise ValueError(
             "Interactive mode (-i) not yet supported with OpenCode backend.\n"
-            "Use: orch spawn SKILL_NAME 'task' --backend opencode\n"
-            "Or: orch spawn --from-roadmap 'Item' --backend opencode"
+            "Use: orch spawn SKILL_NAME 'task' --backend opencode"
         )
 
     # Auto-detect or prompt for project if not provided

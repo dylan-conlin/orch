@@ -812,11 +812,10 @@ def register_monitoring_commands(cli):
     @cli.command()
     @click.option('--analytics', is_flag=True, help='Show analytics grouped by task type')
     @click.option('--skills', is_flag=True, help='Show skill usage analytics')
-    @click.option('--include-transcripts', is_flag=True, help='Include Skill tool usage from transcripts (interactive sessions)')
     @click.option('--days', default=30, type=int, help='Number of days to analyze (default: 30)')
     @click.option('--registry', type=click.Path(), help='Path to registry file (for testing)')
     @click.option('--format', 'output_format', type=click.Choice(['human', 'json']), default='human', help='Output format')
-    def history(analytics, skills, include_transcripts, days, registry, output_format):
+    def history(analytics, skills, days, registry, output_format):
         """Show completed agents with durations and analytics."""
         from orch.json_output import output_json
 
@@ -844,61 +843,15 @@ def register_monitoring_commands(cli):
             # Analyze skill usage from workspaces
             skill_analytics = analyze_skill_usage(project_dir, days=days)
 
-            # Optionally include transcript analysis
-            transcript_output = None
-            transcript_stats = None
-            unique_sessions = 0
-            if include_transcripts:
-                from orch.transcript_analysis import (
-                    scan_transcripts_for_skills,
-                    aggregate_transcript_skill_stats,
-                    format_transcript_skill_analytics
-                )
-
-                # Scan transcripts for Skill tool usage
-                project_str = str(project_dir)
-                skill_uses = scan_transcripts_for_skills(
-                    project_filter=project_str,
-                    days=days
-                )
-
-                # Count unique sessions
-                unique_sessions = len(set(use.session_id for use in skill_uses))
-
-                # Aggregate stats
-                transcript_stats = aggregate_transcript_skill_stats(skill_uses)
-
-                # Format output
-                transcript_output = format_transcript_skill_analytics(
-                    transcript_stats,
-                    unique_sessions
-                )
-
             # Output based on format
             if output_format == 'json':
                 result = export_skill_analytics_json(skill_analytics)
-                if include_transcripts and transcript_stats:
-                    result['transcripts'] = {
-                        'sessions_scanned': unique_sessions,
-                        'skills': {
-                            name: {
-                                'total_uses': stats.total_uses,
-                                'sessions': len(stats.sessions),
-                                'projects': len(stats.projects)
-                            }
-                            for name, stats in transcript_stats.items()
-                        }
-                    }
                 click.echo(output_json(result))
                 return
 
             # Human format
             formatted_output = format_skill_analytics(skill_analytics)
             click.echo(formatted_output)
-
-            # Show transcript analysis if requested
-            if include_transcripts and transcript_output:
-                click.echo(transcript_output)
 
             return
 
