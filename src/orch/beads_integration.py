@@ -25,6 +25,16 @@ class BeadsIssueNotFoundError(Exception):
 
 
 @dataclass
+class BeadsDependency:
+    """Represents a dependency relationship between beads issues."""
+
+    id: str
+    title: str
+    status: str
+    dependency_type: str  # "blocks" or "parent-child"
+
+
+@dataclass
 class BeadsIssue:
     """Represents a beads issue."""
 
@@ -34,6 +44,7 @@ class BeadsIssue:
     status: str
     priority: int
     notes: Optional[str] = None
+    dependencies: Optional[list] = None  # List of BeadsDependency
 
 
 class BeadsIntegration:
@@ -99,6 +110,21 @@ class BeadsIntegration:
             raise BeadsIssueNotFoundError(issue_id)
 
         issue_data = issues[0]
+
+        # Parse dependencies if present
+        dependencies = None
+        deps_data = issue_data.get("dependencies")
+        if deps_data is not None:
+            dependencies = [
+                BeadsDependency(
+                    id=dep.get("id", ""),
+                    title=dep.get("title", ""),
+                    status=dep.get("status", ""),
+                    dependency_type=dep.get("dependency_type", "")
+                )
+                for dep in deps_data
+            ]
+
         return BeadsIssue(
             id=issue_data.get("id", issue_id),
             title=issue_data.get("title", ""),
@@ -106,7 +132,35 @@ class BeadsIntegration:
             status=issue_data.get("status", ""),
             priority=issue_data.get("priority", 0),
             notes=issue_data.get("notes"),
+            dependencies=dependencies,
         )
+
+    def get_open_blockers(self, issue_id: str) -> list:
+        """Get list of open blockers for an issue.
+
+        Returns dependencies that have:
+        - dependency_type == "blocks"
+        - status == "open"
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            List of BeadsDependency objects that are open blockers.
+            Empty list if no open blockers exist.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        issue = self.get_issue(issue_id)
+        if issue.dependencies is None:
+            return []
+
+        return [
+            dep for dep in issue.dependencies
+            if dep.dependency_type == "blocks" and dep.status == "open"
+        ]
 
     def update_issue_notes(self, issue_id: str, notes: str) -> None:
         """Update the notes field of a beads issue.

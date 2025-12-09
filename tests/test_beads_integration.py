@@ -1362,3 +1362,336 @@ class TestBeadsIntegrationNotesMetadata:
             cmd = call_args[0][0]
             assert "--db" in cmd
             assert "/other/repo/.beads" in cmd
+
+
+class TestBeadsDependency:
+    """Tests for BeadsDependency dataclass."""
+
+    def test_beads_dependency_creation(self):
+        """Test creating a BeadsDependency with all fields."""
+        from orch.beads_integration import BeadsDependency
+
+        dep = BeadsDependency(
+            id="orch-cli-abc",
+            title="Blocking issue",
+            status="open",
+            dependency_type="blocks"
+        )
+        assert dep.id == "orch-cli-abc"
+        assert dep.title == "Blocking issue"
+        assert dep.status == "open"
+        assert dep.dependency_type == "blocks"
+
+    def test_beads_dependency_parent_child_type(self):
+        """Test creating a BeadsDependency with parent-child type."""
+        from orch.beads_integration import BeadsDependency
+
+        dep = BeadsDependency(
+            id="orch-cli-xyz",
+            title="Parent epic",
+            status="open",
+            dependency_type="parent-child"
+        )
+        assert dep.dependency_type == "parent-child"
+
+
+class TestBeadsIssueWithDependencies:
+    """Tests for BeadsIssue with dependencies field."""
+
+    def test_beads_issue_with_dependencies(self):
+        """Test creating a BeadsIssue with dependencies."""
+        from orch.beads_integration import BeadsDependency
+
+        dep1 = BeadsDependency(
+            id="orch-cli-abc",
+            title="Blocker 1",
+            status="open",
+            dependency_type="blocks"
+        )
+        dep2 = BeadsDependency(
+            id="orch-cli-def",
+            title="Blocker 2",
+            status="closed",
+            dependency_type="blocks"
+        )
+
+        issue = BeadsIssue(
+            id="orch-cli-test",
+            title="Test issue",
+            description="Test",
+            status="open",
+            priority=2,
+            dependencies=[dep1, dep2]
+        )
+
+        assert len(issue.dependencies) == 2
+        assert issue.dependencies[0].id == "orch-cli-abc"
+        assert issue.dependencies[1].id == "orch-cli-def"
+
+    def test_beads_issue_empty_dependencies(self):
+        """Test creating a BeadsIssue with empty dependencies list."""
+        issue = BeadsIssue(
+            id="test",
+            title="Test",
+            description="",
+            status="open",
+            priority=1,
+            dependencies=[]
+        )
+        assert issue.dependencies == []
+
+    def test_beads_issue_default_dependencies_is_none(self):
+        """Test that dependencies defaults to None when not provided."""
+        issue = BeadsIssue(
+            id="test",
+            title="Test",
+            description="",
+            status="open",
+            priority=1
+        )
+        assert issue.dependencies is None
+
+
+class TestBeadsIntegrationGetIssueWithDependencies:
+    """Tests for get_issue() parsing dependencies from JSON."""
+
+    def test_get_issue_parses_dependencies(self):
+        """Test that get_issue parses dependencies from bd show output."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Feature with blockers",
+            "description": "Description",
+            "status": "open",
+            "priority": 2,
+            "dependencies": [
+                {
+                    "id": "orch-cli-abc",
+                    "title": "Blocking issue",
+                    "description": "Must be done first",
+                    "status": "open",
+                    "priority": 1,
+                    "issue_type": "feature",
+                    "dependency_type": "blocks"
+                },
+                {
+                    "id": "orch-cli-def",
+                    "title": "Parent epic",
+                    "description": "Epic container",
+                    "status": "open",
+                    "priority": 1,
+                    "issue_type": "epic",
+                    "dependency_type": "parent-child"
+                }
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-xyz")
+
+            assert issue.id == "orch-cli-xyz"
+            assert len(issue.dependencies) == 2
+            assert issue.dependencies[0].id == "orch-cli-abc"
+            assert issue.dependencies[0].status == "open"
+            assert issue.dependencies[0].dependency_type == "blocks"
+            assert issue.dependencies[1].id == "orch-cli-def"
+            assert issue.dependencies[1].dependency_type == "parent-child"
+
+    def test_get_issue_empty_dependencies(self):
+        """Test get_issue with empty dependencies array."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Issue without blockers",
+            "description": "",
+            "status": "open",
+            "priority": 2,
+            "dependencies": []
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-xyz")
+
+            assert issue.dependencies == []
+
+    def test_get_issue_no_dependencies_key(self):
+        """Test get_issue when dependencies key is missing from JSON."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Old format issue",
+            "description": "",
+            "status": "open",
+            "priority": 2
+            # No dependencies key
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-xyz")
+
+            assert issue.dependencies is None
+
+
+class TestBeadsIntegrationGetOpenBlockers:
+    """Tests for get_open_blockers() helper method."""
+
+    def test_get_open_blockers_returns_only_open_blocks(self):
+        """Test that get_open_blockers filters for open status and blocks type."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-test",
+            "title": "Test issue",
+            "description": "",
+            "status": "open",
+            "priority": 2,
+            "dependencies": [
+                {
+                    "id": "orch-cli-abc",
+                    "title": "Open blocker",
+                    "status": "open",
+                    "dependency_type": "blocks"
+                },
+                {
+                    "id": "orch-cli-def",
+                    "title": "Closed blocker",
+                    "status": "closed",
+                    "dependency_type": "blocks"
+                },
+                {
+                    "id": "orch-cli-ghi",
+                    "title": "Open parent (not a blocker)",
+                    "status": "open",
+                    "dependency_type": "parent-child"
+                }
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            blockers = beads.get_open_blockers("orch-cli-test")
+
+            # Should only return the one open blocker (blocks type)
+            assert len(blockers) == 1
+            assert blockers[0].id == "orch-cli-abc"
+            assert blockers[0].status == "open"
+            assert blockers[0].dependency_type == "blocks"
+
+    def test_get_open_blockers_no_blockers(self):
+        """Test get_open_blockers when no open blockers exist."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-test",
+            "title": "Test issue",
+            "description": "",
+            "status": "open",
+            "priority": 2,
+            "dependencies": [
+                {
+                    "id": "orch-cli-abc",
+                    "title": "Closed blocker",
+                    "status": "closed",
+                    "dependency_type": "blocks"
+                }
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            blockers = beads.get_open_blockers("orch-cli-test")
+
+            assert blockers == []
+
+    def test_get_open_blockers_no_dependencies(self):
+        """Test get_open_blockers when issue has no dependencies."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-test",
+            "title": "Test issue",
+            "description": "",
+            "status": "open",
+            "priority": 2
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            blockers = beads.get_open_blockers("orch-cli-test")
+
+            assert blockers == []
+
+    def test_get_open_blockers_multiple_open_blockers(self):
+        """Test get_open_blockers with multiple open blockers."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-test",
+            "title": "Test issue",
+            "description": "",
+            "status": "open",
+            "priority": 2,
+            "dependencies": [
+                {
+                    "id": "orch-cli-abc",
+                    "title": "Blocker 1",
+                    "status": "open",
+                    "dependency_type": "blocks"
+                },
+                {
+                    "id": "orch-cli-def",
+                    "title": "Blocker 2",
+                    "status": "open",
+                    "dependency_type": "blocks"
+                },
+                {
+                    "id": "orch-cli-ghi",
+                    "title": "Blocker 3",
+                    "status": "open",
+                    "dependency_type": "blocks"
+                }
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            blockers = beads.get_open_blockers("orch-cli-test")
+
+            assert len(blockers) == 3
+            assert blockers[0].id == "orch-cli-abc"
+            assert blockers[1].id == "orch-cli-def"
+            assert blockers[2].id == "orch-cli-ghi"

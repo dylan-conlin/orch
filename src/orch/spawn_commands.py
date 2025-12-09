@@ -200,6 +200,18 @@ def register_spawn_commands(cli):
                     click.echo("   Use --force to spawn anyway.", err=True)
                     raise click.Abort()
 
+                # Check for open blockers and warn (non-blocking)
+                try:
+                    open_blockers = beads.get_open_blockers(issue_id)
+                    if open_blockers:
+                        blocker_ids = ", ".join(b.id for b in open_blockers)
+                        click.echo("")
+                        click.echo(f"⚠️  This issue has {len(open_blockers)} open blocker(s): {blocker_ids}", err=True)
+                        click.echo("")
+                except Exception:
+                    # Silently ignore blocker check errors - don't block spawning
+                    pass
+
                 # Check for prior commits mentioning this issue
                 # Prevents spawning for already-completed work
                 # Skip check for open/in_progress issues - commits are from issue creation or WIP
