@@ -316,7 +316,8 @@ def register_spawn_commands(cli):
                     beads_id=issue_id,
                     beads_db_path=beads_db_path,
                     context_ref=context_ref,
-                    include_agent_mail=agent_mail
+                    include_agent_mail=agent_mail,
+                    interactive=interactive  # Pass -i flag to enable interactive mode
                 )
                 return
 
