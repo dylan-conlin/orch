@@ -816,3 +816,120 @@ class TestInvestigationArtifactFallback:
 
         assert result.passed is False
         assert any("In Progress" in e and "Complete" in e for e in result.errors)
+
+
+class TestBeadsExclusionFromGitValidation:
+    """Tests for excluding .beads/ directory from git validation.
+
+    Bug: When running multiple `orch complete` commands in parallel, each completion
+    that closes a beads issue modifies `.beads/issues.jsonl`. Subsequent completions
+    fail with git validation errors because they see uncommitted changes.
+
+    Fix: Exclude `.beads/` directory from git validation since beads changes are
+    committed separately by the beads workflow (bd sync).
+    """
+
+    def test_complete_agent_work_excludes_beads_from_git_validation(self, tmp_path):
+        """
+        Test that complete_agent_work excludes .beads/ from git validation.
+
+        When `.beads/issues.jsonl` is modified (e.g., by a previous `orch complete`
+        closing a beads issue), the validation should still pass because `.beads/`
+        changes are managed by the beads workflow, not by orch complete.
+        """
+        import subprocess
+
+        # Setup: Create git repo
+        project_dir = tmp_path
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=project_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (project_dir / "README.md").write_text("# Test")
+        subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial'], cwd=project_dir, check=True, capture_output=True)
+
+        # Setup workspace
+        workspace_name = "test-agent"
+        workspace_dir = project_dir / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Simulate beads change (as if previous orch complete modified it)
+        beads_dir = project_dir / ".beads"
+        beads_dir.mkdir(parents=True)
+        (beads_dir / "issues.jsonl").write_text('{"id":"test-123","status":"closed"}\n')
+
+        # Verify .beads/ is uncommitted
+        status = subprocess.run(['git', 'status', '--porcelain'], cwd=project_dir, capture_output=True, text=True)
+        assert '.beads/' in status.stdout or 'issues.jsonl' in status.stdout, "Setup: .beads should be uncommitted"
+
+        # Mock agent with beads_id
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-456'
+        }
+
+        # Complete should succeed despite uncommitted .beads/ changes
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.complete.close_beads_issue', return_value=True):
+                    result = complete_agent_work(
+                        agent_id=workspace_name,
+                        project_dir=project_dir
+                    )
+
+        # Should succeed - .beads/ changes should be excluded from validation
+        assert result['success'] is True, f"Complete should succeed with uncommitted .beads/. Errors: {result.get('errors', [])}"
+        assert 'beads' not in str(result.get('errors', [])).lower(), "Should not report .beads/ as uncommitted"
+
+    def test_complete_still_fails_for_other_uncommitted_files(self, tmp_path):
+        """
+        Test that complete_agent_work still fails for non-.beads uncommitted files.
+
+        We only exclude .beads/ - other uncommitted files should still fail validation.
+        """
+        import subprocess
+
+        # Setup: Create git repo
+        project_dir = tmp_path
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=project_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (project_dir / "README.md").write_text("# Test")
+        subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial'], cwd=project_dir, check=True, capture_output=True)
+
+        # Setup workspace
+        workspace_name = "test-agent"
+        workspace_dir = project_dir / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Create uncommitted source file (NOT in .beads/)
+        (project_dir / "uncommitted.py").write_text("# uncommitted work")
+
+        # Mock agent with beads_id
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-456'
+        }
+
+        # Complete should fail because of uncommitted non-.beads file
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.complete.close_beads_issue', return_value=True):
+                    result = complete_agent_work(
+                        agent_id=workspace_name,
+                        project_dir=project_dir
+                    )
+
+        # Should fail - uncommitted.py should cause validation to fail
+        assert result['success'] is False, "Complete should fail with uncommitted non-.beads files"
+        assert any('uncommitted' in str(e).lower() for e in result.get('errors', [])), \
+            f"Should report uncommitted file. Errors: {result.get('errors', [])}"

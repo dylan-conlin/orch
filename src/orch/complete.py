@@ -263,7 +263,9 @@ def complete_agent_work(
         return result
 
     # Validate work is committed
-    is_valid, warning_message = validate_work_committed(project_dir)
+    # Exclude .beads/ from validation - beads changes are committed separately by bd sync
+    # This allows parallel orch complete commands without git validation conflicts
+    is_valid, warning_message = validate_work_committed(project_dir, exclude_files=[".beads/"])
     if not is_valid:
         result['errors'].append(f"Git validation error:\n{warning_message}")
         return result
