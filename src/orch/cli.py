@@ -1102,12 +1102,223 @@ def _lint_skills():
         click.echo(f"✅ All {valid_count} command references are valid!")
 
 
+def _lint_issues():
+    """Validate beads issues for common problems.
+
+    Checks:
+    1. Deletion issues without migration path section
+    2. Hidden blockers in description/notes without bd dependency
+    3. Vague scope without enumeration
+    4. Stale issues (open >7 days without activity)
+    5. Missing acceptance criteria
+    """
+    import re
+    from datetime import datetime, timedelta, timezone
+    from orch.beads_integration import BeadsIntegration, BeadsCLINotFoundError
+
+    try:
+        beads = BeadsIntegration()
+    except Exception as e:
+        click.echo(f"❌ Failed to initialize beads integration: {e}", err=True)
+        return
+
+    # Get all open issues
+    try:
+        result = subprocess.run(
+            ["bd", "list", "--status=open", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            click.echo("❌ Failed to list beads issues", err=True)
+            return
+
+        issues = json.loads(result.stdout)
+    except FileNotFoundError:
+        click.echo("❌ bd CLI not found. Install beads or check PATH.", err=True)
+        return
+    except json.JSONDecodeError:
+        click.echo("❌ Failed to parse beads output", err=True)
+        return
+
+    if not issues:
+        click.echo("✅ No open issues to validate")
+        return
+
+    # Get blocked issues for accurate "hidden blocker" check
+    blocked_issue_ids = set()
+    try:
+        blocked_result = subprocess.run(
+            ["bd", "blocked", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        if blocked_result.returncode == 0:
+            blocked_issues = json.loads(blocked_result.stdout)
+            blocked_issue_ids = {issue.get("id") for issue in blocked_issues if issue.get("id")}
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass  # If bd blocked fails, skip this check
+
+    click.echo(f"🔍 Validating {len(issues)} open beads issues...")
+    click.echo()
+
+    warnings = []  # List of (issue_id, warning_message, suggestion)
+    passed_count = 0
+
+    for issue in issues:
+        issue_id = issue.get("id", "unknown")
+        title = issue.get("title", "").lower()
+        description = issue.get("description", "")
+        notes = issue.get("notes", "") or ""
+        updated_at_str = issue.get("updated_at", "")
+        dependencies = issue.get("dependencies", []) or []
+
+        issue_warnings = []
+
+        # Check 1: Deletion issues without migration path
+        deletion_keywords = ["delete", "remove", "eliminate", "deprecate"]
+        is_deletion_issue = any(kw in title for kw in deletion_keywords)
+
+        if is_deletion_issue:
+            has_migration = any(marker in description.lower() for marker in [
+                "## migration", "migration path", "migration plan",
+                "migrate to", "migration:", "before deleting"
+            ])
+            if not has_migration:
+                issue_warnings.append((
+                    "Deletion issue without migration path",
+                    f"Contains '{next(kw for kw in deletion_keywords if kw in title)}' but no '## Migration' section",
+                    "Add a ## Migration section explaining what replaces the deleted code"
+                ))
+
+        # Check 2: Hidden blockers in description/notes without bd dependency
+        # Use bd blocked list to accurately detect issues with blocking dependencies
+        blocker_patterns = [
+            r"(?i)BLOCKED\s*:", r"(?i)Prerequisite\s*:",
+            r"(?i)Depends\s+on\s*:", r"(?i)Requires\s*:",
+            r"(?i)Must\s+wait\s+for"
+        ]
+        combined_text = description + " " + notes
+
+        has_blocker_text = any(re.search(pat, combined_text) for pat in blocker_patterns)
+        is_in_blocked_list = issue_id in blocked_issue_ids
+
+        # Also check full dependencies array if provided (from bd show)
+        has_blocking_dependency = any(
+            dep.get("dependency_type") == "blocks" for dep in dependencies
+        ) if dependencies else is_in_blocked_list
+
+        if has_blocker_text and not has_blocking_dependency:
+            issue_warnings.append((
+                "Hidden blocker in description",
+                "Found blocker/prerequisite text but no bd dependency tracked",
+                "Run 'bd dep <blocker-id> <this-id>' to track the blocker properly"
+            ))
+
+        # Check 3: Vague scope without enumeration
+        vague_patterns = [
+            r"(?i)all\s+\w+\s+references",
+            r"(?i)remove\s+all\s+",
+            r"(?i)delete\s+all\s+",
+            r"(?i)update\s+every\s+",
+            r"(?i)across\s+the\s+codebase",
+            r"(?i)throughout\s+the\s+project"
+        ]
+        is_vague = any(re.search(pat, description) for pat in vague_patterns)
+
+        if is_vague:
+            # Check for enumeration markers
+            has_enumeration = any(marker in description for marker in [
+                "1.", "2.", "- ", "* ", "files:", "locations:",
+                " occurrences", " references in ", " files"
+            ])
+            if not has_enumeration:
+                issue_warnings.append((
+                    "Vague scope without enumeration",
+                    "Contains 'all X' or 'remove Y references' but no specific list",
+                    "Add enumeration: list specific files, count occurrences, or scope precisely"
+                ))
+
+        # Check 4: Stale issues (open >7 days without activity)
+        if updated_at_str:
+            try:
+                # Parse ISO format with timezone
+                updated_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                age_days = (now - updated_at).days
+
+                if age_days > 7:
+                    issue_warnings.append((
+                        f"Stale issue (no activity for {age_days} days)",
+                        f"Last updated {age_days} days ago",
+                        "Update status, add comment, or close if no longer needed"
+                    ))
+            except (ValueError, TypeError):
+                pass  # Skip if date parsing fails
+
+        # Check 5: Missing acceptance criteria
+        acceptance_patterns = [
+            r"(?i)done\s+when\s*:",
+            r"(?i)success\s+criteria\s*:",
+            r"(?i)acceptance\s+criteria\s*:",
+            r"(?i)\[\s*\]",  # Checklist marker
+            r"(?i)complete\s+when\s*:",
+            r"(?i)definition\s+of\s+done"
+        ]
+        has_acceptance = any(re.search(pat, description) for pat in acceptance_patterns)
+
+        # Epic issues should have success criteria
+        is_epic = issue.get("issue_type") == "epic"
+
+        if is_epic and not has_acceptance:
+            issue_warnings.append((
+                "Epic missing success criteria",
+                "Epic issues should have clear '## Success Criteria' section",
+                "Add success criteria or checklist to define 'done'"
+            ))
+
+        # Accumulate warnings
+        if issue_warnings:
+            for warning, detail, suggestion in issue_warnings:
+                warnings.append((issue_id, issue.get("title", ""), warning, detail, suggestion))
+        else:
+            passed_count += 1
+
+    # Display results
+    if warnings:
+        click.echo(f"⚠️  Found {len(warnings)} issue(s) with problems:\n")
+
+        # Group warnings by issue
+        warnings_by_issue = {}
+        for issue_id, title, warning, detail, suggestion in warnings:
+            if issue_id not in warnings_by_issue:
+                warnings_by_issue[issue_id] = {"title": title, "warnings": []}
+            warnings_by_issue[issue_id]["warnings"].append((warning, detail, suggestion))
+
+        for issue_id, data in warnings_by_issue.items():
+            # Truncate title for display
+            title = data["title"]
+            display_title = title[:50] + "..." if len(title) > 50 else title
+            click.echo(f"⚠️  {issue_id}: {display_title}")
+
+            for warning, detail, suggestion in data["warnings"]:
+                click.echo(f"   • {warning}")
+                click.echo(f"     {detail}")
+                click.echo(f"     💡 {suggestion}")
+            click.echo()
+
+        click.echo(f"✅ {passed_count} issue(s) passed validation")
+    else:
+        click.echo(f"✅ All {len(issues)} issue(s) passed validation")
+
+
 @cli.command(name='lint')
 @click.option('--file', type=click.Path(exists=True), help='Specific CLAUDE.md file to check')
 @click.option('--all', 'check_all', is_flag=True, help='Check all known CLAUDE.md files')
 @click.option('--skills', is_flag=True, help='Validate CLI command references in skill files')
+@click.option('--issues', is_flag=True, help='Validate beads issues for common problems')
 @click.option('--reverse', 'reverse_cmd', help='Show skills that reference the given CLI command')
-def lint(file, check_all, skills, reverse_cmd):
+def lint(file, check_all, skills, issues, reverse_cmd):
     """
     Check CLAUDE.md files against token and character size limits.
 
@@ -1120,6 +1331,13 @@ def lint(file, check_all, skills, reverse_cmd):
 
     With --skills, validates that skill files reference valid CLI commands and flags.
 
+    With --issues, validates beads issues for common problems:
+    - Deletion issues without migration path section
+    - Hidden blockers in description without bd dependency
+    - Vague scope without enumeration
+    - Stale issues (open >7 days without activity)
+    - Epics missing success criteria
+
     With --reverse COMMAND, shows which skills reference the given CLI command.
     This helps understand the impact of CLI changes on skill documentation.
 
@@ -1129,6 +1347,7 @@ def lint(file, check_all, skills, reverse_cmd):
       orch lint --file ~/.claude/CLAUDE.md  # Check specific file
       orch lint --all                       # Check all known CLAUDE.md files
       orch lint --skills                    # Validate skill CLI references
+      orch lint --issues                    # Validate beads issues
       orch lint --reverse spawn             # Show skills referencing 'orch spawn'
       orch lint --reverse "build skills"    # Show skills referencing 'orch build skills'
     """
@@ -1142,6 +1361,11 @@ def lint(file, check_all, skills, reverse_cmd):
     # Handle --skills mode
     if skills:
         _lint_skills()
+        return
+
+    # Handle --issues mode
+    if issues:
+        _lint_issues()
         return
 
     import tiktoken
