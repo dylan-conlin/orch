@@ -180,8 +180,8 @@ Done.
                                 project_dir=tmp_path,
                                                             )
 
-                            # Should have called close_beads_issue with db_path=None (no cross-repo)
-                            mock_close.assert_called_once_with('orch-cli-xyz', db_path=None)
+                            # Should have called close_beads_issue with verify_phase=True (default) and db_path=None (no cross-repo)
+                            mock_close.assert_called_once_with('orch-cli-xyz', verify_phase=True, db_path=None)
                             assert result['success'] is True
                             assert result.get('beads_closed') is True
 
@@ -241,9 +241,10 @@ Done.
                                 project_dir=tmp_path,
                                                             )
 
-                            # Should have called close_beads_issue with cross-repo db_path
+                            # Should have called close_beads_issue with verify_phase=True (default) and cross-repo db_path
                             mock_close.assert_called_once_with(
                                 'orch-knowledge-abc',
+                                verify_phase=True,
                                 db_path='/path/to/other/repo/.beads/beads.db'
                             )
                             assert result['success'] is True

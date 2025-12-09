@@ -512,22 +512,27 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
         try:
             beads = BeadsIntegration()
 
-            # Verify Phase: Complete exists in comments
-            phase = beads.get_phase_from_comments(beads_issue)
-            if not phase or phase.lower() != "complete":
-                log_cli_error(
-                    subcommand="complete",
-                    error_type=ErrorType.VERIFICATION_FAILED,
-                    message=f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'",
-                    context={"beads_id": beads_issue, "current_phase": phase or "none"}
-                )
-                click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
-                click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
-                raise click.Abort()
+            # Verify Phase: Complete exists in comments (unless --force)
+            if not force:
+                phase = beads.get_phase_from_comments(beads_issue)
+                if not phase or phase.lower() != "complete":
+                    log_cli_error(
+                        subcommand="complete",
+                        error_type=ErrorType.VERIFICATION_FAILED,
+                        message=f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'",
+                        context={"beads_id": beads_issue, "current_phase": phase or "none"}
+                    )
+                    click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
+                    click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
+                    raise click.Abort()
 
             # Close the issue
-            beads.close_issue(beads_issue, reason='Resolved via orch complete --issue')
-            click.echo(f"Beads issue '{beads_issue}' closed successfully.")
+            reason = 'Resolved via orch complete --issue' + (' --force' if force else '')
+            beads.close_issue(beads_issue, reason=reason)
+            if force:
+                click.echo(f"⚠️  Beads issue '{beads_issue}' force-closed (phase check skipped).")
+            else:
+                click.echo(f"Beads issue '{beads_issue}' closed successfully.")
 
         except BeadsCLINotFoundError:
             log_cli_error(

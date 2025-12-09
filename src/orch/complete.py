@@ -280,7 +280,8 @@ def complete_agent_work(
         beads_id = agent['beads_id']
         beads_db_path = agent.get('beads_db_path')
         try:
-            if close_beads_issue(beads_id, db_path=beads_db_path):
+            # When force=True, trust commits over phase status - skip phase verification
+            if close_beads_issue(beads_id, verify_phase=not force, db_path=beads_db_path):
                 result['beads_closed'] = True
                 click.echo(f"🎯 Beads issue '{beads_id}' closed")
                 logger.log_event("complete", "Beads issue closed", {

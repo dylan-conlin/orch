@@ -251,7 +251,8 @@ class TestCompleteIntegration:
 
         assert result['success'] is True
         assert result.get('beads_closed') is True
-        mock_close.assert_called_once_with('test-project-abc', db_path=None)
+        # Default behavior: verify_phase=True (force=False by default)
+        mock_close.assert_called_once_with('test-project-abc', verify_phase=True, db_path=None)
 
 
 class TestSessionPreservation:
@@ -933,3 +934,163 @@ class TestBeadsExclusionFromGitValidation:
         assert result['success'] is False, "Complete should fail with uncommitted non-.beads files"
         assert any('uncommitted' in str(e).lower() for e in result.get('errors', [])), \
             f"Should report uncommitted file. Errors: {result.get('errors', [])}"
+
+
+class TestForceBypassesPhaseCheck:
+    """Tests for --force flag bypassing Phase: Complete verification.
+
+    When --force is passed:
+    - Trust that if commits exist (git validation passes), work is complete
+    - Skip the Phase: Complete check in beads comments
+    - This enables completing agents that have done work but forgot to report Phase: Complete
+    """
+
+    def test_close_beads_issue_with_force_bypasses_phase_check(self, tmp_path):
+        """
+        Test that close_beads_issue with force=True skips phase verification.
+
+        Bug: --force bypasses active process checks but NOT phase verification.
+        When force=True, we should trust commits over phase status.
+        """
+        from orch.complete import close_beads_issue, BeadsPhaseNotCompleteError
+
+        # Mock BeadsIntegration - phase is NOT complete
+        with patch('orch.complete.BeadsIntegration') as MockBeads:
+            mock_beads = Mock()
+            mock_beads.get_phase_from_comments.return_value = "Implementing"  # Not complete
+            MockBeads.return_value = mock_beads
+
+            # Without force - should raise error
+            with pytest.raises(BeadsPhaseNotCompleteError):
+                close_beads_issue('test-123', verify_phase=True)
+
+            # With force - should succeed without checking phase
+            mock_beads.reset_mock()
+            result = close_beads_issue('test-123', verify_phase=False)
+
+            # Should close issue without checking phase
+            assert result is True
+            mock_beads.close_issue.assert_called_once()
+            # Phase should NOT be checked when verify_phase=False
+            mock_beads.get_phase_from_comments.assert_not_called()
+
+    def test_complete_agent_work_with_force_bypasses_phase_check(self, tmp_path):
+        """
+        Test that complete_agent_work with force=True bypasses phase verification.
+
+        When force=True:
+        1. Git validation still runs (work must be committed)
+        2. Phase: Complete check is skipped
+        3. Beads issue is closed regardless of phase status
+        """
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123'
+        }
+
+        # Test with force=True - should pass verify_phase=False to close_beads_issue
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True) as mock_close:
+                        result = complete_agent_work(
+                            agent_id=workspace_name,
+                            project_dir=tmp_path,
+                            force=True  # Force flag enabled
+                        )
+
+        assert result['success'] is True
+        # close_beads_issue should be called with verify_phase=False when force=True
+        mock_close.assert_called_once_with('test-123', verify_phase=False, db_path=None)
+
+    def test_complete_agent_work_without_force_still_verifies_phase(self, tmp_path):
+        """
+        Test that complete_agent_work without force=True still verifies phase.
+
+        Default behavior should remain unchanged - phase verification required.
+        """
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123'
+        }
+
+        # Test without force - should pass verify_phase=True (default)
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True) as mock_close:
+                        result = complete_agent_work(
+                            agent_id=workspace_name,
+                            project_dir=tmp_path,
+                            force=False  # Force flag disabled
+                        )
+
+        assert result['success'] is True
+        # close_beads_issue should be called with verify_phase=True (default)
+        mock_close.assert_called_once_with('test-123', verify_phase=True, db_path=None)
+
+    def test_force_still_requires_committed_work(self, tmp_path):
+        """
+        Test that force=True still requires work to be committed.
+
+        Force bypasses phase check but NOT git validation.
+        Work must still be committed for completion to succeed.
+        """
+        import subprocess
+
+        # Setup: Create git repo with uncommitted changes
+        project_dir = tmp_path
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=project_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (project_dir / "README.md").write_text("# Test")
+        subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial'], cwd=project_dir, check=True, capture_output=True)
+
+        # Setup workspace
+        workspace_name = "test-agent"
+        workspace_dir = project_dir / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Create uncommitted work (not in .beads/)
+        (project_dir / "uncommitted_work.py").write_text("# work in progress")
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123'
+        }
+
+        # Even with force=True, should fail due to uncommitted changes
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.complete.close_beads_issue', return_value=True):
+                    result = complete_agent_work(
+                        agent_id=workspace_name,
+                        project_dir=project_dir,
+                        force=True  # Force enabled but should still fail
+                    )
+
+        # Should fail - uncommitted work blocks completion even with force
+        assert result['success'] is False
+        assert any('uncommitted' in str(e).lower() for e in result.get('errors', []))
