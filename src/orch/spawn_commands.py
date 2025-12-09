@@ -5,6 +5,7 @@ Commands for spawning new worker agents.
 
 import click
 import os
+import sys
 from pathlib import Path
 
 from orch.registry import AgentRegistry
@@ -243,7 +244,9 @@ def register_spawn_commands(cli):
                     prior_commits = find_commits_mentioning_issue(Path(project_dir), issue_id)
                     if prior_commits:
                         # Only show warning and prompt if not using -y flag
-                        if not yes:
+                        # AI agents call programmatically - auto-confirm when stdin is not a TTY
+                        should_skip = yes or not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1'
+                        if not should_skip:
                             click.echo("")
                             click.echo(f"⚠️  Found {len(prior_commits)} prior commit(s) mentioning {issue_id}:", err=True)
                             for commit in prior_commits[:5]:  # Show first 5

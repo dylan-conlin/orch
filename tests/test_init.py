@@ -351,13 +351,22 @@ def test_init_project_orchestration_nonexistent_directory():
 
 
 def test_init_project_orchestration_already_initialized(project_dir):
-    """Test init_project_orchestration() handles already initialized project."""
+    """Test init_project_orchestration() handles already initialized project when user declines."""
+    from unittest.mock import Mock
+
     project_dir.mkdir(parents=True)
     orch_dir = project_dir / ".orch"
     orch_dir.mkdir()
     (orch_dir / "CLAUDE.md").write_text("# Existing")
 
-    with patch('click.confirm', return_value=False):
+    # Mock stdin to simulate interactive terminal (TTY)
+    mock_stdin = Mock()
+    mock_stdin.isatty.return_value = True
+
+    with patch('click.confirm', return_value=False), \
+         patch('orch.init.sys') as mock_sys:
+        mock_sys.stdin = mock_stdin
+
         result = init.init_project_orchestration(
             project_path=str(project_dir),
             yes=False

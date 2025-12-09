@@ -397,9 +397,12 @@ def abandon(agent_ids, reason, yes, force):
         click.echo(f"\nReason: {reason}")
     click.echo()
 
-    # Confirm unless --yes or --force
+    # Confirm unless --yes, --force, or non-interactive (no TTY)
+    # AI agents call this programmatically - auto-confirm when stdin is not a TTY
     if not (yes or force):
-        if not click.confirm('Proceed with abandonment?'):
+        if not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1':
+            pass  # Skip confirmation in non-interactive mode
+        elif not click.confirm('Proceed with abandonment?'):
             click.echo("Cancelled.")
             return
 

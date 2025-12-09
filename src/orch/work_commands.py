@@ -7,6 +7,7 @@ import click
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -212,8 +213,10 @@ def register_work_commands(cli):
         click.echo(f"   Title: {issue.title[:60]}{'...' if len(issue.title) > 60 else ''}")
         click.echo()
 
-        # Confirmation unless -y
-        if not yes:
+        # Confirmation unless -y, non-TTY, or ORCH_AUTO_CONFIRM
+        # AI agents call this programmatically - auto-confirm when stdin is not a TTY
+        should_skip = yes or not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1'
+        if not should_skip:
             if not click.confirm("Start work?", default=True):
                 click.echo("Cancelled.")
                 return

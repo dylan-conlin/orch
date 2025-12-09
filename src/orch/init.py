@@ -237,7 +237,9 @@ def create_project_claude_md(project_dir: Path, variables: Dict[str, str], updat
 
     if project_claude.exists() and not update:
         click.echo(f"⚠️  {project_claude} already exists")
-        if not yes and not click.confirm("Update to import .orch/CLAUDE.md?"):
+        # Auto-confirm when not a TTY (AI agents call programmatically)
+        should_confirm = yes or not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1'
+        if not should_confirm and not click.confirm("Update to import .orch/CLAUDE.md?"):
             click.echo("  → Skipped updating project/CLAUDE.md")
             return
 
@@ -503,7 +505,9 @@ def init_project_orchestration(
     orch_dir = project_dir / ".orch"
     if orch_dir.exists() and (orch_dir / "CLAUDE.md").exists():
         click.echo(f"⚠️  Project orchestration already initialized at {orch_dir}")
-        if not yes and not click.confirm("Reinitialize?"):
+        # Auto-confirm when not a TTY (AI agents call programmatically)
+        should_skip = yes or not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1'
+        if not should_skip and not click.confirm("Reinitialize?"):
             return False
 
     click.echo(f"\nInitializing project orchestration for: {project_dir}")
@@ -523,8 +527,9 @@ def init_project_orchestration(
         variables = prompt_for_project_info(project_dir)
         click.echo()
 
-    # Confirm
-    if not yes:
+    # Confirm (skip if --yes, non-TTY, or ORCH_AUTO_CONFIRM)
+    should_skip = yes or not sys.stdin.isatty() or os.getenv('ORCH_AUTO_CONFIRM') == '1'
+    if not should_skip:
         click.echo("This will create:")
         click.echo(f"  - {project_dir}/.orch/CLAUDE.md (high-level context)")
         click.echo(f"  - {project_dir}/.orch/workspace/ (agent workspaces)")
