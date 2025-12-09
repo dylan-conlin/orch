@@ -1,211 +1,185 @@
-**TLDR:** [One sentence restating the investigation question.] [One-two sentences summarizing the answer/conclusion.] [Confidence level and key limitation.]
-
-<!--
-Example TLDR:
-"Question: Why aren't worker agents running tests? Answer: Agents follow documentation literally but test-running guidance isn't in spawn prompts or CLAUDE.md, only buried in separate docs. High confidence (85%) - validated across 5 agent sessions but small sample size."
-
-Guidelines:
-- Keep to 2-3 sentences maximum
-- Answer: What question? What's the answer? How confident?
-- Enable 30-second understanding for fresh Claude
--->
+**TLDR:** Implemented local error telemetry for orch-cli. Errors logged to ~/.orch/errors.jsonl with `orch errors` command for analytics. TDD approach with 40 tests passing. High confidence (90%) - core functionality works, may need extended error coverage over time.
 
 ---
 
-# Investigation: [Investigation Title]
+# Investigation: Add Local Error Logging with Analytics
 
-**Question:** [Clear, specific question this investigation answers]
+**Question:** How to implement error telemetry that captures CLI errors for pattern detection?
 
-**Started:** [YYYY-MM-DD]
-**Updated:** [YYYY-MM-DD]
-**Owner:** [Owner name or team]
-**Phase:** [Investigating/Synthesizing/Complete]
-**Next Step:** [Very next action when Active, or "None" when Complete]
-**Status:** [In Progress/Complete/Paused]
-**Confidence:** [Very Low (<40%) / Low (40-59%) / Medium (60-79%) / High (80-94%) / Very High (95%+)]
-
----
-
-## Findings
-
-### Finding 1: [Brief, descriptive title]
-
-**Evidence:** [Concrete observations, data, examples]
-
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
-
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
+**Started:** 2025-12-09
+**Updated:** 2025-12-09
+**Owner:** worker-agent
+**Phase:** Complete
+**Next Step:** None
+**Status:** Complete
+**Confidence:** High (90%)
 
 ---
 
-### Finding 2: [Brief, descriptive title]
+## Deliverables
 
-**Evidence:** [Concrete observations, data, examples]
+### 1. Error Logging Module (error_logging.py)
 
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
+**Location:** `src/orch/error_logging.py`
 
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
+**Features:**
+- `ErrorType` enum with taxonomy (AGENT_NOT_FOUND, VERIFICATION_FAILED, SPAWN_FAILED, etc.)
+- `ErrorEntry` dataclass for structured error data
+- `ErrorLogger` class with JSONL storage to `~/.orch/errors.jsonl`
+- `get_error_stats(days=7)` for aggregated statistics by type/command
+- `get_recent_errors(limit=10)` for retrieving recent entries
+- Automatic log rotation (default 10K entries)
+- `log_cli_error()` helper for CLI command error logging
+
+### 2. Error Analytics Command (error_commands.py)
+
+**Location:** `src/orch/error_commands.py`
+
+**Usage:**
+```bash
+orch errors                    # Show last 7 days summary
+orch errors --days 30          # Show last 30 days
+orch errors --type AGENT_NOT_FOUND  # Filter by type
+orch errors --json             # Output as JSON
+orch errors --limit 20         # Show more recent errors
+```
+
+**Output format:**
+```
+Error summary (last 7 days):
+
+By type:
+  AGENT_NOT_FOUND              12 (40%)
+  VERIFICATION_FAILED           8 (27%)
+  BEADS_ERROR                   6 (20%)
+
+By command:
+  orch complete                18 (60%) ← hotspot
+  orch spawn                    4 (13%)
+
+Recent errors:
+  2025-12-09 10:42  complete  AGENT_NOT_FOUND  Agent 'pw-k2r' not found
+  2025-12-09 10:41  complete  VERIFICATION_FAILED  Investigation not found
+```
+
+### 3. CLI Error Logging Integration
+
+**Location:** `src/orch/cli.py`
+
+**Errors now logged:**
+- Agent not found (AGENT_NOT_FOUND)
+- Beads CLI not found (BEADS_ERROR)
+- Beads issue not found (BEADS_ERROR)
+- Phase not complete verification failure (VERIFICATION_FAILED)
+
+### 4. Tests
+
+**New test files:**
+- `tests/test_error_logging.py` (19 tests)
+- `tests/test_error_commands.py` (15 tests)
+- `tests/test_cli_error_wrapper.py` (6 tests)
+
+**All 40 tests passing.**
 
 ---
 
-### Finding 3: [Brief, descriptive title]
+## Implementation Notes
 
-**Evidence:** [Concrete observations, data, examples]
+### Error Entry Schema
+```json
+{
+  "timestamp": "2025-12-09T10:42:00Z",
+  "command": "orch complete pw-k2r",
+  "subcommand": "complete",
+  "error_type": "AGENT_NOT_FOUND",
+  "error_code": "AGENT_NOT_FOUND",
+  "message": "Agent 'pw-k2r' not found in registry",
+  "context": {"agent_id": "pw-k2r"},
+  "stack_trace": null,
+  "duration_ms": null
+}
+```
 
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
+### Error Type Taxonomy
+- `AGENT_NOT_FOUND` - Agent not in registry
+- `VERIFICATION_FAILED` - Phase/investigation verification failed
+- `INVESTIGATION_NOT_FOUND` - Investigation file not found
+- `SPAWN_FAILED` - Spawn operation failed
+- `REGISTRY_LOCKED` - Registry file lock issue
+- `BEADS_ERROR` - Beads CLI or issue errors
+- `TMUX_ERROR` - Tmux operation failed
+- `CONFIG_ERROR` - Configuration issues
+- `UNEXPECTED_ERROR` - Catch-all for unknown errors
 
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
+### Reusable Pattern
 
----
-
-## Synthesis
-
-**Key Insights:**
-
-1. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
-
-2. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
-
-3. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
-
-**Answer to Investigation Question:**
-
-[Clear, direct answer to the question posed at the top of this investigation. Reference specific findings that support this answer. Acknowledge any limitations or gaps.]
+This pattern can be replicated across other Dylan CLIs (bd, kb, kn):
+- Same JSONL format
+- Same analytics structure
+- Could extract to shared library: `cli-error-telemetry`
 
 ---
 
 ## Confidence Assessment
 
-**Current Confidence:** [Level] ([Percentage])
-
-**Why this level?**
-
-[Explanation of why you chose this confidence level - what evidence supports it, what's strong vs uncertain]
+**Current Confidence:** High (90%)
 
 **What's certain:**
-
-- ✅ [Thing you're confident about with supporting evidence]
-- ✅ [Thing you're confident about with supporting evidence]
-- ✅ [Thing you're confident about with supporting evidence]
+- ✅ Core error logging works with JSONL storage
+- ✅ `orch errors` command shows correct analytics
+- ✅ Error taxonomy covers main error types
+- ✅ 40 tests pass with TDD approach
+- ✅ Log rotation prevents unbounded file growth
 
 **What's uncertain:**
+- ⚠️ Not all error paths in CLI are instrumented yet (spawn, status, etc.)
+- ⚠️ Long-term pattern detection depends on usage data
 
-- ⚠️ [Area of uncertainty or limitation]
-- ⚠️ [Area of uncertainty or limitation]
-- ⚠️ [Area of uncertainty or limitation]
-
-**What would increase confidence to [next level]:**
-
-- [Specific additional investigation or evidence needed]
-- [Specific additional investigation or evidence needed]
-- [Specific additional investigation or evidence needed]
-
-**Confidence levels guide:**
-- **Very High (95%+):** Strong evidence, minimal uncertainty, unlikely to change
-- **High (80-94%):** Solid evidence, minor uncertainties, confident to act
-- **Medium (60-79%):** Reasonable evidence, notable gaps, validate before major commitment
-- **Low (40-59%):** Limited evidence, high uncertainty, proceed with caution
-- **Very Low (<40%):** Highly speculative, more investigation needed
-
----
-
-## Implementation Recommendations
-
-**Purpose:** Bridge from investigation findings to actionable implementation using directive guidance pattern (strong recommendations + visible reasoning).
-
-### Recommended Approach ⭐
-
-**[Approach Name]** - [One sentence stating the recommended implementation]
-
-**Why this approach:**
-- [Key benefit 1 based on findings]
-- [Key benefit 2 based on findings]
-- [How this directly addresses investigation findings]
-
-**Trade-offs accepted:**
-- [What we're giving up or deferring]
-- [Why that's acceptable given findings]
-
-**Implementation sequence:**
-1. [First step - why it's foundational]
-2. [Second step - why it comes next]
-3. [Third step - builds on previous]
-
-### Alternative Approaches Considered
-
-**Option B: [Alternative approach]**
-- **Pros:** [Benefits]
-- **Cons:** [Why not recommended - reference findings]
-- **When to use instead:** [Conditions where this might be better]
-
-**Option C: [Alternative approach]**
-- **Pros:** [Benefits]
-- **Cons:** [Why not recommended - reference findings]
-- **When to use instead:** [Conditions where this might be better]
-
-**Rationale for recommendation:** [Brief synthesis of why Option A beats alternatives given investigation findings]
-
----
-
-### Implementation Details
-
-**What to implement first:**
-- [Highest priority change based on findings]
-- [Quick wins or foundational work]
-- [Dependencies that need to be addressed early]
-
-**Things to watch out for:**
-- ⚠️ [Edge cases or gotchas discovered during investigation]
-- ⚠️ [Areas of uncertainty that need validation during implementation]
-- ⚠️ [Performance, security, or compatibility concerns to address]
-
-**Areas needing further investigation:**
-- [Questions that arose but weren't in scope]
-- [Uncertainty areas that might affect implementation]
-- [Optional deep-dives that could improve the solution]
-
-**Success criteria:**
-- ✅ [How to know the implementation solved the investigated problem]
-- ✅ [What to test or validate]
-- ✅ [Metrics or observability to add]
+**Future enhancements:**
+- Add error logging to more commands (spawn, status, clean)
+- Add duration_ms tracking for performance analysis
+- Extract to shared library when other CLIs adopt
 
 ---
 
 ## References
 
-**Files Examined:**
-- [File path] - [What you looked at and why]
-- [File path] - [What you looked at and why]
+**Files Created/Modified:**
+- `src/orch/error_logging.py` - New module
+- `src/orch/error_commands.py` - New command module
+- `src/orch/cli.py` - Added import and error logging calls
+- `tests/test_error_logging.py` - Unit tests
+- `tests/test_error_commands.py` - Command tests
+- `tests/test_cli_error_wrapper.py` - Integration tests
 
-**Commands Run:**
+**Commands Verified:**
 ```bash
-# [Command description]
-[command]
-
-# [Command description]
-[command]
+# Run tests
+python -m pytest tests/test_error_logging.py tests/test_error_commands.py tests/test_cli_error_wrapper.py -v
+# All 40 passed
 ```
-
-**External Documentation:**
-- [Link or reference] - [What it is and relevance]
-
-**Related Artifacts:**
-- **Decision:** [Path to related decision document] - [How it relates]
-- **Investigation:** [Path to related investigation] - [How it relates]
-- **Workspace:** [Path to related workspace] - [How it relates]
 
 ---
 
 ## Investigation History
 
-**[YYYY-MM-DD HH:MM]:** Investigation started
-- Initial question: [Original question as posed]
-- Context: [Why this investigation was initiated]
+**2025-12-09 ~14:00:** Investigation started
+- Initial question: How to capture CLI errors for pattern detection?
+- Context: orch complete failures showed recurring patterns (beads ID lookup)
 
-**[YYYY-MM-DD HH:MM]:** [Milestone or significant finding]
-- [Description of what happened or was discovered]
+**2025-12-09 ~14:30:** TDD implementation started
+- Created failing tests for error_logging module
+- Implemented ErrorLogger class with JSONL storage
 
-**[YYYY-MM-DD HH:MM]:** Investigation completed
-- Final confidence: [Level] ([Percentage])
-- Status: [Complete/Paused with reason]
-- Key outcome: [One sentence summary of result]
+**2025-12-09 ~15:00:** orch errors command implemented
+- Added error_commands.py with CLI command
+- Summary stats, filtering, JSON output all working
+
+**2025-12-09 ~15:30:** CLI error wrapper added
+- Integrated error logging into complete command
+- Agent not found, beads errors, verification failures now logged
+
+**2025-12-09 ~16:00:** Investigation completed
+- Final confidence: High (90%)
+- Status: Complete
+- Key outcome: Local error telemetry with analytics available via `orch errors`
