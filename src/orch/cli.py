@@ -24,6 +24,8 @@ from orch.path_utils import get_git_root, find_orch_root, detect_and_display_con
 from orch.spawn_commands import register_spawn_commands
 from orch.monitoring_commands import register_monitoring_commands
 from orch.workspace_commands import register_workspace_commands
+from orch.work_commands import register_work_commands
+
 @click.group()
 @click.version_option(version=__version__, prog_name="orch")
 def cli():
@@ -34,6 +36,7 @@ def cli():
 register_spawn_commands(cli)
 register_monitoring_commands(cli)
 register_workspace_commands(cli)
+register_work_commands(cli)
 
 @cli.command()
 @click.argument('topic', required=False)

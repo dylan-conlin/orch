@@ -45,6 +45,7 @@ class BeadsIssue:
     priority: int
     notes: Optional[str] = None
     dependencies: Optional[list] = None  # List of BeadsDependency
+    issue_type: Optional[str] = None  # bug, feature, task, epic
 
 
 class BeadsIntegration:
@@ -133,6 +134,7 @@ class BeadsIntegration:
             priority=issue_data.get("priority", 0),
             notes=issue_data.get("notes"),
             dependencies=dependencies,
+            issue_type=issue_data.get("issue_type"),
         )
 
     def get_open_blockers(self, issue_id: str) -> list:

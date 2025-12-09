@@ -44,6 +44,29 @@ class TestBeadsIssue:
         )
         assert issue.notes == "Some notes here"
 
+    def test_beads_issue_with_issue_type(self):
+        """Test creating a BeadsIssue with issue_type."""
+        issue = BeadsIssue(
+            id="test-123",
+            title="Title",
+            description="Desc",
+            status="open",
+            priority=1,
+            issue_type="feature",
+        )
+        assert issue.issue_type == "feature"
+
+    def test_beads_issue_issue_type_defaults_to_none(self):
+        """Test that issue_type defaults to None when not provided."""
+        issue = BeadsIssue(
+            id="test-123",
+            title="Title",
+            description="Desc",
+            status="open",
+            priority=1,
+        )
+        assert issue.issue_type is None
+
 
 class TestBeadsIntegrationGetIssue:
     """Tests for BeadsIntegration.get_issue()."""
