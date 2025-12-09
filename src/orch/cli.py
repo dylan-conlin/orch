@@ -27,6 +27,7 @@ from orch.monitoring_commands import register_monitoring_commands
 from orch.workspace_commands import register_workspace_commands
 from orch.work_commands import register_work_commands
 from orch.error_commands import register_error_commands
+from orch.end_commands import register_end_commands
 import sys
 
 
@@ -62,6 +63,7 @@ register_monitoring_commands(cli)
 register_workspace_commands(cli)
 register_work_commands(cli)
 register_error_commands(cli)
+register_end_commands(cli)
 
 @cli.command()
 @click.argument('topic', required=False)
