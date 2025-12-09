@@ -5,7 +5,6 @@ Handles:
 - Active projects parsing from active-projects.md
 - Project directory resolution from name or path
 - Project detection from current working directory
-- ROADMAP detection for project context
 
 Moved from spawn.py for better module organization.
 """
@@ -14,21 +13,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import functools
 import os
-
-from orch.roadmap_utils import detect_project_roadmap as detect_roadmap_utils
-
-
-def detect_project_roadmap() -> Optional[Path]:
-    """
-    Detect if we're in a project context with its own ROADMAP file.
-
-    Searches current directory and parents for .orch/ROADMAP.{md,org}.
-    Delegates to roadmap_utils for format-agnostic detection.
-
-    Returns:
-        Path to project ROADMAP if found, None otherwise
-    """
-    return detect_roadmap_utils()
 
 
 def _get_active_projects_file() -> Optional[Path]:

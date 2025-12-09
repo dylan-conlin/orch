@@ -4,7 +4,6 @@ Tests for project directory and detection functionality in orch spawn.
 Tests project handling including:
 - Getting project directories from active-projects.md
 - Auto-detecting projects from current working directory
-- Finding project ROADMAP files
 """
 
 import os
@@ -15,7 +14,6 @@ from unittest.mock import patch
 from orch.spawn import (
     get_project_dir,
     detect_project_from_cwd,
-    detect_project_roadmap,
 )
 
 
@@ -390,58 +388,6 @@ class TestGetProjectDirCwdFallback:
                 # Should return None - name doesn't match
                 result = get_project_dir("different-name")
 
-            assert result is None
-        finally:
-            os.chdir(original_cwd)
-
-
-class TestProjectRoadmapDetection:
-    """Tests for project-scoped ROADMAP detection."""
-
-    def test_detect_project_roadmap_in_current_dir(self, tmp_path):
-        """Test detecting project ROADMAP in current directory."""
-        # Create .orch/ROADMAP.org in test directory
-        orch_dir = tmp_path / ".orch"
-        orch_dir.mkdir()
-        roadmap_file = orch_dir / "ROADMAP.org"
-        roadmap_file.write_text("* TODO Test Task")
-
-        # Change to test directory
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            result = detect_project_roadmap()
-            assert result == roadmap_file
-        finally:
-            os.chdir(original_cwd)
-
-    def test_detect_project_roadmap_in_parent_dir(self, tmp_path):
-        """Test detecting project ROADMAP in parent directory."""
-        # Create .orch/ROADMAP.org in parent
-        orch_dir = tmp_path / ".orch"
-        orch_dir.mkdir()
-        roadmap_file = orch_dir / "ROADMAP.org"
-        roadmap_file.write_text("* TODO Test Task")
-
-        # Create subdirectory and change to it
-        subdir = tmp_path / "subdir" / "nested"
-        subdir.mkdir(parents=True)
-
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(subdir)
-            result = detect_project_roadmap()
-            assert result == roadmap_file
-        finally:
-            os.chdir(original_cwd)
-
-    def test_detect_project_roadmap_not_found(self, tmp_path):
-        """Test detecting project ROADMAP when none exists."""
-        # Change to test directory (no .orch/ROADMAP.org)
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            result = detect_project_roadmap()
             assert result is None
         finally:
             os.chdir(original_cwd)

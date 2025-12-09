@@ -17,7 +17,6 @@ from unittest.mock import Mock, patch
 from orch.spawn import (
     spawn_interactive,
     spawn_with_skill,
-    spawn_from_roadmap,
     build_spawn_prompt,
     SpawnConfig,
 )

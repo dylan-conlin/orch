@@ -68,7 +68,6 @@ def register_spawn_commands(cli):
     @cli.command()
     @click.argument('context_or_skill', required=False)
     @click.argument('task', required=False)
-    @click.option('--from-roadmap', 'roadmap_title', help='Spawn from ROADMAP item')
     @click.option('--project', help='Project name')
     @click.option('--name', 'workspace_name', help='Override workspace name')
     @click.option('--yes', '-y', is_flag=True, help='Skip confirmation')
@@ -93,29 +92,26 @@ def register_spawn_commands(cli):
     @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
     @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
     @click.option('--auto-track', is_flag=True, help='Automatically create beads issue from task for lifecycle tracking')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
+    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
         """
         Spawn a new worker agent or interactive session.
 
         \b
-        Four modes:
-        1. ROADMAP mode:       orch spawn --from-roadmap "Item Title"
-                               orch spawn SKILL_NAME --from-roadmap "Item Title"  (with skill override)
-        2. Skill mode:         orch spawn SKILL_NAME "task description" [--project NAME]
-        3. Interactive skill:  orch spawn SKILL_NAME "task" -i [--project NAME]
-        4. Interactive:        orch spawn -i "starting context" --project NAME
+        Three modes:
+        1. Skill mode:         orch spawn SKILL_NAME "task description" [--project NAME]
+        2. Interactive skill:  orch spawn SKILL_NAME "task" -i [--project NAME]
+        3. Interactive:        orch spawn -i "starting context" --project NAME
 
         \b
-        Interactive skill mode (mode 3):
+        Interactive skill mode (mode 2):
         Combines skill guidance with collaborative design. Agent uses brainstorming-style
         conversation with Dylan in the tmux window. Example: orch spawn architect "design auth" -i
 
         \b
-        ROADMAP + Skill:
-        When using --from-roadmap with a skill name, the skill overrides the ROADMAP :Skill: property.
-        This allows using feature-impl or other skills with ROADMAP metadata (project, workspace, etc.).
+        Beads integration:
+        Use --issue to spawn from a beads issue, or --auto-track to create one automatically.
         """
-        from orch.spawn import spawn_from_roadmap, spawn_with_skill, spawn_interactive, validate_feature_impl_config
+        from orch.spawn import spawn_with_skill, spawn_interactive, validate_feature_impl_config
         import sys
 
         # Context enforcement: Prevent workers from spawning other workers
@@ -324,14 +320,7 @@ def register_spawn_commands(cli):
                 )
                 return
 
-            # Mode 1: ROADMAP (optionally with skill override)
-            if roadmap_title:
-                # If skill name provided as first positional argument, use it to override ROADMAP :Skill: property
-                skill_override = context_or_skill if context_or_skill else None
-                spawn_from_roadmap(roadmap_title, yes=yes, resume=resume, backend=backend, skill_name_override=skill_override, model=model)
-                return
-
-            # Mode 3: Interactive
+            # Mode 2: Interactive
             if interactive:
                 # Check if a skill name was provided (skill + -i = interactive skill mode)
                 # Detect skill by checking if context_or_skill looks like a skill name
@@ -404,9 +393,8 @@ def register_spawn_commands(cli):
             # Allow missing task if custom_prompt is provided
             if not context_or_skill or (not task and not custom_prompt):
                 click.echo("❌ Usage: orch spawn SKILL_NAME \"task description\"", err=True)
-                click.echo("   Or:    orch spawn --from-roadmap \"ROADMAP Item Title\"", err=True)
+                click.echo("   Or:    orch spawn --issue <beads-id> SKILL_NAME", err=True)
                 click.echo("   Or:    orch spawn -i \"context\" --project NAME", err=True)
-                click.echo("   Or:    orch spawn interactive \"context\" --project NAME", err=True)
                 click.echo("   Or:    orch spawn SKILL_NAME --project NAME --prompt-file FILE", err=True)
                 raise click.Abort()
 

@@ -300,9 +300,7 @@ class TestCleanCommand:
 
         Bug context: When a window closes but Phase != Complete, reconcile() marks
         status='terminated'. The clean command should remove these agents to prevent
-        "Agent already registered" errors when resuming with --from-roadmap --resume.
-
-        Root cause investigation: .orch/investigations/2025-11-17-investigate-from-roadmap-resume-failure.md
+        "Agent already registered" errors when resuming with --resume.
         """
         from orch.cli import cli
 
