@@ -47,8 +47,13 @@ class AgentRegistry:
                 finally:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-    def save(self):
-        """Persist registry to disk with exclusive lock and merge logic."""
+    def save(self, skip_merge: bool = False):
+        """Persist registry to disk with exclusive lock and merge logic.
+
+        Args:
+            skip_merge: If True, skip merge logic and overwrite with in-memory state.
+                       Used by clean command to prevent re-adding deleted agents.
+        """
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
 
         start_time = time.time()
@@ -67,20 +72,24 @@ class AgentRegistry:
                         continue
 
                     try:
-                        # Re-read and merge to prevent concurrent overwrites
-                        f.seek(0)
-                        content = f.read()
-                        if content.strip():
-                            current_data = json.loads(content)
-                            current_agents = current_data.get('agents', [])
+                        if skip_merge:
+                            # Skip merge - used when deleting agents to prevent re-adding
+                            agents_to_write = self._agents
                         else:
-                            current_agents = []
+                            # Re-read and merge to prevent concurrent overwrites
+                            f.seek(0)
+                            content = f.read()
+                            if content.strip():
+                                current_data = json.loads(content)
+                                current_agents = current_data.get('agents', [])
+                            else:
+                                current_agents = []
 
-                        merged_agents = self._merge_agents(current_agents, self._agents)
+                            agents_to_write = self._merge_agents(current_agents, self._agents)
 
                         f.seek(0)
                         f.truncate()
-                        json.dump({'agents': merged_agents}, f, indent=2)
+                        json.dump({'agents': agents_to_write}, f, indent=2)
                     finally:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     break
