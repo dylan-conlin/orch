@@ -1863,6 +1863,207 @@ class TestBeadsIntegrationGetOpenBlockers:
             assert blockers[2].id == "orch-cli-ghi"
 
 
+class TestBeadsIntegrationGetIssueWithDependents:
+    """Tests for get_issue() parsing dependents (child issues) from JSON."""
+
+    def test_get_issue_parses_dependents(self):
+        """Test that get_issue parses dependents from bd show output."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-epic",
+            "title": "Epic: Big Feature",
+            "description": "Epic container",
+            "status": "open",
+            "priority": 1,
+            "issue_type": "epic",
+            "dependents": [
+                {
+                    "id": "orch-cli-abc",
+                    "title": "Child task 1",
+                    "description": "First child",
+                    "status": "closed",
+                    "priority": 2,
+                    "issue_type": "feature",
+                    "dependency_type": "parent-child"
+                },
+                {
+                    "id": "orch-cli-def",
+                    "title": "Child task 2",
+                    "description": "Second child",
+                    "status": "in_progress",
+                    "priority": 2,
+                    "issue_type": "feature",
+                    "dependency_type": "parent-child"
+                },
+                {
+                    "id": "orch-cli-ghi",
+                    "title": "Child task 3",
+                    "description": "Third child",
+                    "status": "open",
+                    "priority": 2,
+                    "issue_type": "feature",
+                    "dependency_type": "parent-child"
+                }
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-epic")
+
+            assert issue.id == "orch-cli-epic"
+            assert issue.dependents is not None
+            assert len(issue.dependents) == 3
+            assert issue.dependents[0].id == "orch-cli-abc"
+            assert issue.dependents[0].status == "closed"
+            assert issue.dependents[0].dependency_type == "parent-child"
+            assert issue.dependents[1].id == "orch-cli-def"
+            assert issue.dependents[1].status == "in_progress"
+            assert issue.dependents[2].id == "orch-cli-ghi"
+            assert issue.dependents[2].status == "open"
+
+    def test_get_issue_empty_dependents(self):
+        """Test get_issue with empty dependents array."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Issue without children",
+            "description": "",
+            "status": "open",
+            "priority": 2,
+            "dependents": []
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-xyz")
+
+            assert issue.dependents == []
+
+    def test_get_issue_no_dependents_key(self):
+        """Test get_issue when dependents key is missing from JSON."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Old format issue",
+            "description": "",
+            "status": "open",
+            "priority": 2
+            # No dependents key
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-xyz")
+
+            assert issue.dependents is None
+
+
+class TestBeadsIntegrationGetChildConvergence:
+    """Tests for get_child_convergence() - calculates completion status of children."""
+
+    def test_get_child_convergence_success(self):
+        """Test calculating convergence from parent with children."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-epic",
+            "title": "Epic: Big Feature",
+            "description": "",
+            "status": "open",
+            "priority": 1,
+            "issue_type": "epic",
+            "dependents": [
+                {"id": "abc", "title": "C1", "status": "closed", "dependency_type": "parent-child"},
+                {"id": "def", "title": "C2", "status": "closed", "dependency_type": "parent-child"},
+                {"id": "ghi", "title": "C3", "status": "in_progress", "dependency_type": "parent-child"},
+                {"id": "jkl", "title": "C4", "status": "open", "dependency_type": "parent-child"},
+                {"id": "mno", "title": "C5", "status": "closed", "dependency_type": "parent-child"},
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            convergence = beads.get_child_convergence("orch-cli-epic")
+
+            assert convergence is not None
+            assert convergence["total"] == 5
+            assert convergence["closed"] == 3
+            assert convergence["in_progress"] == 1
+            assert convergence["open"] == 1
+
+    def test_get_child_convergence_no_children(self):
+        """Test convergence for issue with no children."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-xyz",
+            "title": "Leaf issue",
+            "description": "",
+            "status": "open",
+            "priority": 2
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            convergence = beads.get_child_convergence("orch-cli-xyz")
+
+            assert convergence is None
+
+    def test_get_child_convergence_all_complete(self):
+        """Test convergence when all children are closed."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-epic",
+            "title": "Complete epic",
+            "description": "",
+            "status": "open",
+            "priority": 1,
+            "dependents": [
+                {"id": "abc", "title": "C1", "status": "closed", "dependency_type": "parent-child"},
+                {"id": "def", "title": "C2", "status": "closed", "dependency_type": "parent-child"},
+            ]
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            convergence = beads.get_child_convergence("orch-cli-epic")
+
+            assert convergence is not None
+            assert convergence["total"] == 2
+            assert convergence["closed"] == 2
+            assert convergence["in_progress"] == 0
+            assert convergence["open"] == 0
+
+
 class TestBeadsIntegrationCreateIssue:
     """Tests for create_issue() - creates a new beads issue."""
 

@@ -217,6 +217,122 @@ class TestSpawnCommitCheckYesFlag:
         mock_spawn.assert_not_called()
 
 
+class TestSpawnIssueLabels:
+    """Tests for labels being included in spawn context from beads issues."""
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_labels_included_in_additional_context(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        When issue has labels, they should be included in additional_context
+        passed to spawn_with_skill.
+        """
+        # Setup: issue with labels
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-xyz",
+            title="Test issue with labels",
+            description="A test description",
+            status="open",
+            notes=None,
+            labels=["P2", "beads-integration", "target:orch-cli"],
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-xyz', '-y'])
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()
+
+        # Get the additional_context argument passed to spawn_with_skill
+        call_kwargs = mock_spawn.call_args.kwargs
+        additional_context = call_kwargs.get('additional_context', '')
+
+        # Labels should be included in the context
+        assert "Labels:" in additional_context
+        assert "P2" in additional_context
+        assert "beads-integration" in additional_context
+        assert "target:orch-cli" in additional_context
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_no_labels_section_when_labels_empty(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        When issue has no labels, the Labels section should not appear.
+        """
+        # Setup: issue without labels
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-xyz",
+            title="Test issue without labels",
+            description="A test description",
+            status="open",
+            notes=None,
+            labels=None,
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-xyz', '-y'])
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()
+
+        # Get the additional_context argument passed to spawn_with_skill
+        call_kwargs = mock_spawn.call_args.kwargs
+        additional_context = call_kwargs.get('additional_context', '')
+
+        # Labels section should NOT be in the context
+        assert "Labels:" not in additional_context
+
+    @patch('orch.spawn.spawn_with_skill')
+    @patch('orch.spawn_commands.BeadsIntegration')
+    @patch('orch.project_resolver.detect_project_from_cwd')
+    @patch.dict(os.environ, {'CLAUDE_CONTEXT': ''}, clear=False)
+    def test_no_labels_section_when_labels_empty_list(
+        self, mock_detect, mock_beads_cls, mock_spawn
+    ):
+        """
+        When issue has empty labels list, the Labels section should not appear.
+        """
+        # Setup: issue with empty labels list
+        mock_beads = MagicMock()
+        mock_beads_cls.return_value = mock_beads
+        mock_beads.get_issue.return_value = MagicMock(
+            id="test-xyz",
+            title="Test issue with empty labels",
+            description="A test description",
+            status="open",
+            notes=None,
+            labels=[],
+        )
+        mock_detect.return_value = ("test-project", "/path/to/project")
+
+        runner = CliRunner(env={'CLAUDE_CONTEXT': ''})
+        result = runner.invoke(cli, ['spawn', '--issue', 'test-xyz', '-y'])
+
+        # Spawn should be called
+        mock_spawn.assert_called_once()
+
+        # Get the additional_context argument passed to spawn_with_skill
+        call_kwargs = mock_spawn.call_args.kwargs
+        additional_context = call_kwargs.get('additional_context', '')
+
+        # Labels section should NOT be in the context (empty list is falsy)
+        assert "Labels:" not in additional_context
+
+
 class TestSpawnClosedIssueRefusal:
     """Tests for refusing to spawn from closed beads issues."""
 

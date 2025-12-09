@@ -44,9 +44,10 @@ class BeadsIssue:
     status: str
     priority: int
     notes: Optional[str] = None
-    dependencies: Optional[list] = None  # List of BeadsDependency
+    dependencies: Optional[list] = None  # List of BeadsDependency (issues that block this one)
     issue_type: Optional[str] = None  # bug, feature, task, epic
     labels: Optional[list] = None  # List of label strings (e.g., ["P1", "target:orch-cli"])
+    dependents: Optional[list] = None  # List of BeadsDependency (child issues of this parent)
 
 
 class BeadsIntegration:

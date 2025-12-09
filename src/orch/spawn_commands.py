@@ -251,6 +251,9 @@ def register_spawn_commands(cli):
                 issue_context = f"BEADS ISSUE: {issue_id}\n"
                 if issue.description:
                     issue_context += f"\nIssue Description:\n{issue.description}\n"
+                if issue.labels:
+                    labels_str = ", ".join(issue.labels)
+                    issue_context += f"\nLabels: {labels_str}\n"
                 if issue.notes:
                     issue_context += f"\nNotes:\n{issue.notes}\n"
 
