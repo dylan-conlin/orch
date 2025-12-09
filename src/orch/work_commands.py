@@ -89,7 +89,7 @@ def register_work_commands(cli):
         Usage modes:
         1. With issue ID:    orch work <issue-id>           # Infer skill from issue type
         2. With skill:       orch work <issue-id> -s <skill> # Override skill
-        3. Interactive:      orch work                       # Pick from bd ready
+        3. List mode:        orch work                       # Show ready issues and exit
 
         \b
         Skill inference from issue type:
@@ -100,9 +100,9 @@ def register_work_commands(cli):
 
         \b
         Examples:
+            orch work                           # List ready issues (AI picks which to work on)
             orch work orch-cli-xyz              # Start work, infer skill
             orch work orch-cli-xyz -s architect # Override with architect skill
-            orch work                           # Interactive picker
         """
         from orch.spawn import spawn_with_skill
         from orch.project_resolver import get_project_dir, format_project_not_found_error, detect_project_from_cwd
@@ -116,7 +116,7 @@ def register_work_commands(cli):
             click.echo("   orch work is an orchestrator-only operation", err=True)
             raise click.Abort()
 
-        # Interactive mode: pick from ready issues
+        # List mode: show ready issues and exit (AI-first design)
         if not issue_id:
             try:
                 ready_issues = get_ready_issues()
@@ -129,33 +129,18 @@ def register_work_commands(cli):
                 click.echo("Run 'bd ready' to see available work, or 'bd create' to create an issue.")
                 return
 
-            # Show available issues
+            # Show available issues with inferred skills
             click.echo("Ready issues:\n")
-            for i, issue in enumerate(ready_issues, 1):
+            for issue in ready_issues:
                 issue_type = issue.get('issue_type', 'unknown')
                 skill = infer_skill_from_issue_type(issue_type)
-                click.echo(f"  {i}. [{issue_type}] {issue.get('id')}: {issue.get('title', '')[:50]}")
+                click.echo(f"  [{issue_type}] {issue.get('id')}: {issue.get('title', '')[:50]}")
                 click.echo(f"     Skill: {skill}")
+                click.echo(f"     → orch work {issue.get('id')}")
                 click.echo()
 
-            # Prompt for selection
-            try:
-                selection = click.prompt(
-                    "Select issue number (or 'q' to quit)",
-                    default="1"
-                )
-                if selection.lower() == 'q':
-                    return
-
-                idx = int(selection) - 1
-                if idx < 0 or idx >= len(ready_issues):
-                    click.echo("❌ Invalid selection", err=True)
-                    raise click.Abort()
-
-                issue_id = ready_issues[idx].get('id')
-            except ValueError:
-                click.echo("❌ Invalid input", err=True)
-                raise click.Abort()
+            # Exit - orchestrator decides which issue to work on
+            return
 
         # Look up the issue
         try:
