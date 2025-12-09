@@ -56,7 +56,68 @@ def help(topic):
     else:
         show_unknown_topic(topic)
 
-def _should_clean_agent(agent: dict, clean_all: bool, pattern_violations: bool, check_status_func) -> bool:
+def _is_stale_agent(agent: dict, check_status_func) -> tuple[bool, str | None]:
+    """
+    Determine if an agent is stale based on age and activity.
+
+    Stale criteria:
+    1. Phase: Unknown AND spawned >24 hours ago AND no commits since spawn
+    2. OR: No commits since spawn AND spawned >4 hours ago
+
+    An agent with commits is considered actively working and not stale.
+
+    Args:
+        agent: Agent dictionary from registry
+        check_status_func: Function to check agent workspace status
+
+    Returns:
+        Tuple of (is_stale, reason) where reason explains why agent is stale
+    """
+    from datetime import datetime, timedelta
+
+    status_val = agent.get('status', 'unknown')
+
+    # Only check active agents (already abandoned/terminated agents don't need stale check)
+    if status_val != 'active':
+        return (False, None)
+
+    # Get spawn time
+    spawned_at_str = agent.get('spawned_at')
+    if not spawned_at_str:
+        return (False, None)
+
+    try:
+        spawned_at = datetime.fromisoformat(spawned_at_str)
+    except (ValueError, TypeError):
+        return (False, None)
+
+    now = datetime.now()
+    age = now - spawned_at
+
+    # Get agent status (phase, commits)
+    workspace_status = None
+    if 'project_dir' in agent and 'workspace' in agent:
+        workspace_status = check_status_func(agent, check_git=True)
+
+    phase = workspace_status.phase if workspace_status else 'Unknown'
+    commits_since_spawn = workspace_status.commits_since_spawn if workspace_status else 0
+
+    # If agent has commits, it's actively working - not stale
+    if commits_since_spawn > 0:
+        return (False, None)
+
+    # Criterion 1: Phase Unknown AND >24 hours old AND no commits
+    if phase == 'Unknown' and age > timedelta(hours=24):
+        return (True, 'Stale: Phase Unknown for >24 hours')
+
+    # Criterion 2: No commits since spawn AND >4 hours old
+    if phase == 'Unknown' and age > timedelta(hours=4):
+        return (True, 'Stale: No commits for >4 hours')
+
+    return (False, None)
+
+
+def _should_clean_agent(agent: dict, clean_all: bool, pattern_violations: bool, stale: bool, check_status_func) -> tuple[bool, str | None]:
     """
     Determine whether an agent should be cleaned based on mode.
 
@@ -64,23 +125,31 @@ def _should_clean_agent(agent: dict, clean_all: bool, pattern_violations: bool, 
         agent: Agent dictionary from registry
         clean_all: True if --all flag was specified
         pattern_violations: True if --pattern-violations flag was specified
+        stale: True if --stale flag was specified
         check_status_func: Function to check agent workspace status (injected for testability)
 
     Returns:
-        True if agent should be cleaned, False otherwise
+        Tuple of (should_clean, stale_reason) where stale_reason is set for --stale mode
     """
     status_val = agent.get('status', 'unknown')
+
+    # --stale mode: clean agents that are stuck
+    if stale:
+        is_stale, reason = _is_stale_agent(agent, check_status_func)
+        if is_stale:
+            return (True, reason)
+        return (False, None)
 
     # Pattern violations mode: only clean orphaned/malformed agents
     if pattern_violations:
         if status_val in ('terminated', 'abandoned'):
-            return True
+            return (True, None)
         # Check for orphaned agents (no workspace file)
         if 'project_dir' in agent and 'workspace' in agent:
             workspace_status = check_status_func(agent)
             if workspace_status.phase == 'Unknown':
-                return True
-        return False
+                return (True, None)
+        return (False, None)
 
     # --all mode: clean everything cleanable
     # Note: 'Unknown' phase is NOT included here because:
@@ -89,40 +158,41 @@ def _should_clean_agent(agent: dict, clean_all: bool, pattern_violations: bool, 
     # Use --pattern-violations to clean orphaned agents with 'Unknown' phase
     if clean_all:
         if status_val in ('abandoned', 'terminated', 'completed', 'completing'):
-            return True
+            return (True, None)
         if 'project_dir' in agent and 'workspace' in agent:
             workspace_status = check_status_func(agent)
             if workspace_status.phase in ('Complete', 'Abandoned'):
-                return True
-        return False
+                return (True, None)
+        return (False, None)
 
     # Default mode: conservative cleanup
     if status_val in ('abandoned', 'terminated'):
-        return True
+        return (True, None)
 
     # Check workspace phase for agents with workspace fields
     if 'project_dir' in agent and 'workspace' in agent:
         workspace_status = check_status_func(agent)
         if workspace_status.phase == 'Complete':
-            return True
+            return (True, None)
         if workspace_status.phase == 'Unknown' and status_val == 'completed':
-            return True
+            return (True, None)
         if status_val == 'completed':
-            return True
-        return False
+            return (True, None)
+        return (False, None)
 
     # Legacy agent without workspace fields
     if status_val == 'completed':
-        return True
+        return (True, None)
 
-    return False
+    return (False, None)
 
 
 @cli.command()
 @click.option('--all', is_flag=True, help='Clean all completed/terminated agents (not just Phase: Complete)')
 @click.option('--pattern-violations', is_flag=True, help='Clean agents with pattern violations (missing workspaces, terminated)')
+@click.option('--stale', is_flag=True, help='Clean agents stuck from previous day (Phase: Unknown >24h, or no commits >4h)')
 @click.option('--dry-run', is_flag=True, help='Show what would be cleaned without executing')
-def clean(all, pattern_violations, dry_run):
+def clean(all, pattern_violations, stale, dry_run):
     """Remove completed agents and close their tmux windows."""
     from orch.monitor import check_agent_status
 
@@ -138,19 +208,24 @@ def clean(all, pattern_violations, dry_run):
     # Get all agents
     all_agents = registry.list_agents()
 
-    # Filter agents based on flags
-    completed_agents = [
-        agent for agent in all_agents
-        if _should_clean_agent(agent, all, pattern_violations, check_agent_status)
-    ]
+    # Filter agents based on flags and collect stale reasons
+    agents_to_clean = []
+    stale_reasons = {}  # agent_id -> reason
+    for agent in all_agents:
+        should_clean, stale_reason = _should_clean_agent(agent, all, pattern_violations, stale, check_agent_status)
+        if should_clean:
+            agents_to_clean.append(agent)
+            if stale_reason:
+                stale_reasons[agent['id']] = stale_reason
 
     # Log clean start
     orch_logger.log_command_start("clean", {
         "total_agents": len(all_agents),
-        "completed_agents": len(completed_agents)
+        "completed_agents": len(agents_to_clean),
+        "mode": "stale" if stale else ("all" if all else ("pattern_violations" if pattern_violations else "default"))
     })
 
-    if not completed_agents:
+    if not agents_to_clean:
         orch_logger.log_event("clean", "No completed agents to clean", {
             "total_agents": len(all_agents)
         }, level="INFO")
@@ -159,19 +234,32 @@ def clean(all, pattern_violations, dry_run):
 
     # Dry run: show what would be cleaned
     if dry_run:
-        click.echo(f"Would clean {len(completed_agents)} agent(s):\n")
-        for agent in completed_agents:
+        click.echo(f"Would clean {len(agents_to_clean)} agent(s):\n")
+        for agent in agents_to_clean:
             workspace = agent.get('workspace', 'N/A')
             status = agent.get('status', 'unknown')
+            reason = stale_reasons.get(agent['id'], '')
             click.echo(f"  • {agent['id']}")
             click.echo(f"    Status: {status}")
-            click.echo(f"    Workspace: {workspace}\n")
+            click.echo(f"    Workspace: {workspace}")
+            if reason:
+                click.echo(f"    Reason: {reason}")
+            click.echo()
         click.echo(f"Run without --dry-run to execute cleanup.")
         return
 
     # Close tmux windows and remove from registry
     cleaned_count = 0
-    for agent in completed_agents:
+    for agent in agents_to_clean:
+        # For stale mode: auto-abandon the agent first
+        stale_reason = stale_reasons.get(agent['id'])
+        if stale and stale_reason:
+            registry.abandon_agent(agent['id'], reason=stale_reason)
+            orch_logger.log_event("clean", f"Auto-abandoned stale agent: {agent['id']}", {
+                "agent_id": agent['id'],
+                "reason": stale_reason
+            }, level="INFO")
+
         # Try to close tmux window using stable window ID
         window_id = agent.get('window_id')
         if window_id:
@@ -200,7 +288,7 @@ def clean(all, pattern_violations, dry_run):
         orch_logger.log_event("clean", f"Removed agent: {agent['id']}", {
             "agent_id": agent['id'],
             "window": agent.get('window', 'unknown'),
-            "reason": "completed"
+            "reason": stale_reason if stale_reason else "completed"
         }, level="INFO")
 
     # Save registry (skip merge to prevent re-adding removed agents)
@@ -214,7 +302,7 @@ def clean(all, pattern_violations, dry_run):
     # Log clean complete
     orch_logger.log_command_complete("clean", duration_ms, {
         "removed": cleaned_count,
-        "skipped": len(all_agents) - len(completed_agents)
+        "skipped": len(all_agents) - len(agents_to_clean)
     })
 
     # Show summary

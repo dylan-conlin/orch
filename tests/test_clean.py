@@ -701,3 +701,289 @@ class TestCleanAllFlag:
 
         assert result.exit_code == 0
         assert 'Cleaned 1' in result.output
+
+
+class TestCleanStaleFlag:
+    """Tests for orch clean --stale flag behavior."""
+
+    def test_clean_stale_cleans_unknown_phase_agents_older_than_24h(self, cli_runner):
+        """
+        Test that --stale cleans agents with Phase: Unknown AND spawned >24 hours ago.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        old_spawn_time = (datetime.now() - timedelta(hours=25)).isoformat()
+        mock_stale_agent = {
+            'id': 'stale-unknown-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Stuck task from yesterday',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/stale-unknown-agent',
+            'spawned_at': old_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 0
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_stale_agent]
+            mock_registry._agents = [mock_stale_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        assert 'Cleaned 1' in result.output or 'cleaned' in result.output.lower()
+
+    def test_clean_stale_does_not_clean_young_unknown_phase_agents(self, cli_runner):
+        """
+        Test that --stale does NOT clean agents with Phase: Unknown but spawned <24 hours ago.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        young_spawn_time = (datetime.now() - timedelta(hours=2)).isoformat()
+        mock_young_agent = {
+            'id': 'young-unknown-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Just started task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/young-unknown-agent',
+            'spawned_at': young_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 3
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_young_agent]
+            mock_registry._agents = [mock_young_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        assert 'No' in result.output or 'no' in result.output.lower()
+
+    def test_clean_stale_cleans_no_commits_agents_older_than_4h(self, cli_runner):
+        """
+        Test that --stale cleans agents with no commits since spawn AND >4 hours old.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        old_spawn_time = (datetime.now() - timedelta(hours=5)).isoformat()
+        mock_frozen_agent = {
+            'id': 'frozen-no-commits-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Frozen task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/frozen-agent',
+            'spawned_at': old_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 0
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_frozen_agent]
+            mock_registry._agents = [mock_frozen_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        assert 'Cleaned 1' in result.output or 'cleaned' in result.output.lower()
+
+    def test_clean_stale_does_not_clean_young_no_commits_agents(self, cli_runner):
+        """
+        Test that --stale does NOT clean agents with no commits but spawned <4 hours ago.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        young_spawn_time = (datetime.now() - timedelta(hours=1)).isoformat()
+        mock_young_agent = {
+            'id': 'young-no-commits-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Just started task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/young-agent',
+            'spawned_at': young_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 0
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_young_agent]
+            mock_registry._agents = [mock_young_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        assert 'No' in result.output or 'no' in result.output.lower()
+
+    def test_clean_stale_auto_abandons_before_cleaning(self, cli_runner):
+        """
+        Test that --stale automatically abandons agents before cleaning them.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        old_spawn_time = (datetime.now() - timedelta(hours=25)).isoformat()
+        mock_stale_agent = {
+            'id': 'stale-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Stuck task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/stale-agent',
+            'spawned_at': old_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 0
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_stale_agent]
+            mock_registry._agents = [mock_stale_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        mock_registry.abandon_agent.assert_called_once_with(
+            'stale-agent',
+            reason='Stale: Phase Unknown for >24 hours'
+        )
+
+    def test_clean_stale_dry_run(self, cli_runner):
+        """
+        Test that --stale --dry-run shows what would be cleaned without executing.
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        old_spawn_time = (datetime.now() - timedelta(hours=25)).isoformat()
+        mock_stale_agent = {
+            'id': 'stale-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Stuck task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/stale-agent',
+            'spawned_at': old_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 0
+            return status
+
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.cli.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_stale_agent]
+            mock_registry._agents = [mock_stale_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale', '--dry-run'])
+
+        assert result.exit_code == 0
+        assert 'Would' in result.output or 'would' in result.output
+        assert 'stale-agent' in result.output
+        mock_registry.remove.assert_not_called()
+        mock_registry.abandon_agent.assert_not_called()
+
+    def test_clean_stale_does_not_clean_working_agents(self, cli_runner):
+        """
+        Test that --stale does NOT clean agents with recent activity (commits).
+        """
+        from orch.cli import cli
+        from datetime import datetime, timedelta
+
+        old_spawn_time = (datetime.now() - timedelta(hours=30)).isoformat()
+        mock_working_agent = {
+            'id': 'working-old-agent',
+            'window': 'orchestrator:5',
+            'window_id': '@1234',
+            'task': 'Old but working task',
+            'status': 'active',
+            'project_dir': '/test/project',
+            'workspace': '.orch/workspace/working-agent',
+            'spawned_at': old_spawn_time
+        }
+
+        def mock_check_status(agent, check_git=False):
+            status = Mock()
+            status.phase = 'Unknown'
+            status.commits_since_spawn = 5
+            return status
+
+        # Patch at orch.monitor because the import happens inside the clean function
+        with patch('orch.cli.AgentRegistry') as MockRegistry, \
+             patch('orch.monitor.check_agent_status', side_effect=mock_check_status), \
+             patch('subprocess.run'):
+
+            mock_registry = Mock()
+            mock_registry.list_agents.return_value = [mock_working_agent]
+            mock_registry._agents = [mock_working_agent]
+            MockRegistry.return_value = mock_registry
+
+            result = cli_runner.invoke(cli, ['clean', '--stale'])
+
+        assert result.exit_code == 0
+        assert 'No' in result.output or 'no' in result.output.lower()
+        mock_registry.remove.assert_not_called()
+        mock_registry.abandon_agent.assert_not_called()
