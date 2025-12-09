@@ -487,6 +487,12 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
             # Verify Phase: Complete exists in comments
             phase = beads.get_phase_from_comments(beads_issue)
             if not phase or phase.lower() != "complete":
+                log_cli_error(
+                    subcommand="complete",
+                    error_type=ErrorType.VERIFICATION_FAILED,
+                    message=f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'",
+                    context={"beads_id": beads_issue, "current_phase": phase or "none"}
+                )
                 click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
                 click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
                 raise click.Abort()
@@ -496,9 +502,21 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
             click.echo(f"Beads issue '{beads_issue}' closed successfully.")
 
         except BeadsCLINotFoundError:
+            log_cli_error(
+                subcommand="complete",
+                error_type=ErrorType.BEADS_ERROR,
+                message="bd CLI not found. Install beads or check PATH.",
+                context={"beads_id": beads_issue}
+            )
             click.echo("bd CLI not found. Install beads or check PATH.", err=True)
             raise click.Abort()
         except BeadsIssueNotFoundError:
+            log_cli_error(
+                subcommand="complete",
+                error_type=ErrorType.BEADS_ERROR,
+                message=f"Beads issue '{beads_issue}' not found",
+                context={"beads_id": beads_issue}
+            )
             click.echo(f"Beads issue '{beads_issue}' not found.", err=True)
             raise click.Abort()
 
