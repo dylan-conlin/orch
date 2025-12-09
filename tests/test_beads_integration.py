@@ -31,6 +31,30 @@ class TestBeadsIssue:
         assert issue.status == "open"
         assert issue.priority == 2
         assert issue.notes is None
+        assert issue.labels is None
+
+    def test_beads_issue_with_labels(self):
+        """Test creating a BeadsIssue with labels."""
+        issue = BeadsIssue(
+            id="test-123",
+            title="Title",
+            description="Desc",
+            status="open",
+            priority=1,
+            labels=["P1", "beads-integration", "target:orch-cli"],
+        )
+        assert issue.labels == ["P1", "beads-integration", "target:orch-cli"]
+
+    def test_beads_issue_labels_defaults_to_none(self):
+        """Test that labels defaults to None when not provided."""
+        issue = BeadsIssue(
+            id="test-123",
+            title="Title",
+            description="Desc",
+            status="open",
+            priority=1,
+        )
+        assert issue.labels is None
 
     def test_beads_issue_with_notes(self):
         """Test creating a BeadsIssue with notes."""
@@ -148,6 +172,76 @@ class TestBeadsIntegrationGetIssue:
             beads = BeadsIntegration()
             with pytest.raises(BeadsIssueNotFoundError):
                 beads.get_issue("empty-result-id")
+
+    def test_get_issue_parses_labels(self):
+        """Test that get_issue parses labels from bd show output."""
+        mock_output = json.dumps([{
+            "id": "orch-cli-8yz",
+            "title": "Pass beads labels to SPAWN_CONTEXT",
+            "description": "Add labels field to BeadsIssue",
+            "status": "in_progress",
+            "priority": 2,
+            "notes": None,
+            "labels": ["P2", "beads-integration", "target:orch-cli"],
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("orch-cli-8yz")
+
+            assert issue.labels == ["P2", "beads-integration", "target:orch-cli"]
+
+    def test_get_issue_labels_empty_array(self):
+        """Test get_issue when labels is an empty array."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Issue without labels",
+            "description": "",
+            "status": "open",
+            "priority": 1,
+            "labels": [],
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("test-id")
+
+            assert issue.labels == []
+
+    def test_get_issue_labels_not_in_json(self):
+        """Test get_issue when labels key is missing from JSON (backwards compatibility)."""
+        mock_output = json.dumps([{
+            "id": "test-id",
+            "title": "Old format issue",
+            "description": "",
+            "status": "open",
+            "priority": 1,
+            # No labels key - old format
+        }])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue = beads.get_issue("test-id")
+
+            assert issue.labels is None
 
 
 class TestBeadsIntegrationUpdateNotes:
@@ -1387,6 +1481,55 @@ class TestBeadsIntegrationNotesMetadata:
             assert "/other/repo/.beads" in cmd
 
 
+class TestBeadsIssueWithDependents:
+    """Tests for BeadsIssue with dependents (child issues) field."""
+
+    def test_beads_issue_with_dependents(self):
+        """Test creating a BeadsIssue with child issues (dependents)."""
+        from orch.beads_integration import BeadsDependency
+
+        child1 = BeadsDependency(
+            id="orch-cli-abc",
+            title="Child issue 1",
+            status="closed",
+            dependency_type="parent-child"
+        )
+        child2 = BeadsDependency(
+            id="orch-cli-def",
+            title="Child issue 2",
+            status="in_progress",
+            dependency_type="parent-child"
+        )
+
+        issue = BeadsIssue(
+            id="orch-cli-parent",
+            title="Parent epic",
+            description="Epic with children",
+            status="open",
+            priority=1,
+            issue_type="epic",
+            dependents=[child1, child2]
+        )
+
+        assert issue.dependents is not None
+        assert len(issue.dependents) == 2
+        assert issue.dependents[0].id == "orch-cli-abc"
+        assert issue.dependents[0].status == "closed"
+        assert issue.dependents[1].id == "orch-cli-def"
+        assert issue.dependents[1].status == "in_progress"
+
+    def test_beads_issue_dependents_defaults_to_none(self):
+        """Test that dependents defaults to None when not provided."""
+        issue = BeadsIssue(
+            id="test-123",
+            title="Title",
+            description="Desc",
+            status="open",
+            priority=1
+        )
+        assert issue.dependents is None
+
+
 class TestBeadsDependency:
     """Tests for BeadsDependency dataclass."""
 
@@ -1718,3 +1861,109 @@ class TestBeadsIntegrationGetOpenBlockers:
             assert blockers[0].id == "orch-cli-abc"
             assert blockers[1].id == "orch-cli-def"
             assert blockers[2].id == "orch-cli-ghi"
+
+
+class TestBeadsIntegrationCreateIssue:
+    """Tests for create_issue() - creates a new beads issue."""
+
+    def test_create_issue_success(self):
+        """Test successfully creating a new beads issue."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Created: orch-cli-abc",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue_id = beads.create_issue("Add new feature")
+
+            assert issue_id == "orch-cli-abc"
+
+            # Verify subprocess was called correctly
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "bd" in cmd
+            assert "create" in cmd
+            assert "Add new feature" in cmd
+            assert "--type" in cmd
+            assert "task" in cmd
+
+    def test_create_issue_with_type(self):
+        """Test creating an issue with specific type."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Created: orch-cli-def",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue_id = beads.create_issue("Fix critical bug", issue_type="bug")
+
+            assert issue_id == "orch-cli-def"
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--type" in cmd
+            type_idx = cmd.index("--type") + 1
+            assert cmd[type_idx] == "bug"
+
+    def test_create_issue_cli_not_found(self):
+        """Test error when bd CLI is not installed."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("bd not found")
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsCLINotFoundError):
+                beads.create_issue("Test issue")
+
+    def test_create_issue_failure(self):
+        """Test error handling when bd create fails."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error: failed to create issue",
+            )
+
+            beads = BeadsIntegration()
+            with pytest.raises(RuntimeError) as exc_info:
+                beads.create_issue("Test issue")
+
+            assert "failed" in str(exc_info.value).lower() or "create" in str(exc_info.value).lower()
+
+    def test_create_issue_parses_id_from_output(self):
+        """Test parsing different output formats."""
+        # Test with "Created: " prefix format
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Created: orch-cli-xyz\n",
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issue_id = beads.create_issue("Test issue")
+
+            assert issue_id == "orch-cli-xyz"
+
+    def test_create_issue_with_db_path(self):
+        """Test creating issue uses --db flag when db_path is set."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Created: other-repo-abc",
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/path/to/other/.beads/beads.db")
+            issue_id = beads.create_issue("Cross-repo issue")
+
+            # Verify --db flag was included
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/path/to/other/.beads/beads.db" in cmd
+            assert issue_id == "other-repo-abc"

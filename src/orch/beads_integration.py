@@ -46,6 +46,7 @@ class BeadsIssue:
     notes: Optional[str] = None
     dependencies: Optional[list] = None  # List of BeadsDependency
     issue_type: Optional[str] = None  # bug, feature, task, epic
+    labels: Optional[list] = None  # List of label strings (e.g., ["P1", "target:orch-cli"])
 
 
 class BeadsIntegration:
@@ -126,6 +127,9 @@ class BeadsIntegration:
                 for dep in deps_data
             ]
 
+        # Parse labels if present
+        labels = issue_data.get("labels")  # None if key missing, [] if empty array
+
         return BeadsIssue(
             id=issue_data.get("id", issue_id),
             title=issue_data.get("title", ""),
@@ -135,6 +139,7 @@ class BeadsIntegration:
             notes=issue_data.get("notes"),
             dependencies=dependencies,
             issue_type=issue_data.get("issue_type"),
+            labels=labels,
         )
 
     def get_open_blockers(self, issue_id: str) -> list:
@@ -669,3 +674,45 @@ class BeadsIntegration:
             BeadsIssueNotFoundError: If the issue doesn't exist
         """
         self.update_agent_notes(issue_id, phase=phase)
+
+    def create_issue(self, title: str, issue_type: str = "task") -> str:
+        """Create a new beads issue.
+
+        Args:
+            title: Issue title/description
+            issue_type: Issue type (task, bug, feature, epic, chore). Defaults to "task".
+
+        Returns:
+            Created issue ID (e.g., 'orch-cli-abc')
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            RuntimeError: If issue creation fails
+        """
+        try:
+            result = subprocess.run(
+                self._build_command("create", title, "--type", issue_type),
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to create beads issue: {result.stderr.strip()}")
+
+        # Parse issue ID from output (format: "Created: orch-cli-abc")
+        output = result.stdout.strip()
+        if 'Created:' in output:
+            # Extract ID after "Created: "
+            parts = output.split('Created:')
+            if len(parts) > 1:
+                return parts[1].strip().split()[0]
+
+        # Fallback: return first word that looks like an issue ID
+        for word in output.split():
+            if '-' in word and len(word) > 3:
+                return word
+
+        return output.split()[0] if output else ""
