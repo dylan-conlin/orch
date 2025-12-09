@@ -14,6 +14,7 @@ from orch.logging import OrchLogger
 from orch.complete import verify_agent_work, clean_up_agent
 from orch.help import show_help_overview, show_help_topic, show_unknown_topic, HELP_TOPICS
 from orch.markdown_utils import extract_tldr
+from orch.error_logging import log_error, ErrorType
 
 # Import from path_utils to break circular dependencies
 # (cli -> complete -> spawn -> cli and cli -> complete -> spawn -> investigations -> cli)
@@ -26,6 +27,28 @@ from orch.monitoring_commands import register_monitoring_commands
 from orch.workspace_commands import register_workspace_commands
 from orch.work_commands import register_work_commands
 from orch.error_commands import register_error_commands
+import sys
+
+
+def log_cli_error(
+    subcommand: str,
+    error_type: ErrorType,
+    message: str,
+    context: dict = None,
+) -> None:
+    """Log a CLI error to the error log.
+
+    Helper function that constructs the full command from sys.argv.
+    """
+    command = " ".join(sys.argv) if sys.argv else f"orch {subcommand}"
+    log_error(
+        command=command,
+        subcommand=subcommand,
+        error_type=error_type,
+        message=message,
+        context=context,
+    )
+
 
 @click.group()
 @click.version_option(version=__version__, prog_name="orch")
@@ -612,6 +635,12 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
     agent = registry.find(agent_id)
 
     if not agent:
+        log_cli_error(
+            subcommand="complete",
+            error_type=ErrorType.AGENT_NOT_FOUND,
+            message=f"Agent '{agent_id}' not found in registry",
+            context={"agent_id": agent_id}
+        )
         click.echo(f"❌ Agent '{agent_id}' not found in registry.", err=True)
         raise click.Abort()
 
@@ -660,6 +689,14 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
 
         click.echo()
     else:
+        # Log the completion failure
+        error_type = ErrorType.VERIFICATION_FAILED if not result['verified'] else ErrorType.UNEXPECTED_ERROR
+        log_cli_error(
+            subcommand="complete",
+            error_type=error_type,
+            message=result['errors'][0] if result['errors'] else "Unknown completion error",
+            context={"agent_id": agent_id, "errors": result['errors'], "verified": result['verified']}
+        )
         click.echo("❌ Completion failed:", err=True)
         click.echo()
         if not result['verified']:
