@@ -97,3 +97,15 @@ orch errors --days 1
 
 **Related Artifacts:**
 - **Investigation:** `.kb/investigations/2025-12-09-inv-add-local-error-logging-analytics.md` - Error logging implementation
+- **Commit:** a4f6361 "feat: add session start hook to show recent orch errors"
+
+---
+
+## Self-Review
+
+- [x] Real test performed (not code review)
+- [x] Conclusion from evidence (not speculation)
+- [x] Question answered
+- [x] File complete
+
+**Self-Review Status:** PASSED
