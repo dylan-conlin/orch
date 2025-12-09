@@ -286,26 +286,147 @@ def _verify_investigation_artifact(
 ) -> VerificationResult:
     """
     Verification path for workspace-less investigation agents.
+
+    If the primary_artifact doesn't exist, attempts to find the actual
+    investigation path from beads comments (agent reports via bd comment).
     """
     errors: List[str] = []
     warnings: List[str] = []
 
     primary_artifact = Path(primary_artifact).expanduser()
-    if not primary_artifact.exists():
-        errors.append(f"Investigation file not found: {primary_artifact}")
-        return VerificationResult(passed=False, errors=errors, warnings=warnings)
+    actual_artifact = primary_artifact
 
-    phase = _extract_investigation_phase(primary_artifact)
+    # If primary_artifact doesn't exist, try to get actual path from beads comments
+    if not primary_artifact.exists():
+        actual_path = _get_investigation_path_from_beads(agent_info)
+        if actual_path:
+            actual_artifact = Path(actual_path).expanduser()
+            if not actual_artifact.is_absolute():
+                actual_artifact = (project_dir / actual_artifact).resolve()
+            warnings.append(
+                f"Investigation file moved from expected location. "
+                f"Expected: {primary_artifact}, found via beads: {actual_artifact}"
+            )
+        else:
+            # Also try searching in investigations directory
+            found_path = _search_investigation_file(workspace_path.name, project_dir)
+            if found_path:
+                actual_artifact = found_path
+                warnings.append(
+                    f"Investigation file at different location than expected. "
+                    f"Expected: {primary_artifact}, found: {actual_artifact}"
+                )
+            else:
+                errors.append(f"Investigation file not found: {primary_artifact}")
+                return VerificationResult(passed=False, errors=errors, warnings=warnings)
+
+    phase = _extract_investigation_phase(actual_artifact)
     if not phase:
         errors.append("Phase field not found in investigation file")
     elif phase.lower() != "complete":
         errors.append(f"Phase is '{phase}', must be 'Complete'")
 
     if agent_info:
-        if not _check_deliverable_exists('investigation', workspace_path, project_dir, agent_info):
+        # Override primary_artifact check since we found the file at a different location
+        if actual_artifact.exists():
+            pass  # File exists, deliverable satisfied
+        elif not _check_deliverable_exists('investigation', workspace_path, project_dir, agent_info):
             errors.append("Missing deliverable: investigation")
 
     return VerificationResult(passed=(len(errors) == 0), errors=errors, warnings=warnings)
+
+
+def _get_investigation_path_from_beads(agent_info: Optional[Dict]) -> Optional[str]:
+    """
+    Get investigation path from beads comments.
+
+    Args:
+        agent_info: Agent registry info containing beads_id
+
+    Returns:
+        Investigation file path if found in beads comments, None otherwise
+    """
+    if not agent_info or not agent_info.get('beads_id'):
+        return None
+
+    try:
+        from orch.beads_integration import BeadsIntegration
+
+        beads_id = agent_info['beads_id']
+        beads_db_path = agent_info.get('beads_db_path')
+        beads = BeadsIntegration(db_path=beads_db_path)
+
+        # Try comments first, then notes field
+        path = beads.get_investigation_path_from_comments(beads_id)
+        if path:
+            return path
+
+        path = beads.get_investigation_path_from_notes(beads_id)
+        if path:
+            return path
+
+    except Exception:
+        pass
+
+    return None
+
+
+def _search_investigation_file(workspace_name: str, project_dir: Path) -> Optional[Path]:
+    """
+    Search for investigation file by workspace name or slug.
+
+    Searches .kb/investigations/ and .orch/investigations/ directories
+    for files matching the workspace name or containing similar words.
+
+    Args:
+        workspace_name: Workspace name to search for
+        project_dir: Project directory
+
+    Returns:
+        Path to found investigation file, or None
+    """
+    from datetime import date
+
+    # Get today's date prefix
+    today = date.today().strftime('%Y-%m-%d')
+
+    # Search patterns to try
+    search_dirs = [
+        project_dir / ".kb" / "investigations",
+        project_dir / ".orch" / "investigations",
+    ]
+
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+
+        # Try exact workspace name match first
+        for pattern in [
+            f"**/*{workspace_name}*.md",
+            f"**/{today}-*{workspace_name}*.md",
+            f"*{workspace_name}*.md",
+            f"{today}-*{workspace_name}*.md",
+        ]:
+            matches = list(base_dir.glob(pattern))
+            if matches:
+                # Return most recently modified
+                return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+        # Try without date suffix (e.g., "task-name-09dec" -> "task-name")
+        if '-' in workspace_name:
+            # Remove date suffix like "-09dec"
+            parts = workspace_name.rsplit('-', 1)
+            if len(parts[1]) <= 5:  # Likely a date suffix
+                base_name = parts[0]
+                for pattern in [
+                    f"**/*{base_name}*.md",
+                    f"*{base_name}*.md",
+                ]:
+                    matches = list(base_dir.glob(pattern))
+                    if matches:
+                        return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+    return None
 
 
 def _extract_investigation_phase(path: Path) -> Optional[str]:

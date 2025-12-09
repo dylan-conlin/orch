@@ -130,7 +130,29 @@ class AgentRegistry:
         return [a for a in self._agents if a['status'] == 'active']
 
     def find(self, agent_id: str) -> Dict[str, Any] | None:
-        """Find agent by ID."""
+        """
+        Find agent by ID or beads_id.
+
+        Args:
+            agent_id: Agent ID (workspace name) or beads_id to search for
+
+        Returns:
+            Agent dict if found, None otherwise
+        """
+        # First, try exact match on agent ID (workspace name)
+        for agent in self._agents:
+            if agent['id'] == agent_id:
+                return agent
+
+        # Second, try match on beads_id
+        for agent in self._agents:
+            if agent.get('beads_id') == agent_id:
+                return agent
+
+        return None
+
+    def _find_by_id(self, agent_id: str) -> Dict[str, Any] | None:
+        """Find agent by exact agent ID only (not beads_id)."""
         for agent in self._agents:
             if agent['id'] == agent_id:
                 return agent
@@ -174,8 +196,8 @@ class AgentRegistry:
 
         Optional metadata preserved for compatibility.
         """
-        # Check for duplicate
-        existing = self.find(agent_id)
+        # Check for duplicate by agent ID only (not beads_id)
+        existing = self._find_by_id(agent_id)
         if existing:
             raise ValueError(f"Agent '{agent_id}' already registered.")
 

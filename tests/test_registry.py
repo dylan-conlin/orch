@@ -83,6 +83,99 @@ class TestRegistryReconciliation:
         assert "completed_at" not in agent
         assert "terminated_at" not in agent
 
+class TestRegistryFindByBeadsId:
+    """Tests for registry.find() searching by beads_id."""
+
+    @pytest.fixture
+    def temp_registry(self, tmp_path):
+        """Create a temporary registry for testing."""
+        registry_path = tmp_path / "test-registry.json"
+        return AgentRegistry(registry_path=registry_path)
+
+    def test_find_by_agent_id(self, temp_registry, tmp_path):
+        """Test that find() returns agent by agent ID (workspace name)."""
+        temp_registry.register(
+            agent_id="my-workspace-name",
+            task="Test task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/my-workspace-name",
+            beads_id="project-abc"
+        )
+
+        agent = temp_registry.find("my-workspace-name")
+        assert agent is not None
+        assert agent["id"] == "my-workspace-name"
+        assert agent["beads_id"] == "project-abc"
+
+    def test_find_by_beads_id(self, temp_registry, tmp_path):
+        """Test that find() returns agent when searching by beads_id."""
+        temp_registry.register(
+            agent_id="my-workspace-name",
+            task="Test task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/my-workspace-name",
+            beads_id="project-abc"
+        )
+
+        # Search by beads_id should find the agent
+        agent = temp_registry.find("project-abc")
+        assert agent is not None
+        assert agent["id"] == "my-workspace-name"
+        assert agent["beads_id"] == "project-abc"
+
+    def test_find_prefers_agent_id_over_beads_id(self, temp_registry, tmp_path):
+        """Test that find() prefers exact agent ID match over beads_id match.
+
+        When both an exact agent_id match AND a beads_id match exist,
+        find() should return the exact agent_id match first.
+        """
+        # Register agent with beads_id "shared-id"
+        temp_registry.register(
+            agent_id="agent-1",
+            task="Task 1 - matched by beads_id",
+            window="test:1",
+            window_id="@101",
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/agent-1",
+            beads_id="shared-id"
+        )
+        # Register agent with agent_id "shared-id" (same value)
+        temp_registry.register(
+            agent_id="shared-id",  # Same as first agent's beads_id
+            task="Task 2 - matched by agent_id",
+            window="test:2",
+            window_id="@102",
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/shared-id",
+            beads_id="other-beads-id"
+        )
+
+        # Should find the second agent by exact ID match, not the first by beads_id
+        agent = temp_registry.find("shared-id")
+        assert agent is not None
+        assert agent["id"] == "shared-id"
+        assert agent["task"] == "Task 2 - matched by agent_id"
+
+    def test_find_returns_none_for_unknown_id(self, temp_registry, tmp_path):
+        """Test that find() returns None for unknown ID."""
+        temp_registry.register(
+            agent_id="my-agent",
+            task="Test task",
+            window="test:1",
+            window_id="@123",
+            project_dir=str(tmp_path),
+            workspace=".orch/workspace/my-agent",
+            beads_id="project-abc"
+        )
+
+        agent = temp_registry.find("unknown-id")
+        assert agent is None
+
+
 class TestRegistryConcurrency:
     """Tests for registry file locking and concurrent operations."""
 

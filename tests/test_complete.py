@@ -504,3 +504,151 @@ class TestProcessChecking:
 
 # Note: TestWorkspaceSafeReading removed - WORKSPACE.md no longer used
 # Beads is now the source of truth for agent state
+
+
+class TestInvestigationArtifactFallback:
+    """Tests for investigation file verification fallback behavior.
+
+    When primary_artifact path doesn't exist, verification should:
+    1. Try to get actual path from beads comments (investigation_path)
+    2. Search for investigation files in standard locations
+    """
+
+    def test_verify_finds_investigation_via_beads_comment(self, tmp_path):
+        """Test verification finds investigation file from beads investigation_path comment."""
+        from orch.verification import _verify_investigation_artifact
+
+        # Setup: Create actual investigation file at different location
+        actual_dir = tmp_path / ".kb" / "investigations" / "debug"
+        actual_dir.mkdir(parents=True)
+        actual_file = actual_dir / "2025-12-09-debug-my-task.md"
+        actual_file.write_text("""
+**Phase:** Complete
+# Investigation
+""")
+
+        # Expected path is different from actual
+        expected_path = tmp_path / ".kb" / "investigations" / "2025-12-09-wrong-name.md"
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "my-task-09dec"
+        workspace_path.mkdir(parents=True)
+
+        # Mock beads to return actual path
+        agent_info = {
+            'beads_id': 'test-123',
+            'primary_artifact': str(expected_path)
+        }
+
+        with patch('orch.verification._get_investigation_path_from_beads') as mock_beads:
+            mock_beads.return_value = str(actual_file)
+
+            result = _verify_investigation_artifact(
+                primary_artifact=expected_path,
+                workspace_path=workspace_path,
+                project_dir=tmp_path,
+                agent_info=agent_info
+            )
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+        # Should have a warning about the different location
+        assert any("found via beads" in w.lower() or "different location" in w.lower()
+                   for w in result.warnings)
+
+    def test_verify_searches_investigation_directory_as_fallback(self, tmp_path):
+        """Test verification searches .kb/investigations/ when primary_artifact doesn't exist."""
+        from orch.verification import _verify_investigation_artifact
+
+        # Setup: Create investigation file that matches workspace name
+        inv_dir = tmp_path / ".kb" / "investigations"
+        inv_dir.mkdir(parents=True)
+        actual_file = inv_dir / "2025-12-09-my-task-name.md"
+        actual_file.write_text("""
+**Phase:** Complete
+# Investigation
+""")
+
+        # Expected path doesn't exist
+        expected_path = tmp_path / ".kb" / "investigations" / "wrong-name.md"
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "my-task-name-09dec"
+        workspace_path.mkdir(parents=True)
+
+        agent_info = {
+            'beads_id': 'test-123',
+            'primary_artifact': str(expected_path)
+        }
+
+        # Mock beads to return None (no path in comments)
+        with patch('orch.verification._get_investigation_path_from_beads') as mock_beads:
+            mock_beads.return_value = None
+
+            result = _verify_investigation_artifact(
+                primary_artifact=expected_path,
+                workspace_path=workspace_path,
+                project_dir=tmp_path,
+                agent_info=agent_info
+            )
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+        # Should have a warning about the different location
+        assert any("different location" in w.lower() or "expected" in w.lower()
+                   for w in result.warnings)
+
+    def test_verify_fails_when_investigation_not_found(self, tmp_path):
+        """Test verification fails when investigation file cannot be found anywhere."""
+        from orch.verification import _verify_investigation_artifact
+
+        # No investigation file exists anywhere
+        expected_path = tmp_path / ".kb" / "investigations" / "nonexistent.md"
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_path.mkdir(parents=True)
+
+        agent_info = {
+            'beads_id': 'test-123',
+            'primary_artifact': str(expected_path)
+        }
+
+        # Mock beads to return None (no path in comments)
+        with patch('orch.verification._get_investigation_path_from_beads') as mock_beads:
+            mock_beads.return_value = None
+
+            result = _verify_investigation_artifact(
+                primary_artifact=expected_path,
+                workspace_path=workspace_path,
+                project_dir=tmp_path,
+                agent_info=agent_info
+            )
+
+        assert result.passed is False
+        assert any("not found" in e.lower() for e in result.errors)
+
+    def test_verify_fails_when_phase_not_complete(self, tmp_path):
+        """Test verification fails when investigation exists but Phase is not Complete."""
+        from orch.verification import _verify_investigation_artifact
+
+        # Setup: Create investigation file with incomplete phase
+        inv_dir = tmp_path / ".kb" / "investigations"
+        inv_dir.mkdir(parents=True)
+        actual_file = inv_dir / "2025-12-09-my-task.md"
+        actual_file.write_text("""
+**Phase:** In Progress
+# Investigation - still working
+""")
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "my-task"
+        workspace_path.mkdir(parents=True)
+
+        agent_info = {'beads_id': 'test-123'}
+
+        result = _verify_investigation_artifact(
+            primary_artifact=actual_file,
+            workspace_path=workspace_path,
+            project_dir=tmp_path,
+            agent_info=agent_info
+        )
+
+        assert result.passed is False
+        assert any("In Progress" in e and "Complete" in e for e in result.errors)
