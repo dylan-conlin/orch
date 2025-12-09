@@ -92,7 +92,8 @@ def register_spawn_commands(cli):
     @click.option('--parallel', is_flag=True, help='Use parallel execution mode (codebase-audit: spawn 5 dimension agents + synthesis)')
     @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
     @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
-    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force):
+    @click.option('--auto-track', is_flag=True, help='Automatically create beads issue from task for lifecycle tracking')
+    def spawn(context_or_skill, task, roadmap_title, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
         """
         Spawn a new worker agent or interactive session.
 
@@ -160,6 +161,33 @@ def register_spawn_commands(cli):
                 # Auto-detect piped stdin (heredoc or pipe without explicit flag)
                 # This enables: orch spawn skill "task" << 'CONTEXT' ... CONTEXT
                 stdin_context = sys.stdin.read().strip()
+
+            # Handle --auto-track: create beads issue automatically
+            if auto_track:
+                # Can't use both --auto-track and --issue
+                if issue_id:
+                    click.echo("❌ Cannot use both --auto-track and --issue", err=True)
+                    click.echo("   --auto-track creates a new issue; --issue uses existing one", err=True)
+                    raise click.Abort()
+
+                # Require task for auto-track (need something to use as issue title)
+                if not task:
+                    click.echo("❌ --auto-track requires a task description", err=True)
+                    click.echo("   Usage: orch spawn SKILL \"task description\" --auto-track", err=True)
+                    raise click.Abort()
+
+                try:
+                    # Create beads issue from task
+                    beads = BeadsIntegration()
+                    issue_id = beads.create_issue(task, issue_type="task")
+                    click.echo(f"📋 Created beads issue: {issue_id}")
+                except BeadsCLINotFoundError:
+                    click.echo("❌ bd CLI not found. Install beads or check PATH.", err=True)
+                    click.echo("   See: https://github.com/dylanconlin/beads", err=True)
+                    raise click.Abort()
+                except RuntimeError as e:
+                    click.echo(f"❌ Failed to create beads issue: {e}", err=True)
+                    raise click.Abort()
 
             # Mode 4: Issue mode (from beads)
             if issue_id:
