@@ -856,62 +856,37 @@ def register_monitoring_commands(cli):
             return
 
         if analytics:
-            # Show analytics view
-            analytics_data = reg.get_analytics()
+            # Analytics now delegated to beads
+            click.echo("Analytics tracking moved to beads. Use 'bd stats' instead.")
+            return
 
-            if not analytics_data:
-                if output_format == 'json':
-                    click.echo(output_json({}))
-                else:
-                    click.echo("No completed agents in history.")
-                return
+        # Show history view - list completed agents from registry
+        completed_agents = [a for a in reg.list_agents() if a.get('status') == 'completed']
 
-            # Output based on format
+        if not completed_agents:
             if output_format == 'json':
-                # Convert analytics data to JSON structure
-                click.echo(output_json(analytics_data))
-                return
+                click.echo(output_json({"history": []}))
+            else:
+                click.echo("No completed agents in history.")
+            return
 
-            # Human format
-            click.echo()
-            click.echo("📊 Agent Analytics")
-            click.echo("=" * 70)
-            click.echo()
+        # Output based on format
+        if output_format == 'json':
+            click.echo(output_json({"history": completed_agents}))
+            return
 
-            for task_type, data in sorted(analytics_data.items()):
-                click.echo(f"{task_type}:")
-                click.echo(f"  {data['count']} agents - avg {data['avg_duration_minutes']} min")
+        # Human format
+        click.echo()
+        click.echo("📜 Agent History")
+        click.echo("=" * 70)
+        click.echo()
 
-            click.echo()
-        else:
-            # Show history view
-            history_data = reg.get_history()
-
-            if not history_data:
-                if output_format == 'json':
-                    click.echo(output_json({"history": []}))
-                else:
-                    click.echo("No completed agents in history.")
-                return
-
-            # Output based on format
-            if output_format == 'json':
-                click.echo(output_json({"history": history_data}))
-                return
-
-            # Human format
-            click.echo()
-            click.echo("📜 Agent History")
-            click.echo("=" * 70)
-            click.echo()
-
-            for agent in sorted(history_data, key=lambda a: a['completed_at'], reverse=True):
-                duration = agent['duration_minutes']
-                click.echo(f"{agent['id']}")
-                click.echo(f"  Task: {agent['task']}")
-                click.echo(f"  Duration: {duration} min")
+        for agent in sorted(completed_agents, key=lambda a: a.get('completed_at', ''), reverse=True):
+            click.echo(f"{agent['id']}")
+            click.echo(f"  Task: {agent['task']}")
+            if agent.get('completed_at'):
                 click.echo(f"  Completed: {agent['completed_at']}")
-                click.echo()
+            click.echo()
 
     @cli.command()
     @click.argument('agent_id')

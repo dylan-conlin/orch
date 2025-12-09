@@ -181,7 +181,7 @@ class TestCompleteIntegration:
         # Complete the work
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent') as mock_cleanup:
-                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
                     with patch('orch.complete.close_beads_issue', return_value=True):
                         result = complete_agent_work(
                             agent_id=workspace_name,
@@ -242,7 +242,7 @@ class TestCompleteIntegration:
 
         with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
             with patch('orch.complete.clean_up_agent'):
-                with patch('orch.complete.validate_work_committed', return_value=(True, "")):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
                     with patch('orch.complete.close_beads_issue', return_value=True) as mock_close:
                         result = complete_agent_work(
                             agent_id=workspace_name,
@@ -282,45 +282,47 @@ class TestSessionPreservation:
             mock_registry_instance.find.return_value = mock_agent
             MockRegistry.return_value = mock_registry_instance
 
-            # Mock list_windows to return only 1 window (the agent window)
-            with patch('orch.tmux_utils.list_windows') as mock_list_windows:
-                mock_list_windows.return_value = [{'index': '1', 'name': 'agent-window', 'id': '@123'}]
+            # Mock has_active_processes to return False (no processes running)
+            with patch('orch.complete.has_active_processes', return_value=False):
+                # Mock list_windows to return only 1 window (the agent window)
+                with patch('orch.complete.list_windows') as mock_list_windows:
+                    mock_list_windows.return_value = [{'index': '1', 'name': 'agent-window', 'id': '@123'}]
 
-                # Mock subprocess.run to capture tmux commands
-                with patch('subprocess.run') as mock_run:
-                    # Setup subprocess.run to return session name for display-message
-                    def subprocess_side_effect(cmd, *args, **kwargs):
-                        if 'display-message' in cmd:
-                            # Return mock session name
-                            result = Mock()
-                            result.returncode = 0
-                            result.stdout = 'orchestrator\n'
-                            return result
-                        return Mock(returncode=0, stdout='', stderr='')
+                    # Mock subprocess.run to capture tmux commands
+                    with patch('subprocess.run') as mock_run:
+                        # Setup subprocess.run to return session name for display-message
+                        def subprocess_side_effect(cmd, *args, **kwargs):
+                            if 'display-message' in cmd:
+                                # Return mock session name
+                                result = Mock()
+                                result.returncode = 0
+                                result.stdout = 'orchestrator\n'
+                                return result
+                            return Mock(returncode=0, stdout='', stderr='')
 
-                    mock_run.side_effect = subprocess_side_effect
+                        mock_run.side_effect = subprocess_side_effect
 
-                    # Execute
-                    clean_up_agent('test-agent')
+                        # Execute
+                        clean_up_agent('test-agent')
 
-                    # Verify: Should have called tmux new-window to create default window
-                    new_window_calls = [call for call in mock_run.call_args_list
-                                       if any('new-window' in str(arg) for arg in call[0])]
-                    assert len(new_window_calls) == 1, "Should create default window before killing last one"
+                        # Verify: Should have called tmux new-window to create default window
+                        new_window_calls = [call for call in mock_run.call_args_list
+                                           if any('new-window' in str(arg) for arg in call[0])]
+                        assert len(new_window_calls) == 1, "Should create default window before killing last one"
 
-                    # Verify: new-window call should create 'main' window in 'orchestrator' session
-                    new_window_call = new_window_calls[0]
-                    assert 'orchestrator' in str(new_window_call), "Should create window in orchestrator session"
-                    assert 'main' in str(new_window_call), "Should name default window 'main'"
+                        # Verify: new-window call should create 'main' window in 'orchestrator' session
+                        new_window_call = new_window_calls[0]
+                        assert 'orchestrator' in str(new_window_call), "Should create window in orchestrator session"
+                        assert 'main' in str(new_window_call), "Should name default window 'main'"
 
-                    # Verify: Should also call kill-window for the agent
-                    kill_window_calls = [call for call in mock_run.call_args_list
-                                        if any('kill-window' in str(arg) for arg in call[0])]
-                    assert len(kill_window_calls) == 1, "Should kill agent window"
+                        # Verify: Should also call kill-window for the agent
+                        kill_window_calls = [call for call in mock_run.call_args_list
+                                            if any('kill-window' in str(arg) for arg in call[0])]
+                        assert len(kill_window_calls) == 1, "Should kill agent window"
 
-                    # Verify: kill-window should use window_id '@123'
-                    kill_window_call = kill_window_calls[0]
-                    assert '@123' in str(kill_window_call), "Should kill window by ID"
+                        # Verify: kill-window should use window_id '@123'
+                        kill_window_call = kill_window_calls[0]
+                        assert '@123' in str(kill_window_call), "Should kill window by ID"
 
     def test_clean_up_agent_does_not_create_window_when_multiple_windows(self):
         """
@@ -341,37 +343,39 @@ class TestSessionPreservation:
             mock_registry_instance.find.return_value = mock_agent
             MockRegistry.return_value = mock_registry_instance
 
-            # Mock list_windows to return 3 windows (not the last one)
-            with patch('orch.tmux_utils.list_windows') as mock_list_windows:
-                mock_list_windows.return_value = [
-                    {'index': '1', 'name': 'main', 'id': '@100'},
-                    {'index': '2', 'name': 'agent-1', 'id': '@123'},
-                    {'index': '3', 'name': 'agent-2', 'id': '@124'}
-                ]
+            # Mock has_active_processes to return False (no processes running)
+            with patch('orch.complete.has_active_processes', return_value=False):
+                # Mock list_windows to return 3 windows (not the last one)
+                with patch('orch.complete.list_windows') as mock_list_windows:
+                    mock_list_windows.return_value = [
+                        {'index': '1', 'name': 'main', 'id': '@100'},
+                        {'index': '2', 'name': 'agent-1', 'id': '@123'},
+                        {'index': '3', 'name': 'agent-2', 'id': '@124'}
+                    ]
 
-                with patch('subprocess.run') as mock_run:
-                    def subprocess_side_effect(cmd, *args, **kwargs):
-                        if 'display-message' in cmd:
-                            result = Mock()
-                            result.returncode = 0
-                            result.stdout = 'orchestrator\n'
-                            return result
-                        return Mock(returncode=0, stdout='', stderr='')
+                    with patch('subprocess.run') as mock_run:
+                        def subprocess_side_effect(cmd, *args, **kwargs):
+                            if 'display-message' in cmd:
+                                result = Mock()
+                                result.returncode = 0
+                                result.stdout = 'orchestrator\n'
+                                return result
+                            return Mock(returncode=0, stdout='', stderr='')
 
-                    mock_run.side_effect = subprocess_side_effect
+                        mock_run.side_effect = subprocess_side_effect
 
-                    # Execute
-                    clean_up_agent('test-agent')
+                        # Execute
+                        clean_up_agent('test-agent')
 
-                    # Verify: Should NOT create new-window (since not last window)
-                    new_window_calls = [call for call in mock_run.call_args_list
-                                       if any('new-window' in str(arg) for arg in call[0])]
-                    assert len(new_window_calls) == 0, "Should NOT create default window when multiple windows exist"
+                        # Verify: Should NOT create new-window (since not last window)
+                        new_window_calls = [call for call in mock_run.call_args_list
+                                           if any('new-window' in str(arg) for arg in call[0])]
+                        assert len(new_window_calls) == 0, "Should NOT create default window when multiple windows exist"
 
-                    # Verify: Should still kill the agent window
-                    kill_window_calls = [call for call in mock_run.call_args_list
-                                        if any('kill-window' in str(arg) for arg in call[0])]
-                    assert len(kill_window_calls) == 1, "Should still kill agent window"
+                        # Verify: Should still kill the agent window
+                        kill_window_calls = [call for call in mock_run.call_args_list
+                                            if any('kill-window' in str(arg) for arg in call[0])]
+                        assert len(kill_window_calls) == 1, "Should still kill agent window"
 
 
 class TestProcessChecking:
@@ -472,7 +476,7 @@ class TestProcessChecking:
             with patch('orch.complete.has_active_processes') as mock_has_processes:
                 mock_has_processes.return_value = False
 
-                with patch('orch.tmux_utils.list_windows') as mock_list_windows:
+                with patch('orch.complete.list_windows') as mock_list_windows:
                     mock_list_windows.return_value = [
                         {'index': '1', 'name': 'main', 'id': '@100'},
                         {'index': '2', 'name': 'agent', 'id': '@123'}

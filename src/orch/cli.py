@@ -445,18 +445,14 @@ def abandon(agent_ids, reason, yes, force):
 @click.option('--project', help='Filter agents by project directory (used with --all)')
 @click.option('--skip-test-check', is_flag=True, help='Skip test verification check (use when pre-existing test failures block completion)')
 @click.option('--force', is_flag=True, help='Bypass safety checks (active processes, git state) - use when work complete but session hung')
-@click.option('--sync', 'sync_mode', is_flag=True, help='Run completion synchronously (blocking, wait for cleanup)')
-@click.option('--async', 'async_mode', is_flag=True, hidden=True, help='[DEPRECATED] Async is now the default. This flag has no effect.')
-@click.option('--discover', is_flag=True, help='Capture discovered/punted work items and create beads issues')
-def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_check, force, sync_mode, async_mode, discover):
+def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_check, force):
     """
     Complete agent work: verify, close beads issue, cleanup.
 
     Workflow:
-    1. Verify agent work (Phase: Complete, deliverables exist)
-    2. Close beads issue (if spawned from --issue)
-    3. Restore git stash (if changes were stashed during spawn)
-    4. Clean up agent and close tmux window
+    1. Verify agent work (Phase: Complete in beads)
+    2. Close beads issue
+    3. Clean up agent and close tmux window
 
     Example:
         orch complete my-agent-workspace
@@ -492,17 +488,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
                 click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
                 click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
                 raise click.Abort()
-
-            # Handle --discover: capture punted work before closing
-            if discover:
-                from orch.complete import prompt_for_discoveries, process_discoveries, format_discovery_summary
-
-                # Prompt for discovered items
-                items = prompt_for_discoveries()
-                if items:
-                    results = process_discoveries(items, discovered_from=beads_issue)
-                    click.echo(format_discovery_summary(results))
-                    click.echo()
 
             # Close the issue
             beads.close_issue(beads_issue, reason='Resolved via orch complete --issue')
@@ -618,38 +603,18 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
     click.echo(f"   Project: {project_dir}")
     click.echo()
 
-    # Run complete workflow (async by default, sync if --sync flag or --dry-run provided)
-    # Note: dry_run forces sync mode because async spawns daemon that ignores dry_run
-    if not sync_mode and not dry_run:
-        # Default: async mode (non-blocking)
-        from orch.complete import complete_agent_async
-
-        result = complete_agent_async(
-            agent_id=agent_id,
-            project_dir=project_dir,
-            skip_test_check=skip_test_check
-        )
-    else:
-        # Opt-in: sync mode (blocking)
-        result = complete_agent_work(
-            agent_id=agent_id,
-            project_dir=project_dir,
-            dry_run=dry_run,
-            skip_test_check=skip_test_check,
-            force=force
-        )
+    # Run complete workflow (sync mode only)
+    result = complete_agent_work(
+        agent_id=agent_id,
+        project_dir=project_dir,
+        dry_run=dry_run,
+        skip_test_check=skip_test_check,
+        force=force
+    )
 
     # Display results
     if result['success']:
-        if result.get('async_mode'):
-            # Async mode - daemon spawned
-            click.echo("✅ Agent marked for completion. Cleanup running in background.")
-            click.echo()
-            click.echo(f"   ✓ Agent status: completing")
-            click.echo(f"   ✓ Daemon PID: {result['daemon_pid']}")
-            click.echo()
-            click.echo("   Use 'orch status' to monitor completion progress")
-        elif result.get('dry_run'):
+        if result.get('dry_run'):
             click.echo("✅ Dry-run: Would complete successfully")
             click.echo()
             click.echo("   ✓ Verification passed")
@@ -672,32 +637,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
                 click.echo("   ⚠️  Warnings:")
                 for warning in result['warnings']:
                     click.echo(f"      {warning}")
-
-            # Handle discovery capture (--discover flag)
-            if discover:
-                from orch.complete import (
-                    prompt_for_discoveries,
-                    process_discoveries,
-                    get_discovery_parent_id,
-                    format_discovery_summary
-                )
-
-                # Get parent beads ID from agent if available
-                parent_id = get_discovery_parent_id(agent)
-
-                # Prompt for discovered items
-                items = prompt_for_discoveries()
-
-                if items:
-                    # Process discoveries and create beads issues
-                    discovery_results = process_discoveries(
-                        items=items,
-                        discovered_from=parent_id
-                    )
-
-                    # Show summary
-                    summary = format_discovery_summary(discovery_results)
-                    click.echo(summary)
 
         click.echo()
     else:
