@@ -551,3 +551,345 @@ class TestSpawnPromptAgentMailRemoval:
         # Agent Mail section should NOT appear even for Medium scope
         assert "AGENT MAIL COORDINATION" not in prompt, \
             "Agent Mail should not appear (no longer used, regardless of scope)"
+
+
+class TestLoadKbContext:
+    """
+    Tests for load_kb_context() function which surfaces relevant investigations
+    and decisions from kb for spawn prompt enrichment.
+
+    Related: orch-cli-1u8
+    """
+
+    def test_load_kb_context_returns_none_when_no_kb_dir(self, tmp_path):
+        """Verify load_kb_context returns None when .kb directory doesn't exist."""
+        from orch.spawn_prompt import load_kb_context
+
+        # No .kb directory
+        result = load_kb_context("test task", tmp_path)
+        assert result is None
+
+    def test_load_kb_context_returns_none_for_empty_task(self, tmp_path):
+        """Verify load_kb_context returns None for empty task description."""
+        from orch.spawn_prompt import load_kb_context
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        result = load_kb_context("", tmp_path)
+        assert result is None
+
+    def test_load_kb_context_returns_none_when_no_matches(self, tmp_path, mocker):
+        """Verify load_kb_context returns None when kb search returns no results."""
+        from orch.spawn_prompt import load_kb_context
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock subprocess to return empty results
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout='[]',
+            stderr=''
+        )
+
+        result = load_kb_context("test task with keywords", tmp_path)
+        assert result is None
+
+    def test_load_kb_context_formats_results_correctly(self, tmp_path, mocker):
+        """Verify load_kb_context formats kb search results into markdown."""
+        from orch.spawn_prompt import load_kb_context
+        import json
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock subprocess to return search results
+        mock_results = [
+            {
+                "Name": "2025-12-01-spawn-investigation.md",
+                "Path": f"{tmp_path}/.kb/investigations/2025-12-01-spawn-investigation.md",
+                "Title": "Spawn System Investigation",
+                "Type": "investigations",
+                "Project": "",
+                "Matches": [
+                    "42: The spawn system uses templates for prompts",
+                    "55: Keywords are extracted from the task description"
+                ]
+            }
+        ]
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout=json.dumps(mock_results),
+            stderr=''
+        )
+
+        result = load_kb_context("spawn template keywords", tmp_path)
+
+        # Should include section header
+        assert "## PRIOR INVESTIGATIONS (from kb)" in result
+        assert "Relevant investigations and decisions discovered" in result
+
+        # Should include result title
+        assert "### Spawn System Investigation" in result
+
+        # Should include relative path
+        assert ".kb/investigations/2025-12-01-spawn-investigation.md" in result
+
+        # Should include type
+        assert "investigations" in result
+
+        # Should include excerpts (cleaned of line numbers)
+        assert "The spawn system uses templates for prompts" in result
+        assert "Keywords are extracted from the task description" in result
+
+    def test_load_kb_context_limits_to_5_results(self, tmp_path, mocker):
+        """Verify load_kb_context limits output to 5 results to avoid context bloat."""
+        from orch.spawn_prompt import load_kb_context
+        import json
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock 10 results
+        mock_results = [
+            {
+                "Name": f"result-{i}.md",
+                "Path": f"{tmp_path}/.kb/investigations/result-{i}.md",
+                "Title": f"Result {i}",
+                "Type": "investigations",
+                "Project": "",
+                "Matches": [f"Match text for result {i}"]
+            }
+            for i in range(10)
+        ]
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout=json.dumps(mock_results),
+            stderr=''
+        )
+
+        result = load_kb_context("test keywords", tmp_path)
+
+        # Should only include first 5 results
+        assert "### Result 0" in result
+        assert "### Result 4" in result
+        assert "### Result 5" not in result
+        assert "### Result 9" not in result
+
+    def test_load_kb_context_limits_excerpt_length(self, tmp_path, mocker):
+        """Verify load_kb_context truncates long excerpts."""
+        from orch.spawn_prompt import load_kb_context
+        import json
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock result with very long match
+        long_text = "x" * 300
+        mock_results = [
+            {
+                "Name": "long-result.md",
+                "Path": f"{tmp_path}/.kb/investigations/long-result.md",
+                "Title": "Long Result",
+                "Type": "investigations",
+                "Project": "",
+                "Matches": [f"10: {long_text}"]
+            }
+        ]
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout=json.dumps(mock_results),
+            stderr=''
+        )
+
+        result = load_kb_context("test keywords", tmp_path)
+
+        # Should truncate long excerpts with ...
+        assert "..." in result
+        # Should not contain full 300 character string
+        assert long_text not in result
+
+    def test_load_kb_context_tries_fewer_keywords_on_no_match(self, tmp_path, mocker):
+        """Verify load_kb_context tries progressively fewer keywords."""
+        from orch.spawn_prompt import load_kb_context
+        import json
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # First call (5 keywords): no results
+        # Second call (3 keywords): no results
+        # Third call (2 keywords): results found
+        call_count = [0]
+        def mock_subprocess(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = mocker.Mock()
+            mock_result.returncode = 0
+            mock_result.stderr = ''
+            if call_count[0] < 3:
+                mock_result.stdout = '[]'
+            else:
+                mock_result.stdout = json.dumps([{
+                    "Name": "found.md",
+                    "Path": f"{tmp_path}/.kb/investigations/found.md",
+                    "Title": "Found Result",
+                    "Type": "investigations",
+                    "Project": "",
+                    "Matches": ["Match found with fewer keywords"]
+                }])
+            return mock_result
+
+        mocker.patch('orch.spawn_prompt.subprocess.run', side_effect=mock_subprocess)
+
+        result = load_kb_context("one two three four five keywords", tmp_path)
+
+        # Should have found results with fewer keywords
+        assert result is not None
+        assert "### Found Result" in result
+        # Should have tried multiple times
+        assert call_count[0] >= 3
+
+    def test_load_kb_context_handles_subprocess_timeout(self, tmp_path, mocker):
+        """Verify load_kb_context handles subprocess timeout gracefully."""
+        from orch.spawn_prompt import load_kb_context
+        import subprocess
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock subprocess to raise timeout
+        mocker.patch('orch.spawn_prompt.subprocess.run', side_effect=subprocess.TimeoutExpired('kb', 5))
+
+        result = load_kb_context("test keywords", tmp_path)
+        assert result is None
+
+    def test_load_kb_context_handles_invalid_json(self, tmp_path, mocker):
+        """Verify load_kb_context handles invalid JSON response gracefully."""
+        from orch.spawn_prompt import load_kb_context
+
+        # Create .kb directory
+        (tmp_path / '.kb').mkdir()
+
+        # Mock subprocess to return invalid JSON
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout='not valid json {{{',
+            stderr=''
+        )
+
+        result = load_kb_context("test keywords", tmp_path)
+        assert result is None
+
+
+class TestSpawnPromptKbContextIntegration:
+    """
+    Integration tests for kb context in spawn prompts.
+
+    Verifies that load_kb_context is properly integrated into build_spawn_prompt.
+    Related: orch-cli-1u8
+    """
+
+    def test_spawn_prompt_calls_load_kb_context(self, tmp_path, mocker):
+        """Verify build_spawn_prompt calls load_kb_context."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create .kb directory
+        kb_dir = tmp_path / '.kb'
+        kb_dir.mkdir()
+
+        # Mock load_kb_context to track if it's called
+        mock_load_kb = mocker.patch('orch.spawn_prompt.load_kb_context')
+        mock_load_kb.return_value = None  # No kb context
+
+        config = SpawnConfig(
+            task="Test task with keywords",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        build_spawn_prompt(config)
+
+        # load_kb_context should have been called with task and project_dir
+        mock_load_kb.assert_called_once_with("Test task with keywords", tmp_path)
+
+    def test_spawn_prompt_includes_kb_context_when_available(self, tmp_path, mocker):
+        """Verify build_spawn_prompt includes kb context in output when available."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create .kb directory
+        kb_dir = tmp_path / '.kb'
+        kb_dir.mkdir()
+
+        # Mock load_kb_context to return context
+        mock_load_kb = mocker.patch('orch.spawn_prompt.load_kb_context')
+        mock_load_kb.return_value = """## PRIOR INVESTIGATIONS (from kb)
+
+### Test Investigation
+- **Path:** `.kb/investigations/test.md`
+- **Type:** investigations
+"""
+
+        config = SpawnConfig(
+            task="Test task with keywords",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # kb context should be in the prompt
+        assert "## PRIOR INVESTIGATIONS (from kb)" in prompt
+        assert "### Test Investigation" in prompt
+
+    def test_spawn_prompt_kb_context_after_kn_context(self, tmp_path, mocker):
+        """Verify kb context appears after kn context in spawn prompt."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create both .kn and .kb directories
+        (tmp_path / '.kn').mkdir()
+        (tmp_path / '.kb').mkdir()
+
+        # Mock both context loaders
+        mock_load_kn = mocker.patch('orch.spawn_prompt.load_kn_context')
+        mock_load_kn.return_value = "## PRIOR KNOWLEDGE (from kn)\n\nSome kn context"
+
+        mock_load_kb = mocker.patch('orch.spawn_prompt.load_kb_context')
+        mock_load_kb.return_value = "## PRIOR INVESTIGATIONS (from kb)\n\nSome kb context"
+
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # Both contexts should be present
+        assert "PRIOR KNOWLEDGE (from kn)" in prompt
+        assert "PRIOR INVESTIGATIONS (from kb)" in prompt
+
+        # kb context should appear after kn context
+        kn_pos = prompt.find("PRIOR KNOWLEDGE (from kn)")
+        kb_pos = prompt.find("PRIOR INVESTIGATIONS (from kb)")
+        assert kb_pos > kn_pos, "kb context should appear after kn context"

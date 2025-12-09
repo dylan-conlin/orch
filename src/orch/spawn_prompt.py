@@ -23,6 +23,113 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def load_kb_context(task: str, project_dir: Path) -> Optional[str]:
+    """
+    Load relevant investigation/decision context from kb for the spawn task.
+
+    Runs `kb search "<keywords>"` to surface:
+    - Prior investigations (completed research and analysis)
+    - Decisions (formal architectural/design decisions)
+
+    This complements load_kn_context() which surfaces operational knowledge.
+    kb contains deeper investigations and formal decisions that enable
+    'reading between the lines' - agents get prior work without the
+    orchestrator having to remember and manually include it.
+
+    Args:
+        task: Task description to extract keywords from
+        project_dir: Project directory (must have .kb initialized)
+
+    Returns:
+        Formatted markdown string of kb context, or None if not available.
+    """
+    import json
+
+    # Check if .kb directory exists
+    kb_dir = project_dir / '.kb'
+    if not kb_dir.exists():
+        return None
+
+    # Extract keywords from task (first 5 meaningful words)
+    all_keywords = extract_meaningful_words(task)[:5]
+    if not all_keywords:
+        return None
+
+    # Try progressively fewer keywords until we get matches
+    # kb search is flexible, but fewer keywords = more matches
+    results = None
+    keywords = None
+    for num_keywords in [len(all_keywords), 3, 2, 1]:
+        if num_keywords > len(all_keywords):
+            continue
+        keywords = ' '.join(all_keywords[:num_keywords])
+        try:
+            result = subprocess.run(
+                ['kb', 'search', keywords, '--format', 'json'],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5
+            )
+            stdout = result.stdout.strip()
+            # Check for actual results (not empty array or error)
+            if result.returncode == 0 and stdout and stdout != '[]':
+                try:
+                    parsed = json.loads(stdout)
+                    if parsed:  # Non-empty array
+                        results = parsed
+                        break
+                except json.JSONDecodeError:
+                    continue
+        except Exception:
+            continue
+
+    if not results:
+        return None
+
+    # Format the context - include paths and match snippets, not full content
+    # Limit to top 5 most relevant results to avoid context bloat
+    results = results[:5]
+
+    lines = ["## PRIOR INVESTIGATIONS (from kb)\n"]
+    lines.append("*Relevant investigations and decisions discovered. Review for context.*\n")
+
+    for item in results:
+        title = item.get('Title', item.get('Name', 'Unknown'))
+        path = item.get('Path', '')
+        item_type = item.get('Type', 'unknown')
+        matches = item.get('Matches', [])
+
+        # Make path relative to project for readability
+        if path.startswith(str(project_dir)):
+            rel_path = path[len(str(project_dir)) + 1:]
+        else:
+            rel_path = path
+
+        lines.append(f"### {title}")
+        lines.append(f"- **Path:** `{rel_path}`")
+        lines.append(f"- **Type:** {item_type}")
+
+        # Include up to 2 match snippets for context
+        if matches:
+            lines.append("- **Relevant excerpts:**")
+            for match in matches[:2]:
+                # Clean up the match - remove line numbers prefix if present
+                match_text = match.strip()
+                if ':' in match_text[:10]:  # Has line number prefix
+                    match_text = match_text.split(':', 1)[1].strip()
+                # Truncate long matches
+                if len(match_text) > 200:
+                    match_text = match_text[:200] + "..."
+                lines.append(f"  - _{match_text}_")
+        lines.append("")
+
+    lines.append("*If these investigations are relevant, read the full files for detailed context.*\n")
+
+    return "\n".join(lines)
+
+
 def load_kn_context(task: str, project_dir: Path) -> Optional[str]:
     """
     Load relevant knowledge context from kn for the spawn task.
@@ -818,6 +925,12 @@ Signal orchestrator when blocked:
     kn_context = load_kn_context(config.task, config.project_dir)
     if kn_context:
         additional_parts.append(kn_context)
+
+    # Prior investigations from kb (smart auto-inject)
+    # Surfaces relevant investigations and decisions for deeper context
+    kb_context = load_kb_context(config.task, config.project_dir)
+    if kb_context:
+        additional_parts.append(kb_context)
 
     # Beads progress tracking (when spawned from a beads issue)
     if config.beads_id:
