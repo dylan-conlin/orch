@@ -36,6 +36,48 @@ from orch.verification import (
 )
 
 
+def send_exit_command(window_id: str, timeout_seconds: int = 5) -> bool:
+    """
+    Send /exit command to a tmux window and wait for processes to terminate.
+
+    Args:
+        window_id: Tmux window ID (e.g., '@123')
+        timeout_seconds: How long to wait for processes to terminate (default: 5)
+
+    Returns:
+        True if processes terminated after /exit, False if still running
+    """
+    import subprocess
+    import time
+
+    try:
+        # Send /exit command
+        subprocess.run(
+            ['tmux', 'send-keys', '-t', window_id, '/exit'],
+            check=False,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Wait a moment for message to be pasted
+        time.sleep(0.5)
+
+        # Send Enter to execute the command
+        subprocess.run(
+            ['tmux', 'send-keys', '-t', window_id, 'Enter'],
+            check=False,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Wait for processes to terminate
+        time.sleep(timeout_seconds)
+
+        # Check if processes are gone
+        return not has_active_processes(window_id)
+
+    except Exception:
+        return False
+
+
 class BeadsPhaseNotCompleteError(Exception):
     """Raised when trying to close a beads issue without Phase: Complete comment."""
 
@@ -119,12 +161,16 @@ def clean_up_agent(agent_id: str, force: bool = False) -> None:
         # Check for active processes and attempt graceful shutdown
         if has_active_processes(window_id):
             if not graceful_shutdown_window(window_id):
-                if not force:
-                    raise RuntimeError(
-                        f"Agent {agent_id} has active processes that did not terminate. "
-                        f"Cannot safely kill window {window_id}. "
-                        f"Try 'orch send {agent_id} \"/exit\"' first."
-                    )
+                # Graceful shutdown (Ctrl+C) didn't work, try /exit command
+                click.echo(f"⏳ Sending /exit to agent {agent_id}...")
+                if not send_exit_command(window_id):
+                    # /exit also didn't work
+                    if not force:
+                        raise RuntimeError(
+                            f"Agent {agent_id} has active processes that did not terminate. "
+                            f"Cannot safely kill window {window_id}. "
+                            f"Tried /exit but processes still running."
+                        )
 
         try:
             # Get session name from window

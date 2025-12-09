@@ -506,6 +506,170 @@ class TestProcessChecking:
 # Beads is now the source of truth for agent state
 
 
+class TestAutoExitOnComplete:
+    """Tests for auto-sending /exit when Phase: Complete but process still running."""
+
+    def test_clean_up_agent_sends_exit_when_graceful_shutdown_fails(self):
+        """
+        Test that clean_up_agent sends /exit command when graceful shutdown fails.
+
+        When Phase: Complete is verified but processes are still running,
+        clean_up_agent should:
+        1. Try graceful_shutdown_window (Ctrl+C) - which fails
+        2. Auto-send /exit command to the agent
+        3. Wait for processes to terminate
+        4. Only raise error if still running after exit attempt
+        """
+        from orch.complete import clean_up_agent
+
+        mock_agent = {
+            'id': 'test-agent',
+            'window_id': '@123',
+            'status': 'active'
+        }
+
+        with patch('orch.registry.AgentRegistry') as MockRegistry:
+            mock_registry_instance = Mock()
+            mock_registry_instance.find.return_value = mock_agent
+            MockRegistry.return_value = mock_registry_instance
+
+            # Mock has_active_processes to return True first (processes running),
+            # then False after /exit (processes terminated)
+            has_active_processes_calls = [True, True, False]  # First call, second after Ctrl+C, third after /exit
+
+            with patch('orch.complete.has_active_processes') as mock_has_processes:
+                mock_has_processes.side_effect = has_active_processes_calls
+
+                # graceful_shutdown_window returns False (Ctrl+C didn't work)
+                with patch('orch.complete.graceful_shutdown_window', return_value=False):
+                    # Mock send_exit_command to track it was called
+                    with patch('orch.complete.send_exit_command') as mock_send_exit:
+                        mock_send_exit.return_value = True  # Exit succeeded
+
+                        with patch('orch.complete.list_windows') as mock_list_windows:
+                            mock_list_windows.return_value = [
+                                {'index': '1', 'name': 'main', 'id': '@100'},
+                                {'index': '2', 'name': 'agent', 'id': '@123'}
+                            ]
+
+                            with patch('subprocess.run') as mock_run:
+                                def subprocess_side_effect(cmd, *args, **kwargs):
+                                    if 'display-message' in cmd:
+                                        result = Mock()
+                                        result.returncode = 0
+                                        result.stdout = 'orchestrator\n'
+                                        return result
+                                    return Mock(returncode=0, stdout='', stderr='')
+
+                                mock_run.side_effect = subprocess_side_effect
+
+                                # Should NOT raise error - exit command should work
+                                clean_up_agent('test-agent')
+
+                                # Verify send_exit_command was called
+                                mock_send_exit.assert_called_once_with('@123')
+
+    def test_clean_up_agent_raises_error_if_exit_fails(self):
+        """
+        Test that clean_up_agent raises error if /exit doesn't terminate processes.
+
+        If even /exit doesn't work, we should still raise RuntimeError.
+        """
+        from orch.complete import clean_up_agent
+
+        mock_agent = {
+            'id': 'test-agent',
+            'window_id': '@123',
+            'status': 'active'
+        }
+
+        with patch('orch.registry.AgentRegistry') as MockRegistry:
+            mock_registry_instance = Mock()
+            mock_registry_instance.find.return_value = mock_agent
+            MockRegistry.return_value = mock_registry_instance
+
+            # Processes always running (both Ctrl+C and /exit fail)
+            with patch('orch.complete.has_active_processes', return_value=True):
+                with patch('orch.complete.graceful_shutdown_window', return_value=False):
+                    with patch('orch.complete.send_exit_command', return_value=False):
+                        # Should raise RuntimeError since /exit also failed
+                        with pytest.raises(RuntimeError) as exc_info:
+                            clean_up_agent('test-agent')
+
+                        assert 'active processes' in str(exc_info.value).lower()
+                        assert 'test-agent' in str(exc_info.value)
+
+    def test_clean_up_agent_shows_exit_message(self, capsys):
+        """Test that clean_up_agent prints message when sending /exit."""
+        from orch.complete import clean_up_agent
+
+        mock_agent = {
+            'id': 'test-agent',
+            'window_id': '@123',
+            'status': 'active'
+        }
+
+        with patch('orch.registry.AgentRegistry') as MockRegistry:
+            mock_registry_instance = Mock()
+            mock_registry_instance.find.return_value = mock_agent
+            MockRegistry.return_value = mock_registry_instance
+
+            # Processes running until /exit
+            has_active_calls = [True, True, False]
+            with patch('orch.complete.has_active_processes') as mock_has_processes:
+                mock_has_processes.side_effect = has_active_calls
+                with patch('orch.complete.graceful_shutdown_window', return_value=False):
+                    with patch('orch.complete.send_exit_command', return_value=True):
+                        with patch('orch.complete.list_windows', return_value=[
+                            {'index': '1', 'name': 'main', 'id': '@100'},
+                            {'index': '2', 'name': 'agent', 'id': '@123'}
+                        ]):
+                            with patch('subprocess.run') as mock_run:
+                                mock_run.return_value = Mock(returncode=0, stdout='orchestrator\n', stderr='')
+
+                                clean_up_agent('test-agent')
+
+                                captured = capsys.readouterr()
+                                assert '/exit' in captured.out.lower() or 'sending' in captured.out.lower()
+
+
+class TestSendExitCommand:
+    """Tests for the send_exit_command helper function."""
+
+    def test_send_exit_command_sends_exit_and_waits(self):
+        """Test send_exit_command sends /exit and waits for processes to terminate."""
+        from orch.complete import send_exit_command
+
+        # Processes terminate after /exit (only checked once at end)
+        with patch('orch.complete.has_active_processes', return_value=False):  # Terminated
+            with patch('subprocess.run') as mock_run:
+                mock_run.return_value = Mock(returncode=0)
+                with patch('time.sleep'):  # Don't actually sleep in tests
+                    result = send_exit_command('@123')
+
+        assert result is True
+
+        # Verify /exit was sent via tmux send-keys
+        send_keys_calls = [call for call in mock_run.call_args_list
+                          if 'send-keys' in str(call)]
+        assert len(send_keys_calls) >= 1
+        # First call should send /exit
+        assert '/exit' in str(send_keys_calls[0])
+
+    def test_send_exit_command_returns_false_if_timeout(self):
+        """Test send_exit_command returns False if processes don't terminate."""
+        from orch.complete import send_exit_command
+
+        # Processes never terminate
+        with patch('orch.complete.has_active_processes', return_value=True):
+            with patch('subprocess.run') as mock_run:
+                mock_run.return_value = Mock(returncode=0)
+                with patch('time.sleep'):
+                    result = send_exit_command('@123', timeout_seconds=5)
+
+        assert result is False
+
+
 class TestInvestigationArtifactFallback:
     """Tests for investigation file verification fallback behavior.
 
