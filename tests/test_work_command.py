@@ -160,28 +160,11 @@ class TestWorkCommandBasic:
             assert 'closed' in result.output.lower()
 
 
-class TestWorkCommandInteractive:
-    """Tests for interactive picker mode."""
+class TestWorkCommandNoArgs:
+    """Tests for orch work without arguments - should list ready issues and exit."""
 
-    def test_work_no_args_shows_picker(self):
-        """Test orch work with no args shows interactive picker."""
-        mock_ready = json.dumps([
-            {
-                "id": "orch-cli-abc",
-                "title": "Task 1",
-                "status": "open",
-                "priority": 1,
-                "issue_type": "feature"
-            },
-            {
-                "id": "orch-cli-def",
-                "title": "Task 2",
-                "status": "open",
-                "priority": 2,
-                "issue_type": "bug"
-            }
-        ])
-
+    def test_work_no_args_shows_list_and_exits(self):
+        """Test orch work with no args shows ready issues list and exits (no interactive mode)."""
         runner = CliRunner()
         with patch('orch.work_commands.get_ready_issues') as mock_ready_fn:
             mock_ready_fn.return_value = [
@@ -189,11 +172,30 @@ class TestWorkCommandInteractive:
                 {"id": "orch-cli-def", "title": "Task 2", "status": "open", "priority": 2, "issue_type": "bug"}
             ]
 
-            # Simulate user quitting the picker
-            result = runner.invoke(cli, ['work'], input='q\n')
+            # NO INPUT - should not require any input
+            result = runner.invoke(cli, ['work'])
 
-            # Should show available issues
-            assert 'orch-cli-abc' in result.output or 'Task 1' in result.output
+            # Should show available issues with their skills
+            assert 'orch-cli-abc' in result.output
+            assert 'orch-cli-def' in result.output
+            assert 'feature-impl' in result.output  # Inferred skill for feature
+            assert 'systematic-debugging' in result.output  # Inferred skill for bug
+            # Should exit successfully without prompting
+            assert result.exit_code == 0
+
+    def test_work_no_args_suggests_command(self):
+        """Test orch work shows suggested spawn command for each issue."""
+        runner = CliRunner()
+        with patch('orch.work_commands.get_ready_issues') as mock_ready_fn:
+            mock_ready_fn.return_value = [
+                {"id": "orch-cli-abc", "title": "Task 1", "status": "open", "priority": 1, "issue_type": "feature"},
+            ]
+
+            result = runner.invoke(cli, ['work'])
+
+            # Should show suggested command
+            assert 'orch work orch-cli-abc' in result.output
+            assert result.exit_code == 0
 
     def test_work_no_ready_issues(self):
         """Test orch work when no ready issues exist."""
