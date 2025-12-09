@@ -131,8 +131,9 @@ def register_monitoring_commands(cli):
     @click.option('--project', help='Filter by project directory (exact match or substring)')
     @click.option('--filter', 'workspace_filter', help='Filter by workspace name pattern (e.g., "investigate-*")')
     @click.option('--status', 'status_filter', help='Filter by phase/status (e.g., "Planning", "Complete", "blocked")')
+    @click.option('--include-completed', 'include_completed', is_flag=True, help='Include completed agents (default: active only)')
     @click.option('--registry', 'registry_path', type=click.Path(exists=True), hidden=True, help='Registry path (for testing)')
-    def status(compact, session, check_context, output_format, json_flag, global_flag, project, workspace_filter, status_filter, registry_path):
+    def status(compact, session, check_context, output_format, json_flag, global_flag, project, workspace_filter, status_filter, include_completed, registry_path):
         """Quick-glance agent monitoring.
 
         \b
@@ -169,7 +170,8 @@ def register_monitoring_commands(cli):
             "global": global_flag,
             "project": project,
             "workspace_filter": workspace_filter,
-            "status_filter": status_filter
+            "status_filter": status_filter,
+            "include_completed": include_completed
         })
 
         # Load registry (use custom path for testing)
@@ -245,9 +247,12 @@ def register_monitoring_commands(cli):
         # Get active agents
         agents = registry.list_active_agents()
 
-        # Phase 2.5: Also get completed agents (for autonomous verification workflow)
-        # Completed agents need to be processed via `orch complete`
-        completed_agents = [a for a in registry.list_agents() if a.get('status') == 'completed']
+        # Get completed agents only when --include-completed flag is set
+        # This makes the default output cleaner (active only)
+        if include_completed:
+            completed_agents = [a for a in registry.list_agents() if a.get('status') == 'completed']
+        else:
+            completed_agents = []
 
         # Automatic project scoping: filter to git root if no filters specified
         # This allows running 'orch status' from subdirectories and seeing project agents
@@ -341,7 +346,9 @@ def register_monitoring_commands(cli):
         if output_format == 'json':
             # Serialize agent data to JSON
             agents_data = []
-            for agent, status_obj in agent_statuses:
+
+            # Helper function to serialize an agent
+            def serialize_agent(agent, status_obj):
                 agent_data = {
                     "agent_id": agent['id'],
                     "workspace": agent['workspace'],
@@ -350,7 +357,8 @@ def register_monitoring_commands(cli):
                     "alerts": status_obj.alerts,
                     "priority": status_obj.priority,
                     "started_at": agent.get('spawned_at', 'unknown'),
-                    "window": agent.get('window', 'unknown')
+                    "window": agent.get('window', 'unknown'),
+                    "status": agent.get('status', 'active')
                 }
 
                 # Include beads issue info if available
@@ -365,7 +373,15 @@ def register_monitoring_commands(cli):
                     from orch.json_output import serialize_context_info
                     agent_data["context_info"] = serialize_context_info(status_obj.context_info)
 
-                agents_data.append(agent_data)
+                return agent_data
+
+            # Add active agents
+            for agent, status_obj in agent_statuses:
+                agents_data.append(serialize_agent(agent, status_obj))
+
+            # Add completed agents when --include-completed is set
+            for agent, status_obj in completed_statuses:
+                agents_data.append(serialize_agent(agent, status_obj))
 
             # Calculate duration
             duration_ms = int((time.time() - start_time) * 1000)
@@ -377,6 +393,7 @@ def register_monitoring_commands(cli):
                 "warnings": len(warnings),
                 "info": len(info),
                 "working": len(working),
+                "completed": len(completed_statuses),
                 "format": "json"
             })
 
