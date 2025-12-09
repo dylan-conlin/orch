@@ -1,60 +1,55 @@
-**TLDR:** [One sentence restating the investigation question.] [One-two sentences summarizing the answer/conclusion.] [Confidence level and key limitation.]
-
-<!--
-Example TLDR:
-"Question: Why aren't worker agents running tests? Answer: Agents follow documentation literally but test-running guidance isn't in spawn prompts or CLAUDE.md, only buried in separate docs. High confidence (85%) - validated across 5 agent sessions but small sample size."
-
-Guidelines:
-- Keep to 2-3 sentences maximum
-- Answer: What question? What's the answer? How confident?
-- Enable 30-second understanding for fresh Claude
--->
+**TLDR:** Question: How to implement orch end for clean session exit with knowledge capture gates? Answer: Implemented using TDD with tmux context detection, kn entry checking, soft gate prompt, and /exit injection via tmux send-keys. High confidence (95%) - all 16 tests passing, reused proven patterns from existing codebase.
 
 ---
 
-# Investigation: [Investigation Title]
+# Investigation: orch end Command Implementation
 
-**Question:** [Clear, specific question this investigation answers]
+**Question:** How to implement `orch end` for clean session exit with knowledge capture gates?
 
-**Started:** [YYYY-MM-DD]
-**Updated:** [YYYY-MM-DD]
-**Owner:** [Owner name or team]
-**Phase:** [Investigating/Synthesizing/Complete]
-**Next Step:** [Very next action when Active, or "None" when Complete]
-**Status:** [In Progress/Complete/Paused]
-**Confidence:** [Very Low (<40%) / Low (40-59%) / Medium (60-79%) / High (80-94%) / Very High (95%+)]
+**Started:** 2025-12-09
+**Updated:** 2025-12-09
+**Owner:** Worker agent (feature-impl)
+**Phase:** Complete
+**Next Step:** None
+**Status:** Complete
+**Confidence:** Very High (95%)
 
 ---
 
 ## Findings
 
-### Finding 1: [Brief, descriptive title]
+### Finding 1: tmux send-keys pattern works reliably
 
-**Evidence:** [Concrete observations, data, examples]
+**Evidence:** Used existing pattern from `complete.py:send_exit_command()` which sends `/exit` + Enter via tmux send-keys. This pattern is already proven in production.
 
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
+**Source:** `src/orch/complete.py` lines 54-69
 
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
-
----
-
-### Finding 2: [Brief, descriptive title]
-
-**Evidence:** [Concrete observations, data, examples]
-
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
-
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
+**Significance:** No new infrastructure needed - reused proven pattern for clean /exit injection.
 
 ---
 
-### Finding 3: [Brief, descriptive title]
+### Finding 2: Session detection already implemented
 
-**Evidence:** [Concrete observations, data, examples]
+**Evidence:** Session start time detection exists in `orchestrator-session-kn-gate.py`:
+- Orchestrators: `~/.orch/current-session.json` with `started_at` field
+- Workers: Fallback to 2 hours ago
 
-**Source:** [File paths with line numbers, commands run, specific artifacts examined]
+**Source:** `~/.orch/hooks/orchestrator-session-kn-gate.py` lines 81-101
 
-**Significance:** [Why this matters, what it tells us, implications for the investigation question]
+**Significance:** Reused existing logic for session start detection.
+
+---
+
+### Finding 3: kn entry reading pattern works
+
+**Evidence:** Reading `.kn/entries.jsonl` and filtering by timestamp is proven in hooks. Pattern handles:
+- Timezone-aware/naive datetime comparison
+- Invalid JSON lines
+- Missing .kn directory
+
+**Source:** `~/.orch/hooks/orchestrator-session-kn-gate.py` lines 104-160
+
+**Significance:** Adapted this logic for the end command with minor modifications.
 
 ---
 
@@ -62,150 +57,106 @@ Guidelines:
 
 **Key Insights:**
 
-1. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
+1. **TDD worked well** - Writing 16 tests first ensured comprehensive coverage of all behaviors
 
-2. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
+2. **Pattern reuse minimized risk** - All core patterns (tmux send-keys, session detection, kn reading) came from existing proven code
 
-3. **[Insight title]** - [Explanation of the insight, connecting multiple findings]
+3. **Soft gate is appropriate** - Unlike hard gates, users can still exit when needed, but get reminded about knowledge capture
 
 **Answer to Investigation Question:**
 
-[Clear, direct answer to the question posed at the top of this investigation. Reference specific findings that support this answer. Acknowledge any limitations or gaps.]
+Implementation complete with:
+- `src/orch/end.py` - Core logic (257 lines)
+- `src/orch/end_commands.py` - CLI registration
+- `tests/test_end.py` - 16 tests covering all behaviors
 
 ---
 
 ## Confidence Assessment
 
-**Current Confidence:** [Level] ([Percentage])
+**Current Confidence:** Very High (95%)
 
 **Why this level?**
 
-[Explanation of why you chose this confidence level - what evidence supports it, what's strong vs uncertain]
+All tests pass. Implementation follows proven patterns. Design was pre-validated.
 
 **What's certain:**
 
-- ✅ [Thing you're confident about with supporting evidence]
-- ✅ [Thing you're confident about with supporting evidence]
-- ✅ [Thing you're confident about with supporting evidence]
+- ✅ tmux detection works (TMUX env var + pane ID)
+- ✅ kn entry reading works (tested with fixtures)
+- ✅ Soft gate prompts when no entries
+- ✅ /exit injection uses proven pattern
 
 **What's uncertain:**
 
-- ⚠️ [Area of uncertainty or limitation]
-- ⚠️ [Area of uncertainty or limitation]
-- ⚠️ [Area of uncertainty or limitation]
+- ⚠️ Real-world behavior when Claude Code receives /exit (not tested in CI)
 
-**What would increase confidence to [next level]:**
+**What would increase confidence to Very High (95%+):**
 
-- [Specific additional investigation or evidence needed]
-- [Specific additional investigation or evidence needed]
-- [Specific additional investigation or evidence needed]
-
-**Confidence levels guide:**
-- **Very High (95%+):** Strong evidence, minimal uncertainty, unlikely to change
-- **High (80-94%):** Solid evidence, minor uncertainties, confident to act
-- **Medium (60-79%):** Reasonable evidence, notable gaps, validate before major commitment
-- **Low (40-59%):** Limited evidence, high uncertainty, proceed with caution
-- **Very Low (<40%):** Highly speculative, more investigation needed
+- Already at 95%
 
 ---
 
-## Implementation Recommendations
+## Implementation Summary
 
-**Purpose:** Bridge from investigation findings to actionable implementation using directive guidance pattern (strong recommendations + visible reasoning).
+**Files created:**
+- `src/orch/end.py` - Core logic
+- `src/orch/end_commands.py` - CLI command registration
+- `tests/test_end.py` - Test suite (16 tests)
 
-### Recommended Approach ⭐
+**Files modified:**
+- `src/orch/cli.py` - Added end command registration
 
-**[Approach Name]** - [One sentence stating the recommended implementation]
+**Command behavior:**
+```
+$ orch end
 
-**Why this approach:**
-- [Key benefit 1 based on findings]
-- [Key benefit 2 based on findings]
-- [How this directly addresses investigation findings]
+# Success path (has knowledge entries):
+✓ Knowledge captured: 2 entries
+Sending /exit...
 
-**Trade-offs accepted:**
-- [What we're giving up or deferring]
-- [Why that's acceptable given findings]
+# Soft gate path (no entries):
+⚠️  No knowledge captured this session.
 
-**Implementation sequence:**
-1. [First step - why it's foundational]
-2. [Second step - why it comes next]
-3. [Third step - builds on previous]
+Consider before exiting:
+  kn decide "what" --reason "why"
+  kn tried "what" --failed "why"
+  kn constrain "rule" --reason "why"
 
-### Alternative Approaches Considered
+Exit anyway? [y/N]: y
+Sending /exit...
 
-**Option B: [Alternative approach]**
-- **Pros:** [Benefits]
-- **Cons:** [Why not recommended - reference findings]
-- **When to use instead:** [Conditions where this might be better]
-
-**Option C: [Alternative approach]**
-- **Pros:** [Benefits]
-- **Cons:** [Why not recommended - reference findings]
-- **When to use instead:** [Conditions where this might be better]
-
-**Rationale for recommendation:** [Brief synthesis of why Option A beats alternatives given investigation findings]
-
----
-
-### Implementation Details
-
-**What to implement first:**
-- [Highest priority change based on findings]
-- [Quick wins or foundational work]
-- [Dependencies that need to be addressed early]
-
-**Things to watch out for:**
-- ⚠️ [Edge cases or gotchas discovered during investigation]
-- ⚠️ [Areas of uncertainty that need validation during implementation]
-- ⚠️ [Performance, security, or compatibility concerns to address]
-
-**Areas needing further investigation:**
-- [Questions that arose but weren't in scope]
-- [Uncertainty areas that might affect implementation]
-- [Optional deep-dives that could improve the solution]
-
-**Success criteria:**
-- ✅ [How to know the implementation solved the investigated problem]
-- ✅ [What to test or validate]
-- ✅ [Metrics or observability to add]
+# Error path (not in tmux):
+Error: orch end requires tmux
+```
 
 ---
 
 ## References
 
 **Files Examined:**
-- [File path] - [What you looked at and why]
-- [File path] - [What you looked at and why]
+- `src/orch/complete.py` - tmux send-keys pattern
+- `src/orch/tmux_utils.py` - tmux utilities
+- `~/.orch/hooks/orchestrator-session-kn-gate.py` - session detection, kn reading
 
-**Commands Run:**
-```bash
-# [Command description]
-[command]
-
-# [Command description]
-[command]
-```
-
-**External Documentation:**
-- [Link or reference] - [What it is and relevance]
-
-**Related Artifacts:**
-- **Decision:** [Path to related decision document] - [How it relates]
-- **Investigation:** [Path to related investigation] - [How it relates]
-- **Workspace:** [Path to related workspace] - [How it relates]
+**Design Reference:**
+- `~/orch-knowledge/.kb/investigations/2025-12-09-design-add-orch-end-command-clean.md`
 
 ---
 
 ## Investigation History
 
-**[YYYY-MM-DD HH:MM]:** Investigation started
-- Initial question: [Original question as posed]
-- Context: [Why this investigation was initiated]
+**2025-12-09 ~14:40:** Investigation started
+- Initial question: How to implement orch end?
+- Context: Design already complete, starting TDD implementation
 
-**[YYYY-MM-DD HH:MM]:** [Milestone or significant finding]
-- [Description of what happened or was discovered]
+**2025-12-09 ~14:45:** TDD cycle 1 complete
+- Basic command skeleton with tests
 
-**[YYYY-MM-DD HH:MM]:** Investigation completed
-- Final confidence: [Level] ([Percentage])
-- Status: [Complete/Paused with reason]
-- Key outcome: [One sentence summary of result]
+**2025-12-09 ~15:00:** TDD cycle 2 complete
+- Full implementation with all 16 tests passing
+
+**2025-12-09 ~15:05:** Investigation completed
+- Final confidence: Very High (95%)
+- Status: Complete
+- Key outcome: `orch end` command implemented and tested
