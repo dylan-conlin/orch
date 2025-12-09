@@ -131,6 +131,20 @@ class BeadsIntegration:
         # Parse labels if present
         labels = issue_data.get("labels")  # None if key missing, [] if empty array
 
+        # Parse dependents (child issues) if present
+        dependents = None
+        dependents_data = issue_data.get("dependents")
+        if dependents_data is not None:
+            dependents = [
+                BeadsDependency(
+                    id=dep.get("id", ""),
+                    title=dep.get("title", ""),
+                    status=dep.get("status", ""),
+                    dependency_type=dep.get("dependency_type", "")
+                )
+                for dep in dependents_data
+            ]
+
         return BeadsIssue(
             id=issue_data.get("id", issue_id),
             title=issue_data.get("title", ""),
@@ -141,6 +155,7 @@ class BeadsIntegration:
             dependencies=dependencies,
             issue_type=issue_data.get("issue_type"),
             labels=labels,
+            dependents=dependents,
         )
 
     def get_open_blockers(self, issue_id: str) -> list:
@@ -169,6 +184,43 @@ class BeadsIntegration:
             dep for dep in issue.dependencies
             if dep.dependency_type == "blocks" and dep.status == "open"
         ]
+
+    def get_child_convergence(self, issue_id: str) -> Optional[dict]:
+        """Get child issue convergence stats for a parent issue.
+
+        Calculates how many child issues are complete vs total.
+
+        Args:
+            issue_id: The beads issue ID
+
+        Returns:
+            Dict with convergence stats: {"total": N, "closed": N, "in_progress": N, "open": N}
+            or None if the issue has no children.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+            BeadsIssueNotFoundError: If the issue doesn't exist
+        """
+        issue = self.get_issue(issue_id)
+        if issue.dependents is None or len(issue.dependents) == 0:
+            return None
+
+        stats = {
+            "total": len(issue.dependents),
+            "closed": 0,
+            "in_progress": 0,
+            "open": 0,
+        }
+
+        for child in issue.dependents:
+            if child.status == "closed":
+                stats["closed"] += 1
+            elif child.status == "in_progress":
+                stats["in_progress"] += 1
+            else:
+                stats["open"] += 1
+
+        return stats
 
     def update_issue_notes(self, issue_id: str, notes: str) -> None:
         """Update the notes field of a beads issue.

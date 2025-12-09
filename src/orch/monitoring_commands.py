@@ -54,6 +54,45 @@ def _get_issue_title(beads_id: str, db_path: str = None) -> str | None:
         return None
 
 
+def _get_issue_convergence(beads_id: str, db_path: str = None) -> dict | None:
+    """Fetch child issue convergence stats for a parent issue.
+
+    Args:
+        beads_id: Beads issue ID
+        db_path: Optional path to beads database
+
+    Returns:
+        Convergence dict {total, closed, in_progress, open} or None if no children
+    """
+    from orch.beads_integration import (
+        BeadsIntegration,
+        BeadsCLINotFoundError,
+        BeadsIssueNotFoundError,
+    )
+
+    try:
+        beads = BeadsIntegration(db_path=db_path) if db_path else BeadsIntegration()
+        return beads.get_child_convergence(beads_id)
+    except (BeadsCLINotFoundError, BeadsIssueNotFoundError):
+        return None
+
+
+def _format_convergence(convergence: dict | None) -> str:
+    """Format convergence stats for display.
+
+    Args:
+        convergence: Convergence dict from _get_issue_convergence
+
+    Returns:
+        Formatted string like "3/5 children complete" or empty string
+    """
+    if not convergence:
+        return ""
+    closed = convergence.get("closed", 0)
+    total = convergence.get("total", 0)
+    return f" [{closed}/{total} children complete]"
+
+
 def _format_agent_not_found_error(agent_id: str, registry: AgentRegistry) -> str:
     """Format a helpful 'agent not found' error message with active agents listed.
 
@@ -276,8 +315,9 @@ def register_monitoring_commands(cli):
         if status_filter:
             agent_statuses = filter_agents_by_status(agent_statuses, status_filter)
 
-        # Build cache of issue titles for agents spawned from beads issues
+        # Build cache of issue titles and convergence for agents spawned from beads issues
         issue_titles = {}
+        issue_convergence = {}
         all_agents_to_display = [a for a, s in agent_statuses] + [a for a, s in completed_statuses]
         for agent in all_agents_to_display:
             beads_id = agent.get('beads_id')
@@ -286,6 +326,10 @@ def register_monitoring_commands(cli):
                 title = _get_issue_title(beads_id, db_path)
                 if title:
                     issue_titles[beads_id] = title
+                # Also fetch convergence (may be None if no children)
+                convergence = _get_issue_convergence(beads_id, db_path)
+                if convergence:
+                    issue_convergence[beads_id] = convergence
 
         # Group by priority
         critical = [(a, s) for a, s in agent_statuses if s.priority == 'critical']
@@ -351,7 +395,7 @@ def register_monitoring_commands(cli):
             click.echo(f"🔴 NEEDS ATTENTION ({len(critical)})")
             for agent, status_obj in critical:
                 beads_id = agent.get('beads_id')
-                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                 click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]}){title_suffix}")
                 for alert in status_obj.alerts:
                     click.echo(f"    {alert['type'].upper()}: {alert['message']}")
@@ -367,7 +411,7 @@ def register_monitoring_commands(cli):
             for agent, status_obj in warnings:
                 window_info = f" (window {agent['window'].split(':')[1]})" if agent.get('window') else ""
                 beads_id = agent.get('beads_id')
-                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                 click.echo(f"  {agent['id']}{window_info}{title_suffix}")
                 for alert in status_obj.alerts:
                     click.echo(f"    ⚠️  {alert['message']}")
@@ -382,7 +426,7 @@ def register_monitoring_commands(cli):
             click.echo(f"⏸️  AWAITING VALIDATION ({len(info)})")
             for agent, status_obj in info:
                 beads_id = agent.get('beads_id')
-                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                 click.echo(f"  {agent['id']} (window {agent['window'].split(':')[1]}){title_suffix} - Phase: {status_obj.phase}")
                 for alert in status_obj.alerts:
                     click.echo(f"    ℹ️  {alert['message']}")
@@ -401,7 +445,7 @@ def register_monitoring_commands(cli):
                     ctx = status_obj.context_info
                     context_str = f" - Context: {ctx.percentage:.1f}%"
                 beads_id = agent.get('beads_id')
-                title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                 click.echo(f"  {agent['id']}{title_suffix} - Phase: {status_obj.phase}{context_str}")
 
                 # Phase 2: Display recommendation if available
@@ -437,7 +481,7 @@ def register_monitoring_commands(cli):
                 for agent, status_obj in this_session:
                     age_str = f" ({status_obj.age_str})" if status_obj.age_str else ""
                     beads_id = agent.get('beads_id')
-                    title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                    title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                     click.echo(f"  {agent['id']}{title_suffix}{age_str}")
                     if status_obj.recommendation:
                         click.echo(f"     └─ {status_obj.recommendation}")
@@ -450,7 +494,7 @@ def register_monitoring_commands(cli):
                     age_str = f" ({status_obj.age_str})" if status_obj.age_str else ""
                     stale_marker = "⏰ " if status_obj.is_stale else ""
                     beads_id = agent.get('beads_id')
-                    title_suffix = f' - "{issue_titles[beads_id]}"' if beads_id and beads_id in issue_titles else ""
+                    title_suffix = f' - "{issue_titles[beads_id]}"{_format_convergence(issue_convergence.get(beads_id))}' if beads_id and beads_id in issue_titles else ""
                     click.echo(f"  {stale_marker}{agent['id']}{title_suffix}{age_str}")
                     if status_obj.recommendation:
                         click.echo(f"     └─ {status_obj.recommendation}")

@@ -342,5 +342,157 @@ class TestCrossSessionReconciliation:
         assert len(agents_marked_completed) == 0, "Agent should not be marked completed when its window exists"
 
 
+class TestConvergenceDisplay:
+    """Tests for parent issue convergence display in status."""
+
+    def test_status_shows_convergence_for_parent_issues(self, cli_runner):
+        """Test that status shows convergence info for agents working on parent issues."""
+        from orch.cli import cli
+        import json
+        from pathlib import Path
+
+        # Mock agent working on a parent issue with children
+        mock_agents = [
+            {
+                'id': 'feat-epic-impl-08dec',
+                'window': 'orchestrator:1',
+                'project_dir': Path('/test/project'),
+                'workspace': '.orch/workspace/feat-epic-impl-08dec',
+                'beads_id': 'orch-cli-epic',
+                'status': 'active'
+            }
+        ]
+
+        # Mock issue data with dependents (children)
+        mock_issue_json = json.dumps([{
+            "id": "orch-cli-epic",
+            "title": "Epic: Big Feature",
+            "description": "",
+            "status": "open",
+            "priority": 1,
+            "issue_type": "epic",
+            "dependents": [
+                {"id": "abc", "title": "C1", "status": "closed", "dependency_type": "parent-child"},
+                {"id": "def", "title": "C2", "status": "closed", "dependency_type": "parent-child"},
+                {"id": "ghi", "title": "C3", "status": "in_progress", "dependency_type": "parent-child"},
+                {"id": "jkl", "title": "C4", "status": "open", "dependency_type": "parent-child"},
+                {"id": "mno", "title": "C5", "status": "closed", "dependency_type": "parent-child"},
+            ]
+        }])
+
+        with patch('orch.monitoring_commands.OrchLogger') as MockLogger:
+            mock_logger = Mock()
+            mock_logger.log_command_start = Mock()
+            mock_logger.log_command_complete = Mock()
+            MockLogger.return_value = mock_logger
+
+            with patch('orch.monitoring_commands.AgentRegistry') as MockRegistry:
+                mock_registry = Mock()
+                mock_registry.list_active_agents.return_value = mock_agents
+                mock_registry.list_agents.return_value = mock_agents
+                mock_registry.reconcile = Mock()
+                mock_registry.reconcile_opencode = Mock()
+                MockRegistry.return_value = mock_registry
+
+                with patch('orch.monitoring_commands.check_agent_status') as mock_check:
+                    mock_check.return_value = Mock(
+                        priority='ok',
+                        phase='Implementing',
+                        alerts=[],
+                        context_info=None,
+                        recommendation=None,
+                        completed_at=None,
+                        age_str=None,
+                        is_stale=False
+                    )
+
+                    # Mock git root detection
+                    with patch('orch.monitoring_commands.get_git_root', return_value=Path('/test/project')):
+                        # Mock context detection
+                        with patch('orch.monitoring_commands.detect_and_display_context'):
+                            # Mock beads subprocess calls
+                            with patch('orch.beads_integration.subprocess.run') as mock_beads_run:
+                                mock_beads_run.return_value = Mock(
+                                    returncode=0,
+                                    stdout=mock_issue_json,
+                                    stderr=""
+                                )
+
+                                with patch('os.getcwd', return_value='/test/project'):
+                                    result = cli_runner.invoke(cli, ['status', '--global'])
+
+        # Verify convergence info is displayed: "3/5 children complete"
+        assert result.exit_code == 0
+        assert '3/5' in result.output or 'children' in result.output.lower()
+
+    def test_status_no_convergence_for_leaf_issues(self, cli_runner):
+        """Test that convergence is not shown for issues without children."""
+        from orch.cli import cli
+        import json
+
+        # Mock agent working on a leaf issue (no children)
+        mock_agents = [
+            {
+                'id': 'feat-leaf-task-08dec',
+                'window': 'orchestrator:1',
+                'project_dir': '/test/project',
+                'workspace': '.orch/workspace/feat-leaf-task-08dec',
+                'beads_id': 'orch-cli-leaf',
+                'status': 'active'
+            }
+        ]
+
+        # Mock issue data without dependents
+        mock_issue_json = json.dumps([{
+            "id": "orch-cli-leaf",
+            "title": "Simple task",
+            "description": "",
+            "status": "in_progress",
+            "priority": 2,
+            "issue_type": "task"
+            # No dependents field
+        }])
+
+        with patch('orch.monitoring_commands.OrchLogger') as MockLogger:
+            mock_logger = Mock()
+            mock_logger.log_command_start = Mock()
+            mock_logger.log_command_complete = Mock()
+            MockLogger.return_value = mock_logger
+
+            with patch('orch.monitoring_commands.AgentRegistry') as MockRegistry:
+                mock_registry = Mock()
+                mock_registry.list_active_agents.return_value = mock_agents
+                mock_registry.list_agents.return_value = mock_agents
+                mock_registry.reconcile = Mock()
+                mock_registry.reconcile_opencode = Mock()
+                MockRegistry.return_value = mock_registry
+
+                with patch('orch.monitoring_commands.check_agent_status') as mock_check:
+                    mock_check.return_value = Mock(
+                        priority='ok',
+                        phase='Implementing',
+                        alerts=[],
+                        context_info=None,
+                        recommendation=None,
+                        completed_at=None,
+                        age_str=None,
+                        is_stale=False
+                    )
+
+                    with patch('subprocess.run') as mock_run:
+                        mock_run.return_value = Mock(
+                            returncode=0,
+                            stdout=mock_issue_json,
+                            stderr=""
+                        )
+
+                        with patch('os.getcwd', return_value='/test/project'):
+                            result = cli_runner.invoke(cli, ['status'])
+
+        # Verify no convergence info is displayed
+        assert result.exit_code == 0
+        assert 'children' not in result.output.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
