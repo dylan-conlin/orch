@@ -239,8 +239,8 @@ def register_monitoring_commands(cli):
             # Always reconcile - even if no windows found, this detects agents whose windows closed
             registry.reconcile(all_active_window_ids)
 
-        # Also reconcile opencode agents (separate from tmux)
-        registry.reconcile_opencode()
+        # Note: reconcile_opencode() removed in lifecycle simplification
+        # OpenCode agents tracked via beads, not separate reconciliation
 
         # Get active agents
         agents = registry.list_active_agents()
