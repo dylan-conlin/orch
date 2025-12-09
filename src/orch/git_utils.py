@@ -278,9 +278,13 @@ def validate_work_committed(directory: Path, exclude_files: Optional[list[str]] 
                         for excluded in exclude_files:
                             # Check if this change should be excluded:
                             # 1. Exact match: excluded path is the changed file
-                            # 2. Directory match: excluded path is inside a changed directory
+                            # 2. Changed file is inside excluded directory
+                            #    (e.g., change=".beads/issues.jsonl", excluded=".beads/")
+                            # 3. Excluded path is inside a changed directory
                             #    (e.g., change="?? .orch/", excluded=".orch/ROADMAP.org")
-                            if excluded == change_path or excluded.startswith(change_path):
+                            if (excluded == change_path or
+                                change_path.startswith(excluded) or
+                                excluded.startswith(change_path)):
                                 is_excluded = True
                                 break
 

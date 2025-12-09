@@ -211,3 +211,74 @@ class TestValidateWorkCommittedWithExclusions:
         is_valid, message = validate_work_committed(repo_dir, exclude_files=excluded_files)
 
         assert is_valid, f"Validation should pass for different status formats. Message: {message}"
+
+    def test_excludes_files_inside_excluded_directory(self, tmp_path):
+        """
+        Regression test: Files inside excluded directory should be excluded.
+
+        When exclude_files=[".beads/"], files like ".beads/issues.jsonl" should
+        be excluded because they are INSIDE the excluded directory.
+
+        This was a bug where the check used `excluded.startswith(change_path)`
+        instead of `change_path.startswith(excluded)`.
+        """
+        # Setup: Create a git repo
+        repo_dir = tmp_path / "test-repo"
+        repo_dir.mkdir()
+
+        # Initialize git repo
+        subprocess.run(['git', 'init'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], cwd=repo_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (repo_dir / "README.md").write_text("# Test Project")
+        subprocess.run(['git', 'add', 'README.md'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=repo_dir, check=True, capture_output=True)
+
+        # Create .beads directory with a file (simulates beads tracking files)
+        beads_dir = repo_dir / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "issues.jsonl").write_text('{"id": "test-123"}\n')
+
+        # Exclude the DIRECTORY with trailing slash
+        excluded_files = [".beads/"]
+
+        # Validate: Should pass because .beads/issues.jsonl is inside .beads/
+        is_valid, message = validate_work_committed(repo_dir, exclude_files=excluded_files)
+
+        assert is_valid, f"Files inside excluded directory should be excluded. Message: {message}"
+        assert message == "", f"Should have no warning message when only excluded dir modified. Got: {message}"
+
+    def test_excludes_nested_files_in_excluded_directory(self, tmp_path):
+        """
+        Test that deeply nested files inside excluded directory are excluded.
+
+        e.g., exclude_files=[".orch/"] should exclude ".orch/workspace/agent-1/SPAWN_CONTEXT.md"
+        """
+        # Setup: Create a git repo
+        repo_dir = tmp_path / "test-repo"
+        repo_dir.mkdir()
+
+        # Initialize git repo
+        subprocess.run(['git', 'init'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], cwd=repo_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (repo_dir / "README.md").write_text("# Test Project")
+        subprocess.run(['git', 'add', 'README.md'], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=repo_dir, check=True, capture_output=True)
+
+        # Create nested .orch structure
+        workspace_dir = repo_dir / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        (workspace_dir / "SPAWN_CONTEXT.md").write_text("# Agent Context")
+
+        # Exclude the root .orch directory
+        excluded_files = [".orch/"]
+
+        # Validate: Should pass - nested file is inside excluded directory
+        is_valid, message = validate_work_committed(repo_dir, exclude_files=excluded_files)
+
+        assert is_valid, f"Nested files inside excluded directory should be excluded. Message: {message}"
