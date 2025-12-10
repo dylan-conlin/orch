@@ -1130,5 +1130,17 @@ bd comment {beads_id} "QUESTION: Should we use JWT or session-based auth?"
             skill_path = f"~/.claude/skills/{config.skill_name}/SKILL.md"
         additional_parts.append(f"- Process guide: {skill_path}")
 
+    # Final completion protocol reminder (ok-r2fo fix)
+    # Place at END of spawn context so it's read closest to completion time.
+    # The early SESSION COMPLETE PROTOCOL block gets buried under 600+ lines;
+    # this re-surfaces the instructions at the moment they're needed.
+    additional_parts.append("""
+🚨 FINAL STEP - SESSION COMPLETE PROTOCOL:
+After your final commit, BEFORE doing anything else:
+1. `bd comment <beads-id> "Phase: Complete - [1-2 sentence summary]"`
+2. `/exit`
+
+⚠️ Your work is NOT complete until you run both commands.""")
+
     # Combine template with additional sections
     return prompt + "\n\n" + "\n".join(additional_parts)

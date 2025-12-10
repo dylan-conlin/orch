@@ -235,6 +235,45 @@ class TestSpawnPromptCompletionProtocol:
         assert "Work is NOT complete" in prompt or "cannot close" in prompt.lower(), \
             "Completion protocol should warn about consequences of not completing"
 
+    def test_final_step_completion_protocol_appears_at_end(self):
+        """
+        Verify FINAL STEP completion protocol appears at END of prompt.
+
+        The early SESSION COMPLETE PROTOCOL block gets buried under 600+ lines
+        of context and skill content. This fix (ok-r2fo) adds a final reminder
+        at the end so agents see it closest to when they need it.
+        """
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # FINAL STEP should be present
+        assert "FINAL STEP" in prompt, \
+            "Spawn prompt must include FINAL STEP completion reminder at end"
+
+        # Should include explicit commands
+        assert "bd comment <beads-id>" in prompt, \
+            "FINAL STEP must include explicit bd comment command"
+        assert "/exit" in prompt, \
+            "FINAL STEP must include /exit command"
+
+        # FINAL STEP should appear AFTER CONTEXT AVAILABLE (at the end)
+        final_step_pos = prompt.find("FINAL STEP")
+        context_pos = prompt.find("CONTEXT AVAILABLE")
+
+        assert final_step_pos > context_pos, (
+            f"FINAL STEP (pos {final_step_pos}) should appear "
+            f"after CONTEXT AVAILABLE (pos {context_pos}) - at the end of prompt"
+        )
+
 
 class TestMetaOrchestrationBoilerplateConditional:
     """
