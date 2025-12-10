@@ -160,6 +160,11 @@ class ClaudeBackend(Backend):
                 # Pass file path to --mcp-config (or JSON string if no workspace_path)
                 parts.append(f"--mcp-config {shlex.quote(mcp_config_path)}")
 
+        # Add -- separator to signal end of options
+        # This is critical for variadic options like --mcp-config <configs...>
+        # which would otherwise consume the prompt as another config argument
+        parts.append("--")
+
         # Shell-quote the prompt for safety
         quoted_prompt = shlex.quote(prompt)
         parts.append(quoted_prompt)

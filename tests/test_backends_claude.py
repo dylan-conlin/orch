@@ -48,6 +48,24 @@ class TestClaudeBackendBuildCommand:
         # Should contain default flags
         assert "--allowed-tools" in command
         assert "--dangerously-skip-permissions" in command
+        # Should contain -- separator before prompt
+        assert " -- " in command
+
+    def test_build_command_separator_before_prompt(self):
+        """build_command should include -- separator before prompt to prevent variadic option consumption."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+
+        command = backend.build_command(prompt)
+
+        # The -- should come before the prompt in the command
+        # This is critical for variadic options like --mcp-config <configs...>
+        separator_pos = command.find(" -- ")
+        prompt_pos = command.find("Test task")
+
+        assert separator_pos != -1, "Command should contain -- separator"
+        assert prompt_pos != -1, "Command should contain prompt"
+        assert separator_pos < prompt_pos, "-- separator should come before prompt"
 
     def test_build_command_with_options(self):
         """build_command should accept and use options parameter."""
