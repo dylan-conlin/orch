@@ -1010,11 +1010,67 @@ class TestBeadsExclusionFromGitValidation:
         assert result['success'] is True, f"Complete should succeed with uncommitted .kn/. Errors: {result.get('errors', [])}"
         assert '.kn' not in str(result.get('errors', [])), "Should not report .kn/ as uncommitted"
 
+    def test_complete_agent_work_excludes_kb_from_git_validation(self, tmp_path):
+        """
+        Test that complete_agent_work excludes .kb/ from git validation.
+
+        When `.kb/investigations/` files are created/modified (e.g., by kb create
+        during agent work), the validation should still pass because `.kb/`
+        changes are managed by the kb sync workflow, not by orch complete.
+        """
+        import subprocess
+
+        # Setup: Create git repo
+        project_dir = tmp_path
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=project_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (project_dir / "README.md").write_text("# Test")
+        subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial'], cwd=project_dir, check=True, capture_output=True)
+
+        # Setup workspace
+        workspace_name = "test-agent"
+        workspace_dir = project_dir / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Simulate kb investigation file (as if kb create generated it during agent work)
+        kb_dir = project_dir / ".kb" / "investigations"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "2025-12-10-debug-test.md").write_text('**TLDR:** Test investigation\n')
+
+        # Verify .kb/ is uncommitted (untracked)
+        status = subprocess.run(['git', 'status', '--porcelain'], cwd=project_dir, capture_output=True, text=True)
+        assert '.kb/' in status.stdout or 'investigations' in status.stdout, "Setup: .kb should be uncommitted"
+
+        # Mock agent with beads_id
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-789'
+        }
+
+        # Complete should succeed despite uncommitted .kb/ changes
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.complete.close_beads_issue', return_value=True):
+                    result = complete_agent_work(
+                        agent_id=workspace_name,
+                        project_dir=project_dir
+                    )
+
+        # Should succeed - .kb/ changes should be excluded from validation
+        assert result['success'] is True, f"Complete should succeed with uncommitted .kb/. Errors: {result.get('errors', [])}"
+        assert '.kb' not in str(result.get('errors', [])), "Should not report .kb/ as uncommitted"
+
     def test_complete_still_fails_for_other_uncommitted_files(self, tmp_path):
         """
-        Test that complete_agent_work still fails for non-.beads uncommitted files.
+        Test that complete_agent_work still fails for non-excluded uncommitted files.
 
-        We only exclude .beads/ - other uncommitted files should still fail validation.
+        We only exclude .beads/, .kn/, and .kb/ - other uncommitted files should still fail validation.
         """
         import subprocess
 

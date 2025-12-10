@@ -263,10 +263,13 @@ def complete_agent_work(
         return result
 
     # Validate work is committed
-    # Exclude .beads/ and .kn/ from validation - these are committed separately by their
-    # respective sync commands (bd sync, kn sync). This allows parallel orch complete
+    # Exclude .beads/, .kn/, and .kb/ from validation - these are committed separately by their
+    # respective sync commands (bd sync, kn sync, kb sync). This allows parallel orch complete
     # commands without git validation conflicts from auto-managed tracking files.
-    is_valid, warning_message = validate_work_committed(project_dir, exclude_files=[".beads/", ".kn/"])
+    # - .beads/ - beads issue tracking database
+    # - .kn/ - kn knowledge entries (decisions, constraints, tried)
+    # - .kb/ - kb investigation files and knowledge artifacts
+    is_valid, warning_message = validate_work_committed(project_dir, exclude_files=[".beads/", ".kn/", ".kb/"])
     if not is_valid:
         result['errors'].append(f"Git validation error:\n{warning_message}")
         return result
