@@ -886,6 +886,62 @@ class TestBeadsExclusionFromGitValidation:
         assert result['success'] is True, f"Complete should succeed with uncommitted .beads/. Errors: {result.get('errors', [])}"
         assert 'beads' not in str(result.get('errors', [])).lower(), "Should not report .beads/ as uncommitted"
 
+    def test_complete_agent_work_excludes_kn_from_git_validation(self, tmp_path):
+        """
+        Test that complete_agent_work excludes .kn/ from git validation.
+
+        When `.kn/entries.jsonl` is modified (e.g., by `kn constrain` or `kn decide`
+        during parallel agent operations), the validation should still pass because
+        `.kn/` changes are managed by the kn sync workflow, not by orch complete.
+        """
+        import subprocess
+
+        # Setup: Create git repo
+        project_dir = tmp_path
+        subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=project_dir, check=True, capture_output=True)
+
+        # Create initial commit
+        (project_dir / "README.md").write_text("# Test")
+        subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial'], cwd=project_dir, check=True, capture_output=True)
+
+        # Setup workspace
+        workspace_name = "test-agent"
+        workspace_dir = project_dir / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Simulate kn change (as if kn constrain modified it during parallel ops)
+        kn_dir = project_dir / ".kn"
+        kn_dir.mkdir(parents=True)
+        (kn_dir / "entries.jsonl").write_text('{"id":"kn-123","type":"constraint"}\n')
+
+        # Verify .kn/ is uncommitted
+        status = subprocess.run(['git', 'status', '--porcelain'], cwd=project_dir, capture_output=True, text=True)
+        assert '.kn/' in status.stdout or 'entries.jsonl' in status.stdout, "Setup: .kn should be uncommitted"
+
+        # Mock agent with beads_id
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-456'
+        }
+
+        # Complete should succeed despite uncommitted .kn/ changes
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.complete.close_beads_issue', return_value=True):
+                    result = complete_agent_work(
+                        agent_id=workspace_name,
+                        project_dir=project_dir
+                    )
+
+        # Should succeed - .kn/ changes should be excluded from validation
+        assert result['success'] is True, f"Complete should succeed with uncommitted .kn/. Errors: {result.get('errors', [])}"
+        assert '.kn' not in str(result.get('errors', [])), "Should not report .kn/ as uncommitted"
+
     def test_complete_still_fails_for_other_uncommitted_files(self, tmp_path):
         """
         Test that complete_agent_work still fails for non-.beads uncommitted files.
