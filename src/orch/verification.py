@@ -522,7 +522,14 @@ def _search_by_keywords(
 
 
 def _extract_investigation_phase(path: Path) -> Optional[str]:
-    """Extract Phase value from an investigation file."""
+    """Extract Phase value from an investigation file.
+
+    Supports multiple investigation file formats:
+    - **Phase:** value (kb-cli template)
+    - Phase: value (plain format)
+    - **Status:** Phase: value (combined format)
+    - **Status:** value (older template fallback, maps Status to Phase)
+    """
     path = Path(path).expanduser()
     if not path.exists():
         return None
@@ -532,13 +539,33 @@ def _extract_investigation_phase(path: Path) -> Optional[str]:
     except Exception:
         return None
 
+    # Try Phase patterns first (preferred format)
+    # All patterns require the field to be at the start of a line to avoid matching inline code
     match = re.search(
-        r'\*\*Phase:\*\*\s*([^\n]+)|^Phase:\s*([^\n]+)|^\*\*Status:\*\*\s+Phase:\s*([^\n]+)',
+        r'^\*\*Phase:\*\*\s*([^\n]+)|^Phase:\s*([^\n]+)|^\*\*Status:\*\*\s+Phase:\s*([^\n]+)',
         content,
         re.MULTILINE
     )
     if match:
         return (match.group(1) or match.group(2) or match.group(3)).strip()
+
+    # Fallback: Try **Status:** alone (for older template format)
+    # Maps Status values to Phase equivalents for compatibility
+    # Must be at start of line to avoid matching inline code
+    status_match = re.search(r'^\*\*Status:\*\*\s*([^\n]+)', content, re.MULTILINE)
+    if status_match:
+        status_value = status_match.group(1).strip()
+        # Map Status values to Phase equivalents
+        status_to_phase = {
+            'complete': 'Complete',
+            'resolved': 'Complete',
+            'active': 'Investigating',
+            'in progress': 'Investigating',
+            'paused': 'Paused',
+            'blocked': 'Blocked',
+            'abandoned': 'Abandoned',
+        }
+        return status_to_phase.get(status_value.lower(), status_value)
 
     return None
 
