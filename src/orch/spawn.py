@@ -591,6 +591,15 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
         else:
             raise ValueError(f"Unsupported backend: {config.backend}. Supported backends: claude, codex")
 
+        # Generate agent file if skill has tool restrictions (Claude backend only)
+        # Agent file provides native tool restrictions via --agent flag
+        agent_name = None
+        if config.backend == "claude":
+            agent_path = generate_agent_file(config)
+            if agent_path:
+                agent_name = agent_path.stem  # e.g., "investigation-worker"
+                logger.info(f"Generated agent file: {agent_path}")
+
         # Set context environment variables for spawned agent (backend-specific)
         workspace_abs = config.project_dir / ".orch" / "workspace" / config.workspace_name
         deliverables_list = ",".join(d.type for d in (config.deliverables or [])) if config.deliverables else "workspace"
@@ -599,10 +608,12 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
         env_vars = backend.get_env_vars(config, workspace_abs, deliverables_list)
         env_exports = " && ".join(f"export {key}={shlex.quote(value)}" for key, value in env_vars.items()) + " && "
 
-        # Build backend-specific command with options (model, etc.)
+        # Build backend-specific command with options (model, agent, etc.)
         backend_options = {}
         if config.model:
             backend_options['model'] = config.model
+        if agent_name:
+            backend_options['agent_name'] = agent_name
         backend_cmd = backend.build_command(minimal_prompt, backend_options if backend_options else None)
         full_cmd = f"{env_exports}{backend_cmd}"
 
