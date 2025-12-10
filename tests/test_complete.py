@@ -818,6 +818,74 @@ class TestInvestigationArtifactFallback:
         assert result.passed is False
         assert any("In Progress" in e and "Complete" in e for e in result.errors)
 
+    def test_verify_accepts_status_only_investigation_file(self, tmp_path):
+        """Test verification accepts **Status:** when **Phase:** is not present.
+
+        Some investigation templates use **Status:** instead of **Phase:**.
+        Verification should fallback to Status when Phase is missing.
+        """
+        from orch.verification import _verify_investigation_artifact
+
+        # Setup: Create investigation file with Status but no Phase (older template format)
+        inv_dir = tmp_path / ".kb" / "investigations"
+        inv_dir.mkdir(parents=True)
+        actual_file = inv_dir / "2025-12-09-status-only.md"
+        actual_file.write_text("""# Investigation: Status Only Template
+
+**Date:** 2025-12-09
+**Status:** Complete
+**Owner:** test-agent
+
+## Findings
+This file uses Status instead of Phase.
+""")
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "status-only"
+        workspace_path.mkdir(parents=True)
+
+        agent_info = {'beads_id': 'test-123'}
+
+        result = _verify_investigation_artifact(
+            primary_artifact=actual_file,
+            workspace_path=workspace_path,
+            project_dir=tmp_path,
+            agent_info=agent_info
+        )
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+
+    def test_verify_maps_resolved_status_to_complete(self, tmp_path):
+        """Test that **Status:** Resolved maps to Phase: Complete."""
+        from orch.verification import _verify_investigation_artifact
+
+        # Setup: Create investigation file with Status: Resolved
+        inv_dir = tmp_path / ".kb" / "investigations"
+        inv_dir.mkdir(parents=True)
+        actual_file = inv_dir / "2025-12-09-resolved-status.md"
+        actual_file.write_text("""# Investigation
+
+**Status:** Resolved
+
+## Findings
+Issue was resolved.
+""")
+
+        workspace_path = tmp_path / ".orch" / "workspace" / "resolved-status"
+        workspace_path.mkdir(parents=True)
+
+        agent_info = {'beads_id': 'test-123'}
+
+        result = _verify_investigation_artifact(
+            primary_artifact=actual_file,
+            workspace_path=workspace_path,
+            project_dir=tmp_path,
+            agent_info=agent_info
+        )
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+
 
 class TestBeadsExclusionFromGitValidation:
     """Tests for excluding .beads/ directory from git validation.
