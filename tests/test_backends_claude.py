@@ -1,5 +1,6 @@
 """Tests for ClaudeBackend implementation."""
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -7,7 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from orch.backends.claude import ClaudeBackend
+from orch.backends.claude import (
+    ClaudeBackend,
+    BUILTIN_MCP_SERVERS,
+    resolve_mcp_servers,
+)
 from orch.spawn import SpawnConfig
 
 
@@ -204,3 +209,132 @@ class TestClaudeBackendIntegration:
 
         # name should be a property
         assert isinstance(type(backend).name, property)
+
+
+class TestResolveMcpServers:
+    """Tests for resolve_mcp_servers() function."""
+
+    def test_resolve_builtin_server(self):
+        """Should resolve built-in MCP servers like playwright."""
+        result = resolve_mcp_servers("playwright")
+
+        assert result is not None
+        config = json.loads(result)
+        assert "mcpServers" in config
+        assert "playwright" in config["mcpServers"]
+        assert config["mcpServers"]["playwright"] == BUILTIN_MCP_SERVERS["playwright"]
+
+    def test_resolve_multiple_builtin_servers(self):
+        """Should resolve multiple built-in servers."""
+        result = resolve_mcp_servers("playwright,browser-use")
+
+        assert result is not None
+        config = json.loads(result)
+        assert "mcpServers" in config
+        assert "playwright" in config["mcpServers"]
+        assert "browser-use" in config["mcpServers"]
+
+    def test_resolve_empty_string_returns_none(self):
+        """Should return None for empty string."""
+        result = resolve_mcp_servers("")
+        assert result is None
+
+    def test_resolve_none_returns_none(self):
+        """Should return None for None input."""
+        result = resolve_mcp_servers(None)
+        assert result is None
+
+    def test_resolve_unknown_server_warns(self):
+        """Should warn but not fail for unknown servers."""
+        # Use a mock to capture the warning output
+        import click
+        with patch.object(click, 'echo') as mock_echo:
+            result = resolve_mcp_servers("unknown-server")
+
+            # Should have printed warning
+            mock_echo.assert_called()
+            warning_calls = [str(call) for call in mock_echo.call_args_list]
+            assert any("Unknown MCP server" in str(call) for call in warning_calls)
+
+            # Should return None since no valid servers
+            assert result is None
+
+    def test_resolve_mixed_known_unknown_servers(self):
+        """Should resolve known servers and warn about unknown ones."""
+        import click
+        with patch.object(click, 'echo'):
+            result = resolve_mcp_servers("playwright,unknown-server")
+
+        # Should still include the known server
+        assert result is not None
+        config = json.loads(result)
+        assert "playwright" in config["mcpServers"]
+        assert "unknown-server" not in config["mcpServers"]
+
+    def test_resolve_user_config_file(self, tmp_path):
+        """Should use user-defined config file if it exists."""
+        # Create a mock ~/.orch/mcp directory
+        mcp_dir = tmp_path / ".orch" / "mcp"
+        mcp_dir.mkdir(parents=True)
+
+        # Create user config file
+        user_config = {"command": "custom-mcp", "args": ["--custom"]}
+        user_config_file = mcp_dir / "custom-server.json"
+        user_config_file.write_text(json.dumps(user_config))
+
+        # Patch Path.home() to use tmp_path
+        with patch.object(Path, 'home', return_value=tmp_path):
+            result = resolve_mcp_servers("custom-server")
+
+        assert result is not None
+        config = json.loads(result)
+        assert "custom-server" in config["mcpServers"]
+        assert config["mcpServers"]["custom-server"]["command"] == "custom-mcp"
+
+    def test_resolve_whitespace_handling(self):
+        """Should handle whitespace in comma-separated list."""
+        result = resolve_mcp_servers("playwright , browser-use")
+
+        assert result is not None
+        config = json.loads(result)
+        assert "playwright" in config["mcpServers"]
+        assert "browser-use" in config["mcpServers"]
+
+
+class TestBuildCommandWithMcp:
+    """Tests for build_command with MCP server options."""
+
+    def test_build_command_with_mcp_servers(self):
+        """build_command should include --mcp-config when mcp_servers provided."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+        options = {"mcp_servers": "playwright"}
+
+        command = backend.build_command(prompt, options)
+
+        # Should contain --mcp-config flag
+        assert "--mcp-config" in command
+        # Should contain JSON config (quoted)
+        assert "mcpServers" in command
+
+    def test_build_command_without_mcp_servers(self):
+        """build_command should NOT include --mcp-config when mcp_servers not provided."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+
+        command = backend.build_command(prompt)
+
+        # Should NOT contain --mcp-config flag
+        assert "--mcp-config" not in command
+
+    def test_build_command_with_model_and_mcp(self):
+        """build_command should handle both model and mcp_servers options."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+        options = {"model": "opus", "mcp_servers": "playwright"}
+
+        command = backend.build_command(prompt, options)
+
+        # Should contain both flags
+        assert "--model" in command
+        assert "--mcp-config" in command

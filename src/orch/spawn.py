@@ -135,6 +135,8 @@ class SpawnConfig:
     origin_dir: Optional[Path] = None
     # Agent Mail coordination (scope-aware: only included for Medium/Large scope or explicit flag)
     include_agent_mail: bool = False
+    # MCP servers to include for this spawn (comma-separated list, e.g., "playwright,browser-use")
+    mcp_servers: Optional[str] = None
 
 
 # Constants
@@ -608,12 +610,14 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
         env_vars = backend.get_env_vars(config, workspace_abs, deliverables_list)
         env_exports = " && ".join(f"export {key}={shlex.quote(value)}" for key, value in env_vars.items()) + " && "
 
-        # Build backend-specific command with options (model, agent, etc.)
+        # Build backend-specific command with options (model, agent, mcp_servers, etc.)
         backend_options = {}
         if config.model:
             backend_options['model'] = config.model
         if agent_name:
             backend_options['agent_name'] = agent_name
+        if config.mcp_servers:
+            backend_options['mcp_servers'] = config.mcp_servers
         backend_cmd = backend.build_command(minimal_prompt, backend_options if backend_options else None)
         full_cmd = f"{env_exports}{backend_cmd}"
 
@@ -1380,7 +1384,8 @@ def spawn_with_skill(
     beads_ids: Optional[List[str]] = None,
     beads_db_path: Optional[str] = None,
     parallel: bool = False,
-    include_agent_mail: bool = False
+    include_agent_mail: bool = False,
+    mcp_servers: Optional[str] = None
 ) -> Dict[str, str]:
     """
     Spawn agent with specific skill.
@@ -1556,7 +1561,9 @@ def spawn_with_skill(
         # Cross-repo spawning
         origin_dir=origin_cwd if cross_repo else None,
         # Agent Mail coordination (scope-aware)
-        include_agent_mail=include_agent_mail
+        include_agent_mail=include_agent_mail,
+        # MCP servers to include for this spawn
+        mcp_servers=mcp_servers
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)

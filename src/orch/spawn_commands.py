@@ -94,7 +94,8 @@ def register_spawn_commands(cli):
     @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
     @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
     @click.option('--auto-track', is_flag=True, help='Automatically create beads issue from task for lifecycle tracking')
-    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, issue_ids, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
+    @click.option('--mcp', 'mcp_servers', help='Comma-separated MCP servers to include (e.g., "playwright,browser-use")')
+    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, issue_ids, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track, mcp_servers):
         """
         Spawn a new worker agent or interactive session.
 
@@ -327,7 +328,8 @@ def register_spawn_commands(cli):
                     beads_db_path=beads_db_path,
                     context_ref=context_ref,
                     include_agent_mail=agent_mail,
-                    interactive=interactive  # Pass -i flag to enable interactive mode
+                    interactive=interactive,  # Pass -i flag to enable interactive mode
+                    mcp_servers=mcp_servers
                 )
                 return
 
@@ -451,7 +453,8 @@ def register_spawn_commands(cli):
                     beads_db_path=beads_db_path,
                     context_ref=context_ref,
                     include_agent_mail=agent_mail,
-                    interactive=interactive
+                    interactive=interactive,
+                    mcp_servers=mcp_servers
                 )
                 return
 
@@ -492,7 +495,8 @@ def register_spawn_commands(cli):
                         allow_dirty=allow_dirty,
                         interactive=True,  # Key difference: interactive mode
                         context_ref=context_ref,
-                        include_agent_mail=agent_mail
+                        include_agent_mail=agent_mail,
+                        mcp_servers=mcp_servers
                     )
                     return
                 else:
@@ -602,7 +606,8 @@ def register_spawn_commands(cli):
                 allow_dirty=allow_dirty,
                 context_ref=context_ref,
                 parallel=parallel,
-                include_agent_mail=agent_mail
+                include_agent_mail=agent_mail,
+                mcp_servers=mcp_servers
             )
 
         except ValueError as e:

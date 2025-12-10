@@ -1,16 +1,95 @@
 """ClaudeBackend implementation for Claude Code CLI."""
 
+import json
 import os
 import shlex
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .base import Backend
 
 if TYPE_CHECKING:
     from orch.spawn import SpawnConfig
+
+
+# Built-in MCP server configurations for commonly used servers
+# These are used as fallbacks when no user-defined config exists
+BUILTIN_MCP_SERVERS = {
+    "playwright": {
+        "command": "npx",
+        "args": ["-y", "@anthropic/mcp-playwright@latest"]
+    },
+    "browser-use": {
+        "command": "npx",
+        "args": ["-y", "@anthropic/mcp-browser-use@latest"]
+    },
+    "puppeteer": {
+        "command": "npx",
+        "args": ["-y", "@anthropic/mcp-puppeteer@latest"]
+    }
+}
+
+
+def resolve_mcp_servers(server_names: str) -> Optional[str]:
+    """
+    Resolve MCP server names to a JSON config string for --mcp-config.
+
+    Looks for user-defined configs at ~/.orch/mcp/{name}.json first,
+    then falls back to built-in defaults.
+
+    Args:
+        server_names: Comma-separated list of server names (e.g., "playwright,browser-use")
+
+    Returns:
+        JSON string suitable for --mcp-config, or None if no valid servers found
+    """
+    if not server_names:
+        return None
+
+    mcp_config_dir = Path.home() / ".orch" / "mcp"
+    servers = {}
+    missing = []
+
+    for name in server_names.split(","):
+        name = name.strip()
+        if not name:
+            continue
+
+        # Check for user-defined config file first
+        user_config_path = mcp_config_dir / f"{name}.json"
+        if user_config_path.exists():
+            try:
+                with open(user_config_path) as f:
+                    user_config = json.load(f)
+                # User config can be either a single server config or an mcpServers wrapper
+                if "mcpServers" in user_config:
+                    servers.update(user_config["mcpServers"])
+                else:
+                    servers[name] = user_config
+                continue
+            except (json.JSONDecodeError, IOError):
+                pass  # Fall through to built-in
+
+        # Fall back to built-in defaults
+        if name in BUILTIN_MCP_SERVERS:
+            servers[name] = BUILTIN_MCP_SERVERS[name]
+        else:
+            missing.append(name)
+
+    if missing:
+        import click
+        click.echo(f"⚠️  Unknown MCP server(s): {', '.join(missing)}", err=True)
+        click.echo(f"   Available built-in: {', '.join(sorted(BUILTIN_MCP_SERVERS.keys()))}", err=True)
+        click.echo(f"   Custom configs: ~/.orch/mcp/{{name}}.json", err=True)
+
+    if not servers:
+        return None
+
+    # Build the mcpServers wrapper format that Claude Code expects
+    config = {"mcpServers": servers}
+    return json.dumps(config)
 
 
 class ClaudeBackend(Backend):
@@ -34,6 +113,7 @@ class ClaudeBackend(Backend):
             options: Optional backend-specific options:
                 - model: Model to use (e.g., "sonnet", "opus", "claude-sonnet-4-5-20250929")
                 - agent_name: Agent name to use with --agent flag (replaces --allowed-tools)
+                - mcp_servers: Comma-separated MCP server names to include (e.g., "playwright,browser-use")
 
         Returns:
             The command string to execute (without environment variable exports)
@@ -57,6 +137,13 @@ class ClaudeBackend(Backend):
         # Build optional flags
         if options and options.get('model'):
             parts.append(f"--model {shlex.quote(options['model'])}")
+
+        # Add MCP server configuration if specified
+        if options and options.get('mcp_servers'):
+            mcp_config_json = resolve_mcp_servers(options['mcp_servers'])
+            if mcp_config_json:
+                # Pass JSON string directly to --mcp-config
+                parts.append(f"--mcp-config {shlex.quote(mcp_config_json)}")
 
         # Shell-quote the prompt for safety
         quoted_prompt = shlex.quote(prompt)
