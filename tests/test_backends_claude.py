@@ -42,7 +42,8 @@ class TestClaudeBackendBuildCommand:
         assert "Test task" in command or "'Test task'" in command
         # Should contain default flags
         assert "--allowed-tools" in command
-        assert "--dangerously-skip-permissions" in command
+        # Should NOT contain dangerous permissions flag (removed for security)
+        assert "--dangerously-skip-permissions" not in command
 
     def test_build_command_with_options(self):
         """build_command should accept and use options parameter."""

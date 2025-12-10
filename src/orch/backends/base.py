@@ -29,7 +29,7 @@ class Backend(ABC):
             The command string to execute (without environment variable exports)
 
         Example:
-            For Claude: "~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*' --dangerously-skip-permissions 'prompt'"
+            For Claude: "~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*' 'prompt'"
             For Codex: "codex 'prompt'"
         """
         pass
