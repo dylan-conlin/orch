@@ -1173,9 +1173,9 @@ def spawn_interactive(
     )
 
     if minimal_prompt:
-        claude_cmd = f"{env_exports}~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*' {shlex.quote(minimal_prompt)}"
+        claude_cmd = f"{env_exports}~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*' --dangerously-skip-permissions {shlex.quote(minimal_prompt)}"
     else:
-        claude_cmd = f"{env_exports}~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*'"
+        claude_cmd = f"{env_exports}~/.orch/scripts/claude-code-wrapper.sh --allowed-tools '*' --dangerously-skip-permissions"
 
     send_claude_cmd = [
         "tmux", "send-keys",

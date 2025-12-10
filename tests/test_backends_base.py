@@ -148,8 +148,8 @@ def test_backend_options_parameter():
             if options:
                 if options.get('allowed_tools'):
                     base_cmd += f" --allowed-tools {options['allowed_tools']}"
-                if options.get('model'):
-                    base_cmd += f" --model {options['model']}"
+                if options.get('skip_permissions'):
+                    base_cmd += " --dangerously-skip-permissions"
             return base_cmd
 
         def wait_for_ready(self, window_target: str, timeout: float = 5.0) -> bool:
@@ -174,10 +174,10 @@ def test_backend_options_parameter():
     # Test with options
     cmd_with_opts = backend.build_command("test", {
         'allowed_tools': '*',
-        'model': 'sonnet'
+        'skip_permissions': True
     })
     assert "--allowed-tools *" in cmd_with_opts
-    assert "--model sonnet" in cmd_with_opts
+    assert "--dangerously-skip-permissions" in cmd_with_opts
 
 
 def test_backend_timeout_parameter():

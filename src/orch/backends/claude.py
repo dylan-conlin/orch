@@ -38,8 +38,9 @@ class ClaudeBackend(Backend):
         Returns:
             The command string to execute (without environment variable exports)
         """
-        # Use existing hardcoded wrapper path (extracted from spawn.py:1175)
+        # Use existing hardcoded wrapper path and flags (extracted from spawn.py:1175)
         wrapper_path = "~/.orch/scripts/claude-code-wrapper.sh"
+        skip_permissions = "--dangerously-skip-permissions"
 
         # Build command parts
         parts = [wrapper_path]
@@ -50,6 +51,8 @@ class ClaudeBackend(Backend):
             parts.append(f"--agent {agent_name}")
         else:
             parts.append("--allowed-tools '*'")
+
+        parts.append(skip_permissions)
 
         # Build optional flags
         if options and options.get('model'):

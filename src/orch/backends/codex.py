@@ -64,7 +64,7 @@ class CodexBackend(Backend):
         - Codex CLI accepts initial prompt via command line: codex "prompt text"
         - Tested with Codex CLI v0.59.0
         - No wrapper script needed (unlike Claude's wrapper.sh)
-        - Uses --dangerously-bypass-approvals-and-sandbox for worker agents (Codex equivalent of bypassing permissions)
+        - Uses --dangerously-bypass-approvals-and-sandbox for worker agents (parallel to Claude's --dangerously-skip-permissions)
         - Future phases can make this configurable via options parameter
         """
         # Shell-quote the prompt for safety
