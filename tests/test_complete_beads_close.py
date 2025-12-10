@@ -250,6 +250,67 @@ Done.
                             assert result['success'] is True
                             assert result.get('beads_closed') is True
 
+    def test_complete_agent_work_fails_on_cross_repo_mismatch(self, tmp_path):
+        """Test that complete_agent_work fails when cross-repo db_path is set but project_dir doesn't match."""
+        from orch.complete import complete_agent_work
+
+        # Create minimal workspace structure
+        workspace_dir = tmp_path / ".orch" / "workspace" / "test-agent"
+        workspace_dir.mkdir(parents=True)
+        workspace_file = workspace_dir / "WORKSPACE.md"
+        workspace_file.write_text("""
+**TLDR:** Test workspace
+
+---
+
+# Workspace: test-agent
+
+**Phase:** Complete
+**Status:** Complete
+
+---
+
+## Verification Required
+
+- [x] All tests passing
+
+---
+
+## Handoff Notes
+
+Done.
+""")
+
+        with patch('orch.complete.get_agent_by_id') as mock_get_agent:
+            # Agent was spawned in different project than where orch complete is being called
+            mock_get_agent.return_value = {
+                'id': 'test-agent',
+                'workspace': '.orch/workspace/test-agent',
+                'project_dir': '/different/project/dir',  # Different from tmp_path
+                'status': 'active',
+                'beads_id': 'other-repo-abc',
+                'beads_db_path': '/path/to/other/repo/.beads/beads.db'
+            }
+
+            with patch('orch.complete.verify_agent_work') as mock_verify:
+                mock_verify.return_value = Mock(passed=True, errors=[])
+
+                with patch('orch.git_utils.validate_work_committed') as mock_git:
+                    mock_git.return_value = (True, None)
+
+                    with patch('orch.complete.close_beads_issue') as mock_close:
+                        with patch('orch.complete.clean_up_agent'):
+                            result = complete_agent_work(
+                                agent_id='test-agent',
+                                project_dir=tmp_path,  # Different from agent's project_dir
+                            )
+
+                            # Should fail with repo mismatch error
+                            assert result['success'] is False
+                            assert any('mismatch' in err.lower() for err in result['errors'])
+                            # Should NOT have attempted to close beads issue
+                            mock_close.assert_not_called()
+
     def test_complete_agent_work_skips_beads_close_when_no_beads_id(self, tmp_path):
         """Test that complete_agent_work doesn't close beads when agent has no beads_id."""
         from orch.complete import complete_agent_work

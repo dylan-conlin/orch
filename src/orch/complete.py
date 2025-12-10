@@ -280,6 +280,21 @@ def complete_agent_work(
     beads_ids_to_close = agent.get('beads_ids') or ([agent['beads_id']] if agent.get('beads_id') else [])
     beads_db_path = agent.get('beads_db_path')
 
+    # Validate repo consistency for cross-repo beads operations
+    # If agent was spawned with a beads_db_path (cross-repo), verify we're in the right project
+    if beads_db_path and beads_ids_to_close:
+        agent_project_dir = agent.get('project_dir')
+        if agent_project_dir:
+            agent_project = Path(agent_project_dir).resolve()
+            current_project = project_dir.resolve()
+            if agent_project != current_project:
+                result['errors'].append(
+                    f"Repo mismatch: agent was spawned in {agent_project} but orch complete "
+                    f"was called in {current_project}. Cannot close cross-repo beads issue.\n"
+                    f"Run orch complete from the correct project directory."
+                )
+                return result
+
     if beads_ids_to_close:
         closed_count = 0
         for beads_id in beads_ids_to_close:
