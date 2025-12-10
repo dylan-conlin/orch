@@ -19,15 +19,15 @@ if TYPE_CHECKING:
 BUILTIN_MCP_SERVERS = {
     "playwright": {
         "command": "npx",
-        "args": ["-y", "@anthropic/mcp-playwright@latest"]
+        "args": ["-y", "@playwright/mcp@latest"]
     },
     "browser-use": {
         "command": "npx",
-        "args": ["-y", "@anthropic/mcp-browser-use@latest"]
+        "args": ["-y", "browser-use-mcp@latest"]
     },
     "puppeteer": {
         "command": "npx",
-        "args": ["-y", "@anthropic/mcp-puppeteer@latest"]
+        "args": ["-y", "@modelcontextprotocol/server-puppeteer@latest"]
     }
 }
 
