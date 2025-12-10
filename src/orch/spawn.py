@@ -618,6 +618,8 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
             backend_options['agent_name'] = agent_name
         if config.mcp_servers:
             backend_options['mcp_servers'] = config.mcp_servers
+            # Pass workspace path so MCP config can be written to file
+            backend_options['workspace_path'] = workspace_path
         backend_cmd = backend.build_command(minimal_prompt, backend_options if backend_options else None)
         full_cmd = f"{env_exports}{backend_cmd}"
 

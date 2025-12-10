@@ -338,3 +338,74 @@ class TestBuildCommandWithMcp:
         # Should contain both flags
         assert "--model" in command
         assert "--mcp-config" in command
+
+    def test_build_command_with_workspace_path_writes_file(self, tmp_path):
+        """build_command should write MCP config to file when workspace_path provided."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir(parents=True)
+
+        options = {"mcp_servers": "playwright", "workspace_path": workspace_path}
+
+        command = backend.build_command(prompt, options)
+
+        # Should contain --mcp-config flag with file path
+        assert "--mcp-config" in command
+        # Should reference the config file path
+        expected_config_file = workspace_path / "mcp-config.json"
+        assert expected_config_file.exists()
+
+        # Verify file content
+        config = json.loads(expected_config_file.read_text())
+        assert "mcpServers" in config
+        assert "playwright" in config["mcpServers"]
+
+
+class TestResolveMcpServersWithWorkspacePath:
+    """Tests for resolve_mcp_servers() with workspace_path parameter."""
+
+    def test_resolve_with_workspace_path_writes_file(self, tmp_path):
+        """Should write config to file when workspace_path provided."""
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir(parents=True)
+
+        result = resolve_mcp_servers("playwright", workspace_path)
+
+        # Should return file path, not JSON string
+        assert result is not None
+        assert str(workspace_path) in result
+        assert result.endswith("mcp-config.json")
+
+        # File should exist with valid content
+        config_file = Path(result)
+        assert config_file.exists()
+
+        config = json.loads(config_file.read_text())
+        assert "mcpServers" in config
+        assert "playwright" in config["mcpServers"]
+
+    def test_resolve_without_workspace_path_returns_json(self):
+        """Should return JSON string when workspace_path not provided (backward compat)."""
+        result = resolve_mcp_servers("playwright")
+
+        # Should return JSON string
+        assert result is not None
+        config = json.loads(result)  # Should be valid JSON
+        assert "mcpServers" in config
+
+    def test_resolve_writes_formatted_json(self, tmp_path):
+        """Config file should be human-readable with indentation."""
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir(parents=True)
+
+        result = resolve_mcp_servers("playwright,browser-use", workspace_path)
+
+        # Read the file content directly
+        config_file = Path(result)
+        content = config_file.read_text()
+
+        # Should be indented (multiline)
+        assert "\n" in content
+        # Should contain proper JSON formatting
+        assert '"mcpServers"' in content

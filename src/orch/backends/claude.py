@@ -32,18 +32,22 @@ BUILTIN_MCP_SERVERS = {
 }
 
 
-def resolve_mcp_servers(server_names: str) -> Optional[str]:
+def resolve_mcp_servers(server_names: str, workspace_path: Optional[Path] = None) -> Optional[str]:
     """
-    Resolve MCP server names to a JSON config string for --mcp-config.
+    Resolve MCP server names to a config file path for --mcp-config.
 
     Looks for user-defined configs at ~/.orch/mcp/{name}.json first,
-    then falls back to built-in defaults.
+    then falls back to built-in defaults. Writes the combined config
+    to a file in the workspace directory to avoid shell escaping issues.
 
     Args:
         server_names: Comma-separated list of server names (e.g., "playwright,browser-use")
+        workspace_path: Path to workspace directory where config file will be written.
+                        If None, returns JSON string (for backward compatibility).
 
     Returns:
-        JSON string suitable for --mcp-config, or None if no valid servers found
+        Path to config file (if workspace_path provided), or JSON string (if not),
+        or None if no valid servers found
     """
     if not server_names:
         return None
@@ -89,7 +93,15 @@ def resolve_mcp_servers(server_names: str) -> Optional[str]:
 
     # Build the mcpServers wrapper format that Claude Code expects
     config = {"mcpServers": servers}
-    return json.dumps(config)
+
+    # Write to file if workspace_path provided, otherwise return JSON string
+    if workspace_path:
+        config_file = workspace_path / "mcp-config.json"
+        config_file.write_text(json.dumps(config, indent=2))
+        return str(config_file)
+    else:
+        # Backward compatibility: return JSON string if no workspace path
+        return json.dumps(config)
 
 
 class ClaudeBackend(Backend):
@@ -114,6 +126,7 @@ class ClaudeBackend(Backend):
                 - model: Model to use (e.g., "sonnet", "opus", "claude-sonnet-4-5-20250929")
                 - agent_name: Agent name to use with --agent flag (replaces --allowed-tools)
                 - mcp_servers: Comma-separated MCP server names to include (e.g., "playwright,browser-use")
+                - workspace_path: Path to workspace directory for writing config files
 
         Returns:
             The command string to execute (without environment variable exports)
@@ -139,11 +152,13 @@ class ClaudeBackend(Backend):
             parts.append(f"--model {shlex.quote(options['model'])}")
 
         # Add MCP server configuration if specified
+        # Write config to file in workspace directory to avoid shell escaping issues
         if options and options.get('mcp_servers'):
-            mcp_config_json = resolve_mcp_servers(options['mcp_servers'])
-            if mcp_config_json:
-                # Pass JSON string directly to --mcp-config
-                parts.append(f"--mcp-config {shlex.quote(mcp_config_json)}")
+            workspace_path = options.get('workspace_path')
+            mcp_config_path = resolve_mcp_servers(options['mcp_servers'], workspace_path)
+            if mcp_config_path:
+                # Pass file path to --mcp-config (or JSON string if no workspace_path)
+                parts.append(f"--mcp-config {shlex.quote(mcp_config_path)}")
 
         # Shell-quote the prompt for safety
         quoted_prompt = shlex.quote(prompt)
