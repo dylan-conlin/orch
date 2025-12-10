@@ -378,6 +378,11 @@ def _search_investigation_file(workspace_name: str, project_dir: Path) -> Option
     Searches .kb/investigations/ and .orch/investigations/ directories
     for files matching the workspace name or containing similar words.
 
+    Search strategy (in order):
+    1. Exact workspace name match
+    2. Workspace name without date suffix
+    3. Keyword-based search (for prefix mismatches like debug- vs inv-)
+
     Args:
         workspace_name: Workspace name to search for
         project_dir: Project directory
@@ -426,7 +431,94 @@ def _search_investigation_file(workspace_name: str, project_dir: Path) -> Option
                     if matches:
                         return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
 
+        # Try keyword-based search for prefix mismatches (e.g., debug- vs inv-)
+        # Extract keywords, ignoring common prefixes and date suffixes
+        keywords = _extract_keywords_from_workspace(workspace_name)
+        if len(keywords) >= 2:
+            # Try searching today's files with multiple keyword matches
+            result = _search_by_keywords(base_dir, today, keywords)
+            if result:
+                return result
+
     return None
+
+
+def _extract_keywords_from_workspace(workspace_name: str) -> List[str]:
+    """
+    Extract meaningful keywords from workspace name.
+
+    Removes common prefixes (debug-, inv-, fix-, etc.) and date suffixes.
+
+    Args:
+        workspace_name: Workspace name like "debug-orch-end-race-condition-09dec"
+
+    Returns:
+        List of keywords like ["orch", "end", "race", "condition"]
+    """
+    # Common prefixes used in workspace names
+    common_prefixes = {
+        'debug', 'inv', 'fix', 'test', 'feat', 'feature',
+        'refactor', 'chore', 'docs', 'style', 'perf'
+    }
+
+    # Split by hyphens
+    parts = workspace_name.split('-')
+
+    keywords = []
+    for part in parts:
+        part_lower = part.lower()
+        # Skip common prefixes
+        if part_lower in common_prefixes:
+            continue
+        # Skip date suffixes (e.g., "09dec", "10jan")
+        if len(part) <= 5 and any(c.isdigit() for c in part):
+            continue
+        # Skip very short parts (likely noise)
+        if len(part) < 3:
+            continue
+        keywords.append(part_lower)
+
+    return keywords
+
+
+def _search_by_keywords(
+    base_dir: Path,
+    date_prefix: str,
+    keywords: List[str]
+) -> Optional[Path]:
+    """
+    Search for investigation files by date and keywords.
+
+    Finds files from today that contain at least 2 keywords.
+
+    Args:
+        base_dir: Directory to search
+        date_prefix: Date prefix (YYYY-MM-DD)
+        keywords: Keywords to match
+
+    Returns:
+        Best matching file path, or None
+    """
+    # Get all today's files
+    all_today_files = list(base_dir.glob(f"**/{date_prefix}*.md"))
+
+    if not all_today_files:
+        return None
+
+    # Score files by keyword matches
+    scored_files = []
+    for file_path in all_today_files:
+        file_name_lower = file_path.stem.lower()
+        matches = sum(1 for kw in keywords if kw in file_name_lower)
+        if matches >= 2:  # Require at least 2 keyword matches
+            scored_files.append((matches, file_path.stat().st_mtime, file_path))
+
+    if not scored_files:
+        return None
+
+    # Sort by matches (desc), then mtime (desc)
+    scored_files.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return scored_files[0][2]
 
 
 def _extract_investigation_phase(path: Path) -> Optional[str]:
