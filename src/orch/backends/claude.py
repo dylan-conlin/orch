@@ -33,26 +33,33 @@ class ClaudeBackend(Backend):
             prompt: The initial prompt to send to Claude
             options: Optional backend-specific options:
                 - model: Model to use (e.g., "sonnet", "opus", "claude-sonnet-4-5-20250929")
+                - agent_name: Agent name to use with --agent flag (replaces --allowed-tools)
 
         Returns:
             The command string to execute (without environment variable exports)
         """
         # Use existing hardcoded wrapper path and flags (extracted from spawn.py:1175)
         wrapper_path = "~/.orch/scripts/claude-code-wrapper.sh"
-        allowed_tools = "--allowed-tools '*'"
         skip_permissions = "--dangerously-skip-permissions"
 
+        # Build command parts
+        parts = [wrapper_path]
+
+        # Use --agent flag if agent_name provided, otherwise fallback to --allowed-tools '*'
+        if options and options.get('agent_name'):
+            agent_name = options['agent_name']
+            parts.append(f"--agent {agent_name}")
+        else:
+            parts.append("--allowed-tools '*'")
+
+        parts.append(skip_permissions)
+
         # Build optional flags
-        optional_flags = []
         if options and options.get('model'):
-            optional_flags.append(f"--model {shlex.quote(options['model'])}")
+            parts.append(f"--model {shlex.quote(options['model'])}")
 
         # Shell-quote the prompt for safety
         quoted_prompt = shlex.quote(prompt)
-
-        # Combine all parts
-        parts = [wrapper_path, allowed_tools, skip_permissions]
-        parts.extend(optional_flags)
         parts.append(quoted_prompt)
 
         return " ".join(parts)

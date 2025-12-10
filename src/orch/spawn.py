@@ -264,6 +264,71 @@ def determine_primary_artifact(config: SpawnConfig) -> Optional[Path]:
     return None
 
 
+def generate_agent_file(config: SpawnConfig) -> Optional[Path]:
+    """
+    Generate .claude/agents/{skill}-worker.md file from skill metadata.
+
+    Creates an agent file with tool restrictions and model configuration
+    that can be passed to Claude Code via --agent flag. This provides
+    native tool restrictions without using --allowed-tools '*'.
+
+    Agent file provides: tool restrictions, model, description
+    SPAWN_CONTEXT.md provides: detailed procedural guidance
+
+    Args:
+        config: SpawnConfig with skill_metadata containing tool restrictions
+
+    Returns:
+        Path to generated agent file, or None if no tool restrictions needed
+    """
+    # No agent file needed without skill metadata
+    if not config.skill_metadata:
+        return None
+
+    metadata = config.skill_metadata
+
+    # No agent file needed if skill has no tool restrictions
+    has_tool_restrictions = metadata.allowed_tools or metadata.disallowed_tools
+    if not has_tool_restrictions:
+        return None
+
+    # Determine model (config override > skill default > no model line)
+    model = config.model or metadata.default_model
+
+    # Build agent file content
+    agent_name = f"{config.skill_name}-worker"
+    lines = ["---"]
+    lines.append(f"name: {agent_name}")
+
+    if metadata.description:
+        lines.append(f"description: {metadata.description}")
+
+    if metadata.allowed_tools:
+        tools_str = ", ".join(metadata.allowed_tools)
+        lines.append(f"tools: {tools_str}")
+
+    if metadata.disallowed_tools:
+        disallowed_str = ", ".join(metadata.disallowed_tools)
+        lines.append(f"disallowedTools: {disallowed_str}")
+
+    if model:
+        lines.append(f"model: {model}")
+
+    lines.append("---")
+    lines.append("")  # Empty line after frontmatter
+
+    content = "\n".join(lines)
+
+    # Write to .claude/agents/{skill}-worker.md
+    agents_dir = config.project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+
+    agent_path = agents_dir / f"{agent_name}.md"
+    agent_path.write_text(content)
+
+    return agent_path
+
+
 def show_preview(config: SpawnConfig) -> None:
     """
     Display spawn preview with configuration details.
