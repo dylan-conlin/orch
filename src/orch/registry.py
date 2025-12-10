@@ -192,6 +192,7 @@ class AgentRegistry:
         stashed: bool = False,
         feature_id: str = None,
         beads_id: str = None,
+        beads_ids: List[str] = None,
         beads_db_path: str = None,
         origin_dir: str = None
     ) -> Dict[str, Any]:
@@ -201,7 +202,8 @@ class AgentRegistry:
         Core fields:
         - agent_id, window_id: For tmux operations
         - project_dir, workspace: For file operations
-        - beads_id: For lifecycle tracking
+        - beads_id: For lifecycle tracking (primary issue)
+        - beads_ids: For multi-issue lifecycle tracking (all issues)
 
         Optional metadata preserved for compatibility.
         """
@@ -247,6 +249,8 @@ class AgentRegistry:
             agent['feature_id'] = feature_id
         if beads_id:
             agent['beads_id'] = beads_id
+        if beads_ids:
+            agent['beads_ids'] = beads_ids
         if beads_db_path:
             agent['beads_db_path'] = beads_db_path
         if origin_dir:
@@ -258,7 +262,8 @@ class AgentRegistry:
         self._logger.log_event("registry", f"Agent registered: {agent_id}", {
             "agent_id": agent_id,
             "window_id": window_id,
-            "beads_id": beads_id
+            "beads_id": beads_id,
+            "beads_ids": beads_ids
         }, level="INFO")
 
         return agent

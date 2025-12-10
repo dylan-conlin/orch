@@ -85,6 +85,7 @@ def register_spawn_commands(cli):
     @click.option('--backend', type=click.Choice(['claude', 'codex', 'opencode']), help='AI backend to use (default: claude)')
     @click.option('--model', help='Model to use (e.g., "sonnet", "opus", or full model name like "claude-sonnet-4-5-20250929")')
     @click.option('--issue', 'issue_id', help='Spawn from beads issue by ID (e.g., orch-cli-ltv)')
+    @click.option('--issues', 'issue_ids', help='Spawn from multiple beads issues (comma-separated, e.g., pw-a,pw-b,pw-c)')
     @click.option('--stash', is_flag=True, help='Stash uncommitted changes before spawn (auto-unstash on complete)')
     @click.option('--allow-dirty/--require-clean', default=True, help='Allow spawn with uncommitted changes (default: allow)')
     @click.option('--skip-artifact-check', is_flag=True, help='Skip pre-spawn artifact search hint')
@@ -93,7 +94,7 @@ def register_spawn_commands(cli):
     @click.option('--agent-mail', is_flag=True, help='Include Agent Mail coordination in spawn prompt (auto-included for Medium/Large scope)')
     @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
     @click.option('--auto-track', is_flag=True, help='Automatically create beads issue from task for lifecycle tracking')
-    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
+    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, issue_ids, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track):
         """
         Spawn a new worker agent or interactive session.
 
@@ -159,12 +160,18 @@ def register_spawn_commands(cli):
                 # This enables: orch spawn skill "task" << 'CONTEXT' ... CONTEXT
                 stdin_context = sys.stdin.read().strip()
 
+            # Validate mutual exclusivity of --issue and --issues
+            if issue_id and issue_ids:
+                click.echo("❌ Cannot use both --issue and --issues", err=True)
+                click.echo("   Use --issue for single issue, --issues for multiple (comma-separated)", err=True)
+                raise click.Abort()
+
             # Handle --auto-track: create beads issue automatically
             if auto_track:
-                # Can't use both --auto-track and --issue
-                if issue_id:
-                    click.echo("❌ Cannot use both --auto-track and --issue", err=True)
-                    click.echo("   --auto-track creates a new issue; --issue uses existing one", err=True)
+                # Can't use both --auto-track and --issue/--issues
+                if issue_id or issue_ids:
+                    click.echo("❌ Cannot use both --auto-track and --issue/--issues", err=True)
+                    click.echo("   --auto-track creates a new issue; --issue/--issues uses existing ones", err=True)
                     raise click.Abort()
 
                 # Require task for auto-track (need something to use as issue title)
@@ -321,6 +328,130 @@ def register_spawn_commands(cli):
                     context_ref=context_ref,
                     include_agent_mail=agent_mail,
                     interactive=interactive  # Pass -i flag to enable interactive mode
+                )
+                return
+
+            # Mode 5: Multi-issue mode (from multiple beads issues)
+            if issue_ids:
+                # Parse comma-separated list
+                beads_id_list = [id.strip() for id in issue_ids.split(',') if id.strip()]
+                if not beads_id_list:
+                    click.echo("❌ --issues requires at least one issue ID", err=True)
+                    raise click.Abort()
+
+                # Auto-detect project directory
+                project_dir = None
+                if project:
+                    from orch.project_resolver import get_project_dir, format_project_not_found_error
+                    project_dir = get_project_dir(project)
+                    if not project_dir:
+                        click.echo(format_project_not_found_error(project, "--project"), err=True)
+                        raise click.Abort()
+                else:
+                    # Try auto-detection
+                    from orch.project_resolver import detect_project_from_cwd
+                    detected = detect_project_from_cwd()
+                    if detected:
+                        project, project_dir = detected
+                    else:
+                        click.echo("❌ --project required when using --issues (auto-detection failed)", err=True)
+                        raise click.Abort()
+
+                try:
+                    beads = BeadsIntegration()
+                    issues = []
+                    # Validate all issues exist and are not closed
+                    for bid in beads_id_list:
+                        try:
+                            issue = beads.get_issue(bid)
+                            if issue.status == 'closed' and not force:
+                                click.echo(f"❌ Issue '{bid}' is already closed.", err=True)
+                                click.echo("   Use --force to spawn anyway.", err=True)
+                                raise click.Abort()
+                            issues.append(issue)
+                        except BeadsIssueNotFoundError:
+                            click.echo(f"❌ Beads issue '{bid}' not found", err=True)
+                            click.echo("   Run 'bd list' to see available issues.", err=True)
+                            raise click.Abort()
+                except BeadsCLINotFoundError:
+                    click.echo("❌ bd CLI not found. Install beads or check PATH.", err=True)
+                    click.echo("   See: https://github.com/dylanconlin/beads", err=True)
+                    raise click.Abort()
+
+                # Check for open blockers on any issue (warning only, non-blocking)
+                try:
+                    all_blockers = []
+                    for bid in beads_id_list:
+                        open_blockers = beads.get_open_blockers(bid)
+                        for b in open_blockers:
+                            if b.id not in [x.id for x in all_blockers]:
+                                all_blockers.append(b)
+                    if all_blockers:
+                        blocker_ids = ", ".join(b.id for b in all_blockers)
+                        click.echo("")
+                        click.echo(f"⚠️  These issues have {len(all_blockers)} open blocker(s): {blocker_ids}", err=True)
+                        click.echo("")
+                except Exception:
+                    # Silently ignore blocker check errors - don't block spawning
+                    pass
+
+                # Use first issue's title as task, or task if provided
+                primary_issue = issues[0]
+                skill_name = context_or_skill if context_or_skill else "feature-impl"
+                task_description = task if task else primary_issue.title
+
+                # Resolve beads db path for cross-repo spawning
+                beads_db_path = None
+                cwd = Path.cwd()
+                beads_db = cwd / ".beads" / "beads.db"
+                if beads_db.exists():
+                    beads_db_path = str(beads_db.resolve())
+
+                # Build beads issue context with all issues listed
+                issue_context = f"BEADS ISSUES: {', '.join(beads_id_list)}\n"
+                issue_context += f"\n(This agent is working on {len(beads_id_list)} related issues)\n"
+                for issue in issues:
+                    issue_context += f"\n### {issue.id}: {issue.title}\n"
+                    if issue.description:
+                        issue_context += f"{issue.description}\n"
+
+                click.echo(f"🔗 Spawning from {len(beads_id_list)} beads issues: {', '.join(beads_id_list)}")
+                click.echo(f"   Skill: {skill_name}")
+                click.echo(f"   Task: {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
+
+                # Mark all issues as in_progress
+                for bid in beads_id_list:
+                    beads.update_issue_status(bid, "in_progress")
+                click.echo(f"   ✓ Marked {len(beads_id_list)} issues as in_progress")
+
+                # Spawn with beads tracking (use first issue as primary, store all in beads_ids)
+                spawn_with_skill(
+                    skill_name=skill_name,
+                    task=task_description,
+                    project=project,
+                    project_dir=project_dir,
+                    workspace_name=workspace_name,
+                    yes=yes,
+                    resume=resume,
+                    custom_prompt=custom_prompt,
+                    additional_context=issue_context,
+                    stdin_context=stdin_context,
+                    phases=phases,
+                    mode=mode,
+                    validation=validation,
+                    phase_id=phase_id,
+                    depends_on=depends_on,
+                    investigation_type=investigation_type,
+                    backend=backend,
+                    model=model,
+                    stash=stash,
+                    allow_dirty=allow_dirty,
+                    beads_id=beads_id_list[0],  # Primary issue for backward compat
+                    beads_ids=beads_id_list,    # All issues for multi-issue close
+                    beads_db_path=beads_db_path,
+                    context_ref=context_ref,
+                    include_agent_mail=agent_mail,
+                    interactive=interactive
                 )
                 return
 

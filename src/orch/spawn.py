@@ -119,7 +119,8 @@ class SpawnConfig:
     # Interactive mode (for collaborative design work)
     interactive: bool = False  # If True, skill operates in collaborative mode with Dylan
     # Beads integration
-    beads_id: Optional[str] = None  # Beads issue ID for lifecycle tracking
+    beads_id: Optional[str] = None  # Beads issue ID for lifecycle tracking (primary issue)
+    beads_ids: Optional[List[str]] = None  # Multiple beads issue IDs for multi-issue spawns
     beads_db_path: Optional[str] = None  # Absolute path to beads db (for cross-repo spawning)
     # Additional context (incorporated into prompt, does NOT replace it)
     # Use this for beads issue context or other supplementary information
@@ -779,6 +780,7 @@ def register_agent(
     stashed: bool = False,
     feature_id: Optional[str] = None,
     beads_id: Optional[str] = None,
+    beads_ids: Optional[List[str]] = None,
     beads_db_path: Optional[str] = None,
     origin_dir: Optional[Path] = None
 ) -> None:
@@ -798,6 +800,7 @@ def register_agent(
         stashed: True if git changes were stashed before spawn
         feature_id: Feature ID from backlog.json for lifecycle tracking
         beads_id: Beads issue ID for lifecycle tracking (auto-close on complete)
+        beads_ids: List of beads issue IDs for multi-issue spawns (all closed on complete)
         beads_db_path: Absolute path to beads db (for cross-repo spawning)
         origin_dir: Directory where spawn was invoked (for cross-repo workspace sync)
 
@@ -830,6 +833,7 @@ def register_agent(
             stashed=stashed,
             feature_id=feature_id,
             beads_id=beads_id,
+            beads_ids=beads_ids,
             beads_db_path=beads_db_path,
             origin_dir=str(origin_dir) if origin_dir else None
         )
@@ -846,6 +850,7 @@ def register_agent(
             "backend": backend,
             "feature_id": feature_id,
             "beads_id": beads_id,
+            "beads_ids": beads_ids,
             "beads_db_path": beads_db_path
         }, level="INFO")
 
@@ -1296,6 +1301,7 @@ def spawn_with_skill(
     interactive: bool = False,
     context_ref: Optional[str] = None,
     beads_id: Optional[str] = None,
+    beads_ids: Optional[List[str]] = None,
     beads_db_path: Optional[str] = None,
     parallel: bool = False,
     include_agent_mail: bool = False
@@ -1327,7 +1333,8 @@ def spawn_with_skill(
         allow_dirty: If True, allow spawn with uncommitted changes without prompting
         feature_id: Feature ID from backlog.json for lifecycle tracking
         interactive: If True, skill operates in collaborative mode with Dylan
-        beads_id: Beads issue ID for lifecycle tracking
+        beads_id: Beads issue ID for lifecycle tracking (primary issue)
+        beads_ids: List of beads issue IDs for multi-issue spawns (all closed on complete)
 
     Returns:
         Spawn result dictionary with window, window_name, agent_id
@@ -1466,6 +1473,7 @@ def spawn_with_skill(
         interactive=interactive,
         # Beads integration
         beads_id=beads_id,
+        beads_ids=beads_ids,
         beads_db_path=beads_db_path,
         # Parallel execution mode
         parallel=parallel,
@@ -1532,6 +1540,7 @@ def spawn_with_skill(
                 stashed=stashed,
                 feature_id=config.feature_id,
                 beads_id=config.beads_id,
+                beads_ids=config.beads_ids,
                 beads_db_path=config.beads_db_path,
                 origin_dir=config.origin_dir
             )
@@ -1559,6 +1568,7 @@ def spawn_with_skill(
                 stashed=stashed,
                 feature_id=config.feature_id,
                 beads_id=config.beads_id,
+                beads_ids=config.beads_ids,
                 beads_db_path=config.beads_db_path,
                 origin_dir=config.origin_dir
             )

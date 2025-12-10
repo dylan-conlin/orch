@@ -275,25 +275,37 @@ def complete_agent_work(
         result['success'] = True
         return result
 
-    # Close beads issue if agent was spawned from one
-    if agent.get('beads_id'):
-        beads_id = agent['beads_id']
-        beads_db_path = agent.get('beads_db_path')
-        try:
-            # When force=True, trust commits over phase status - skip phase verification
-            if close_beads_issue(beads_id, verify_phase=not force, db_path=beads_db_path):
-                result['beads_closed'] = True
-                click.echo(f"🎯 Beads issue '{beads_id}' closed")
-                logger.log_event("complete", "Beads issue closed", {
-                    "beads_id": beads_id, "agent_id": agent_id
-                })
+    # Close beads issues if agent was spawned from one or more
+    # Multi-issue spawns have beads_ids list, single-issue spawns have beads_id
+    beads_ids_to_close = agent.get('beads_ids') or ([agent['beads_id']] if agent.get('beads_id') else [])
+    beads_db_path = agent.get('beads_db_path')
+
+    if beads_ids_to_close:
+        closed_count = 0
+        for beads_id in beads_ids_to_close:
+            try:
+                # When force=True, trust commits over phase status - skip phase verification
+                # For multi-issue, only verify phase on primary issue (first one)
+                verify = not force and (beads_id == beads_ids_to_close[0])
+                if close_beads_issue(beads_id, verify_phase=verify, db_path=beads_db_path):
+                    closed_count += 1
+                    logger.log_event("complete", "Beads issue closed", {
+                        "beads_id": beads_id, "agent_id": agent_id
+                    })
+                else:
+                    result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
+            except BeadsPhaseNotCompleteError as e:
+                result['errors'].append(str(e))
+                click.echo(f"⚠️  {e}", err=True)
+                click.echo(f"   Agent must run: bd comment {beads_id} \"Phase: Complete - <summary>\"", err=True)
+                return result
+
+        if closed_count > 0:
+            result['beads_closed'] = True
+            if len(beads_ids_to_close) == 1:
+                click.echo(f"🎯 Beads issue '{beads_ids_to_close[0]}' closed")
             else:
-                result['warnings'].append(f"Failed to close beads issue '{beads_id}'")
-        except BeadsPhaseNotCompleteError as e:
-            result['errors'].append(str(e))
-            click.echo(f"⚠️  {e}", err=True)
-            click.echo(f"   Agent must run: bd comment {beads_id} \"Phase: Complete - <summary>\"", err=True)
-            return result
+                click.echo(f"🎯 Closed {closed_count} beads issues: {', '.join(beads_ids_to_close)}")
 
     # Clean up agent
     clean_up_agent(agent_id, force=force)
