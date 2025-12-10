@@ -71,15 +71,11 @@ class TestTmuxDetection:
     def test_in_tmux_proceeds(self, cli_runner):
         """Test that running inside tmux proceeds past tmux check."""
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id') as mock_pane:
-                mock_pane.return_value = '%0'
-                with patch('orch.end.get_kn_entries_since') as mock_kn:
-                    mock_kn.return_value = []
-                    with patch('orch.end.send_exit_to_pane') as mock_exit:
-                        mock_exit.return_value = True
-                        result = cli_runner.invoke(cli, ['end', '-y'])
-                        # Should not show tmux error
-                        assert 'requires tmux' not in result.output.lower()
+            with patch('orch.end.get_kn_entries_since') as mock_kn:
+                mock_kn.return_value = []
+                result = cli_runner.invoke(cli, ['end', '-y'])
+                # Should not show tmux error
+                assert 'requires tmux' not in result.output.lower()
 
 
 class TestSessionTypeDetection:
@@ -175,14 +171,12 @@ class TestSoftGatePrompt:
     def test_no_entries_shows_warning(self, cli_runner):
         """Test that no entries shows warning message."""
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id', return_value='%0'):
-                with patch('orch.end.get_kn_entries_since', return_value=[]):
-                    with patch('orch.end.get_session_start_time', return_value=datetime.now()):
-                        with patch('orch.end.send_exit_to_pane', return_value=True):
-                            # Without -y flag, should show warning
-                            result = cli_runner.invoke(cli, ['end'], input='n\n')
-                            # Should show knowledge capture warning
-                            assert 'knowledge' in result.output.lower() or 'kn' in result.output.lower()
+            with patch('orch.end.get_kn_entries_since', return_value=[]):
+                with patch('orch.end.get_session_start_time', return_value=datetime.now()):
+                    # Without -y flag, should show warning
+                    result = cli_runner.invoke(cli, ['end'], input='n\n')
+                    # Should show knowledge capture warning
+                    assert 'knowledge' in result.output.lower() or 'kn' in result.output.lower()
 
     def test_has_entries_shows_count(self, cli_runner):
         """Test that having entries shows count."""
@@ -191,48 +185,39 @@ class TestSoftGatePrompt:
             {"id": "2", "type": "constraint", "content": "test2"},
         ]
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id', return_value='%0'):
-                with patch('orch.end.get_kn_entries_since', return_value=entries):
-                    with patch('orch.end.get_session_start_time', return_value=datetime.now()):
-                        with patch('orch.end.send_exit_to_pane', return_value=True):
-                            result = cli_runner.invoke(cli, ['end', '-y'])
-                            # Should show entry count
-                            assert '2' in result.output or 'entries' in result.output.lower()
+            with patch('orch.end.get_kn_entries_since', return_value=entries):
+                with patch('orch.end.get_session_start_time', return_value=datetime.now()):
+                    result = cli_runner.invoke(cli, ['end', '-y'])
+                    # Should show entry count
+                    assert '2' in result.output or 'entries' in result.output.lower()
 
     def test_skip_prompt_flag_bypasses_warning(self, cli_runner):
         """Test that -y flag skips the prompt."""
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id', return_value='%0'):
-                with patch('orch.end.get_kn_entries_since', return_value=[]):
-                    with patch('orch.end.get_session_start_time', return_value=datetime.now()):
-                        with patch('orch.end.send_exit_to_pane', return_value=True):
-                            result = cli_runner.invoke(cli, ['end', '-y'])
-                            # Should not prompt for confirmation
-                            assert 'y/N' not in result.output or result.exit_code == 0
+            with patch('orch.end.get_kn_entries_since', return_value=[]):
+                with patch('orch.end.get_session_start_time', return_value=datetime.now()):
+                    result = cli_runner.invoke(cli, ['end', '-y'])
+                    # Should not prompt for confirmation
+                    assert 'y/N' not in result.output or result.exit_code == 0
 
 
-class TestExitInjection:
-    """Test /exit command injection via tmux."""
+class TestExitGuidance:
+    """Test exit guidance output (replaced tmux injection due to race condition)."""
 
-    def test_sends_exit_command(self, cli_runner):
-        """Test that /exit is sent via tmux send-keys."""
+    def test_shows_exit_guidance(self, cli_runner):
+        """Test that guidance to use /exit is shown."""
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id', return_value='%0'):
-                with patch('orch.end.get_kn_entries_since', return_value=[]):
-                    with patch('orch.end.get_session_start_time', return_value=datetime.now()):
-                        with patch('orch.end.send_exit_to_pane') as mock_exit:
-                            mock_exit.return_value = True
-                            result = cli_runner.invoke(cli, ['end', '-y'])
-                            # Should have called send_exit_to_pane
-                            mock_exit.assert_called_once()
+            with patch('orch.end.get_kn_entries_since', return_value=[]):
+                with patch('orch.end.get_session_start_time', return_value=datetime.now()):
+                    result = cli_runner.invoke(cli, ['end', '-y'])
+                    # Should show guidance to use /exit
+                    assert '/exit' in result.output
 
-    def test_reports_exit_sent(self, cli_runner):
-        """Test that successful exit sends confirmation."""
+    def test_shows_ready_message(self, cli_runner):
+        """Test that ready to exit message is shown."""
         with patch.dict(os.environ, {'TMUX': '/tmp/tmux-1000/default,12345,0'}):
-            with patch('orch.end.get_current_pane_id', return_value='%0'):
-                with patch('orch.end.get_kn_entries_since', return_value=[]):
-                    with patch('orch.end.get_session_start_time', return_value=datetime.now()):
-                        with patch('orch.end.send_exit_to_pane', return_value=True):
-                            result = cli_runner.invoke(cli, ['end', '-y'])
-                            # Should confirm /exit was sent
-                            assert '/exit' in result.output.lower() or 'sending' in result.output.lower()
+            with patch('orch.end.get_kn_entries_since', return_value=[]):
+                with patch('orch.end.get_session_start_time', return_value=datetime.now()):
+                    result = cli_runner.invoke(cli, ['end', '-y'])
+                    # Should show ready to exit message
+                    assert 'ready to exit' in result.output.lower()

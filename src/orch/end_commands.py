@@ -24,12 +24,12 @@ def register_end_commands(cli):
 
         Checks for knowledge entries (kn) captured during this session.
         If none found, prompts to confirm exit (soft gate).
-        Sends /exit command to trigger proper SessionEnd hooks.
+        After running, use /exit to close the session.
 
         \b
         Examples:
-            orch end          # Check knowledge, prompt if none, then exit
-            orch end -y       # Skip prompt, exit immediately
+            orch end          # Check knowledge, prompt if none
+            orch end -y       # Skip prompt
         """
         from orch.end import end_session
 

@@ -6,13 +6,15 @@ Implements clean session exit with knowledge capture gates:
 2. Detect session type (orchestrator vs worker)
 3. Check .kn/entries.jsonl for entries since session start
 4. Soft gate: if no entries, prompt to confirm exit
-5. Send /exit + Enter via tmux send-keys to trigger SessionEnd hooks
+5. Output guidance for agent to use /exit manually
+
+Note: We don't send /exit via tmux because when this command runs from
+a Bash tool call, the REPL isn't at its input prompt. The agent must
+type /exit manually after running this command.
 """
 
 import json
 import os
-import subprocess
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,27 +25,6 @@ import click
 def is_in_tmux() -> bool:
     """Check if running inside a tmux session."""
     return 'TMUX' in os.environ
-
-
-def get_current_pane_id() -> Optional[str]:
-    """
-    Get the current tmux pane ID.
-
-    Returns:
-        Pane ID (e.g., '%0') or None if not in tmux or error
-    """
-    try:
-        result = subprocess.run(
-            ['tmux', 'display-message', '-p', '#{pane_id}'],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
 
 
 def detect_session_type(cwd: str) -> str:
@@ -159,39 +140,6 @@ def get_kn_entries_since(since: Optional[datetime], cwd: str) -> list:
         return []
 
 
-def send_exit_to_pane(pane_id: str) -> bool:
-    """
-    Send /exit command to a tmux pane.
-
-    Args:
-        pane_id: Tmux pane ID (e.g., '%0')
-
-    Returns:
-        True if command was sent successfully
-    """
-    try:
-        # Send /exit command
-        subprocess.run(
-            ['tmux', 'send-keys', '-t', pane_id, '/exit'],
-            check=False,
-            stderr=subprocess.DEVNULL
-        )
-
-        # Wait a moment for message to be pasted
-        time.sleep(0.5)
-
-        # Send Enter to execute the command
-        subprocess.run(
-            ['tmux', 'send-keys', '-t', pane_id, 'Enter'],
-            check=False,
-            stderr=subprocess.DEVNULL
-        )
-
-        return True
-    except Exception:
-        return False
-
-
 def format_knowledge_warning() -> str:
     """Return the soft gate warning message with guidance."""
     return """
@@ -220,12 +168,6 @@ def end_session(skip_prompt: bool = False) -> bool:
         click.echo("Run this command from within a tmux session.", err=True)
         return False
 
-    # Get current pane ID
-    pane_id = get_current_pane_id()
-    if not pane_id:
-        click.echo("Error: Could not detect current tmux pane", err=True)
-        return False
-
     # Step 2: Get session start time
     session_start = get_session_start_time()
 
@@ -248,10 +190,11 @@ def end_session(skip_prompt: bool = False) -> bool:
                 click.echo("Exit cancelled.")
                 return False
 
-    # Step 5: Send /exit command
-    click.echo("Sending /exit...")
-    if send_exit_to_pane(pane_id):
-        return True
-    else:
-        click.echo("Error: Failed to send /exit command", err=True)
-        return False
+    # Step 5: Guide agent to exit
+    # Note: We don't send /exit via tmux because when this command runs from
+    # a Bash tool call, the REPL isn't at its input prompt (it's mid-tool-execution).
+    # The /exit would arrive but not be processed as a command.
+    # Instead, we output guidance for the agent to exit manually.
+    click.echo("")
+    click.echo("Ready to exit. Use /exit to close session.")
+    return True
