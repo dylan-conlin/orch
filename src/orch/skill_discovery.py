@@ -50,6 +50,9 @@ class SkillMetadata:
     verification: Optional[SkillVerification] = None  # Phase 3: Verification requirements
     category: Optional[str] = None  # Category (audience): worker, orchestrator, shared, meta, utilities
     description: Optional[str] = None  # Short description of skill purpose
+    allowed_tools: Optional[List[str]] = None  # Tools the skill is allowed to use
+    disallowed_tools: Optional[List[str]] = None  # Tools the skill should NOT use
+    default_model: Optional[str] = None  # Default model for spawning (haiku, sonnet, opus)
 
 
 # Constants
@@ -238,5 +241,8 @@ def parse_skill_metadata(content: str, skill_dir_name: str) -> SkillMetadata:
         deliverables=deliverables,
         verification=verification,
         category=frontmatter.get('category'),  # Read skill-type category from frontmatter
-        description=frontmatter.get('description')  # Short description of skill purpose
+        description=frontmatter.get('description'),  # Short description of skill purpose
+        allowed_tools=frontmatter.get('allowed_tools'),  # Tool whitelist
+        disallowed_tools=frontmatter.get('disallowed_tools'),  # Tool blacklist
+        default_model=frontmatter.get('default_model')  # Default model for spawning
     )
