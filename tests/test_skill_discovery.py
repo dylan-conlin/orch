@@ -108,6 +108,39 @@ class TestSkillMetadata:
         assert metadata.verification is not None
         assert metadata.category == "worker"
 
+    def test_creates_with_tool_restrictions(self):
+        """Should create metadata with allowed_tools and disallowed_tools."""
+        metadata = SkillMetadata(
+            name="restricted-skill",
+            triggers=["test"],
+            deliverables=DEFAULT_DELIVERABLES,
+            allowed_tools=["Read", "Grep", "Glob"],
+            disallowed_tools=["Bash", "Write"]
+        )
+        assert metadata.allowed_tools == ["Read", "Grep", "Glob"]
+        assert metadata.disallowed_tools == ["Bash", "Write"]
+
+    def test_creates_with_default_model(self):
+        """Should create metadata with default_model."""
+        metadata = SkillMetadata(
+            name="model-skill",
+            triggers=["test"],
+            deliverables=DEFAULT_DELIVERABLES,
+            default_model="haiku"
+        )
+        assert metadata.default_model == "haiku"
+
+    def test_tool_restrictions_default_to_none(self):
+        """Tool restrictions should default to None."""
+        metadata = SkillMetadata(
+            name="basic-skill",
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES
+        )
+        assert metadata.allowed_tools is None
+        assert metadata.disallowed_tools is None
+        assert metadata.default_model is None
+
 
 class TestParseSkillMetadata:
     """Tests for parse_skill_metadata function."""
@@ -251,6 +284,70 @@ category: worker
 """
         metadata = parse_skill_metadata(content, "fallback")
         assert metadata.category == "worker"
+
+    def test_parses_allowed_tools_from_frontmatter(self):
+        """Should parse allowed_tools list from frontmatter."""
+        content = """---
+name: restricted-skill
+allowed_tools:
+  - Read
+  - Grep
+  - Glob
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.allowed_tools == ["Read", "Grep", "Glob"]
+
+    def test_parses_disallowed_tools_from_frontmatter(self):
+        """Should parse disallowed_tools list from frontmatter."""
+        content = """---
+name: restricted-skill
+disallowed_tools:
+  - Bash
+  - Write
+  - Edit
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.disallowed_tools == ["Bash", "Write", "Edit"]
+
+    def test_parses_default_model_from_frontmatter(self):
+        """Should parse default_model from frontmatter."""
+        content = """---
+name: model-skill
+default_model: haiku
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.default_model == "haiku"
+
+    def test_parses_all_tool_and_model_fields_together(self):
+        """Should parse all tool restrictions and model fields together."""
+        content = """---
+name: full-restricted-skill
+allowed_tools:
+  - Read
+  - Glob
+disallowed_tools:
+  - Bash
+default_model: sonnet
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.allowed_tools == ["Read", "Glob"]
+        assert metadata.disallowed_tools == ["Bash"]
+        assert metadata.default_model == "sonnet"
+
+    def test_tool_fields_default_to_none_when_not_in_frontmatter(self):
+        """Tool and model fields should be None when not in frontmatter."""
+        content = """---
+name: basic-skill
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.allowed_tools is None
+        assert metadata.disallowed_tools is None
+        assert metadata.default_model is None
 
 
 class TestDiscoverSkills:
