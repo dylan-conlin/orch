@@ -137,6 +137,8 @@ class SpawnConfig:
     include_agent_mail: bool = False
     # MCP servers to include for this spawn (comma-separated list, e.g., "playwright,browser-use")
     mcp_servers: Optional[str] = None
+    # MCP-only mode: disable global MCP servers, only use servers specified via mcp_servers
+    mcp_only: bool = False
 
 
 # Constants
@@ -620,6 +622,8 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
             backend_options['mcp_servers'] = config.mcp_servers
             # Pass workspace path so MCP config can be written to file
             backend_options['workspace_path'] = workspace_path
+        if config.mcp_only:
+            backend_options['mcp_only'] = config.mcp_only
         backend_cmd = backend.build_command(minimal_prompt, backend_options if backend_options else None)
         full_cmd = f"{env_exports}{backend_cmd}"
 
@@ -1387,7 +1391,8 @@ def spawn_with_skill(
     beads_db_path: Optional[str] = None,
     parallel: bool = False,
     include_agent_mail: bool = False,
-    mcp_servers: Optional[str] = None
+    mcp_servers: Optional[str] = None,
+    mcp_only: bool = False
 ) -> Dict[str, str]:
     """
     Spawn agent with specific skill.
@@ -1565,7 +1570,9 @@ def spawn_with_skill(
         # Agent Mail coordination (scope-aware)
         include_agent_mail=include_agent_mail,
         # MCP servers to include for this spawn
-        mcp_servers=mcp_servers
+        mcp_servers=mcp_servers,
+        # MCP-only mode: disable global MCP servers
+        mcp_only=mcp_only
     )
 
     # Create workspace using integrated function (fixes PARTIAL state bug)

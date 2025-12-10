@@ -379,6 +379,39 @@ class TestBuildCommandWithMcp:
         assert "mcpServers" in config
         assert "playwright" in config["mcpServers"]
 
+    def test_build_command_with_mcp_only(self):
+        """build_command should include --strict-mcp-config when mcp_only=True."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+        options = {"mcp_only": True}
+
+        command = backend.build_command(prompt, options)
+
+        # Should contain --strict-mcp-config flag
+        assert "--strict-mcp-config" in command
+
+    def test_build_command_without_mcp_only(self):
+        """build_command should NOT include --strict-mcp-config when mcp_only not provided."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+
+        command = backend.build_command(prompt)
+
+        # Should NOT contain --strict-mcp-config flag
+        assert "--strict-mcp-config" not in command
+
+    def test_build_command_with_mcp_servers_and_mcp_only(self):
+        """build_command should handle both mcp_servers and mcp_only options."""
+        backend = ClaudeBackend()
+        prompt = "Test task"
+        options = {"mcp_servers": "playwright", "mcp_only": True}
+
+        command = backend.build_command(prompt, options)
+
+        # Should contain both flags
+        assert "--mcp-config" in command
+        assert "--strict-mcp-config" in command
+
 
 class TestResolveMcpServersWithWorkspacePath:
     """Tests for resolve_mcp_servers() with workspace_path parameter."""

@@ -126,6 +126,7 @@ class ClaudeBackend(Backend):
                 - model: Model to use (e.g., "sonnet", "opus", "claude-sonnet-4-5-20250929")
                 - agent_name: Agent name to use with --agent flag (replaces --allowed-tools)
                 - mcp_servers: Comma-separated MCP server names to include (e.g., "playwright,browser-use")
+                - mcp_only: If True, add --strict-mcp-config to disable global MCP servers
                 - workspace_path: Path to workspace directory for writing config files
 
         Returns:
@@ -159,6 +160,10 @@ class ClaudeBackend(Backend):
             if mcp_config_path:
                 # Pass file path to --mcp-config (or JSON string if no workspace_path)
                 parts.append(f"--mcp-config {shlex.quote(mcp_config_path)}")
+
+        # Add --strict-mcp-config to disable global MCP servers
+        if options and options.get('mcp_only'):
+            parts.append("--strict-mcp-config")
 
         # Add -- separator to signal end of options
         # This is critical for variadic options like --mcp-config <configs...>

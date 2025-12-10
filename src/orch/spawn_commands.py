@@ -95,7 +95,8 @@ def register_spawn_commands(cli):
     @click.option('--force', is_flag=True, help='Force spawn even for closed issues')
     @click.option('--auto-track', is_flag=True, help='Automatically create beads issue from task for lifecycle tracking')
     @click.option('--mcp', 'mcp_servers', help='Comma-separated MCP servers to include (e.g., "playwright,browser-use")')
-    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, issue_ids, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track, mcp_servers):
+    @click.option('--mcp-only', is_flag=True, help='Only use specified MCP servers, disable global MCP config')
+    def spawn(context_or_skill, task, project, workspace_name, yes, interactive, resume, prompt_file, from_stdin, phases, mode, validation, phase_id, depends_on, investigation_type, backend, model, issue_id, issue_ids, stash, allow_dirty, skip_artifact_check, context_ref, parallel, agent_mail, force, auto_track, mcp_servers, mcp_only):
         """
         Spawn a new worker agent or interactive session.
 
@@ -329,7 +330,8 @@ def register_spawn_commands(cli):
                     context_ref=context_ref,
                     include_agent_mail=agent_mail,
                     interactive=interactive,  # Pass -i flag to enable interactive mode
-                    mcp_servers=mcp_servers
+                    mcp_servers=mcp_servers,
+                    mcp_only=mcp_only
                 )
                 return
 
@@ -454,7 +456,8 @@ def register_spawn_commands(cli):
                     context_ref=context_ref,
                     include_agent_mail=agent_mail,
                     interactive=interactive,
-                    mcp_servers=mcp_servers
+                    mcp_servers=mcp_servers,
+                    mcp_only=mcp_only
                 )
                 return
 
@@ -496,7 +499,8 @@ def register_spawn_commands(cli):
                         interactive=True,  # Key difference: interactive mode
                         context_ref=context_ref,
                         include_agent_mail=agent_mail,
-                        mcp_servers=mcp_servers
+                        mcp_servers=mcp_servers,
+                        mcp_only=mcp_only
                     )
                     return
                 else:
@@ -607,7 +611,8 @@ def register_spawn_commands(cli):
                 context_ref=context_ref,
                 parallel=parallel,
                 include_agent_mail=agent_mail,
-                mcp_servers=mcp_servers
+                mcp_servers=mcp_servers,
+                mcp_only=mcp_only
             )
 
         except ValueError as e:
