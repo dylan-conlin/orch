@@ -74,14 +74,15 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     """
     Auto-generate workspace name for ad-hoc spawns.
 
-    Creates names with pattern: [skill-]description-DDMMM
+    Creates names with pattern: [project-][skill-]description-DDMMM
+    Project prefix ensures global uniqueness across projects.
     Date suffix uses compact format (e.g., 30nov, 15dec).
     Truncates at word boundaries to avoid mid-word cuts.
 
     Args:
         task: Task description
         skill_name: Optional skill name for prefixing
-        project_dir: Project directory (for collision detection)
+        project_dir: Project directory (for collision detection AND project prefix)
 
     Returns:
         Workspace name (string, not full path)
@@ -91,25 +92,35 @@ def create_workspace_adhoc(task: str, skill_name: Optional[str] = None, project_
     # Get compact date suffix (e.g., "30nov", "15dec")
     date_suffix = datetime.now().strftime("%d%b").lower()
 
+    # Get project prefix for global uniqueness
+    # This prevents collisions when different projects spawn similar tasks
+    project_prefix = ""
+    if project_dir:
+        project_name = project_dir.name
+        project_prefix = abbreviate_project_name(project_name)
+
     # Extract meaningful words
     words = extract_meaningful_words(task)
 
     # Apply abbreviations to make names more concise
     words = apply_abbreviations(words)
 
-    # Build name with skill prefix if provided
+    # Build name with project prefix, skill prefix, and task keywords
     if skill_name and skill_name in SKILL_PREFIXES:
-        prefix = SKILL_PREFIXES[skill_name]
+        skill_prefix = SKILL_PREFIXES[skill_name]
         # Filter out words that match the prefix to avoid duplicates like "inv-inv-"
         # This handles cases where task contains "investigate" which abbreviates to "inv"
         # and skill is "investigation" which also has prefix "inv"
-        filtered_words = [w for w in words if w != prefix]
-        slug_words = [prefix] + filtered_words
+        filtered_words = [w for w in words if w != skill_prefix]
+        slug_words = [project_prefix, skill_prefix] + filtered_words if project_prefix else [skill_prefix] + filtered_words
     else:
-        slug_words = words if words else ['workspace']
+        slug_words = [project_prefix] + words if project_prefix and words else words if words else ['workspace']
+
+    # Filter out empty strings
+    slug_words = [w for w in slug_words if w]
 
     # Calculate available space for slug
-    # Format: slug-DDMMM (e.g., feat-auth-fix-30nov)
+    # Format: slug-DDMMM (e.g., oc-feat-auth-fix-30nov)
     # 5 chars for date + 1 for hyphen = 6
     # Target max length: 35 chars (much shorter than old 70)
     max_length = 35

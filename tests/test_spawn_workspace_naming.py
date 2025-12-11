@@ -108,16 +108,17 @@ class TestWorkspaceNaming:
         workspace_dir.mkdir(parents=True)
 
         # Create existing workspace with today's date suffix
+        # Note: Since project_dir is provided, names include project prefix (pro- for "project")
         task = "Fix database issue"
         date_suffix = datetime.now().strftime("%d%b").lower()
-        existing_name = f"debug-fix-database-issue-{date_suffix}"
+        existing_name = f"pro-debug-fix-database-issue-{date_suffix}"
         (workspace_dir / existing_name).mkdir()
 
         # Try to create same workspace
         name = create_workspace_adhoc(task, skill_name="systematic-debugging", project_dir=project_dir)
 
-        # Should have hash suffix before date suffix
-        assert name.startswith("debug-")
+        # Should have project prefix, then hash suffix before date suffix
+        assert name.startswith("pro-debug-"), f"Expected 'pro-debug-' prefix, got: {name}"
         assert name != existing_name
         assert len(name) <= 35
         assert re.search(r'-\d{4}-\d{2}[a-z]{3}$', name)  # Should have 4-digit hash then date

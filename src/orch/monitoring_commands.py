@@ -1295,6 +1295,62 @@ def register_monitoring_commands(cli):
                 click.echo(f"❌ Agent '{agent_id}' was removed from registry during wait", err=True)
                 sys.exit(2)
 
+    @cli.command()
+    @click.option('--days', '-d', default=14, type=int, help='Issues not updated in this many days (default: 14)')
+    @click.option('--status', '-s', type=click.Choice(['open', 'in_progress', 'blocked']), help='Filter by status')
+    @click.option('--limit', '-n', default=50, type=int, help='Maximum issues to show (default: 50)')
+    @click.option('--json', 'json_output', is_flag=True, help='Output in JSON format')
+    def stale(days, status, limit, json_output):
+        """Show stale beads issues (not updated recently).
+
+        Detects issues that haven't been updated in a while and may need attention.
+        Useful for backlog review during session start.
+
+        \b
+        Examples:
+          orch stale                          # Issues not updated in 14 days
+          orch stale --days 7                 # Issues not updated in 7 days
+          orch stale --status in_progress    # Only in-progress issues
+          orch stale --json                  # Output as JSON
+        """
+        from orch.beads_integration import (
+            BeadsIntegration,
+            BeadsCLINotFoundError,
+        )
+
+        try:
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues(days=days, status=status, limit=limit)
+        except BeadsCLINotFoundError:
+            click.echo("Error: bd CLI not found. Install beads or check PATH.", err=True)
+            sys.exit(1)
+
+        if json_output:
+            click.echo(json.dumps(issues, indent=2))
+            return
+
+        if not issues:
+            click.echo(f"✨ No stale issues found (all updated within {days} days)")
+            return
+
+        status_filter_str = f" with status '{status}'" if status else ""
+        click.echo(f"⏰ {len(issues)} stale issue(s) not updated in {days}+ days{status_filter_str}:")
+        click.echo()
+
+        for issue in issues:
+            priority = issue.get("priority", 0)
+            issue_id = issue.get("id", "unknown")
+            title = issue.get("title", "No title")
+            issue_status = issue.get("status", "unknown")
+            updated_at = issue.get("updated_at", "unknown")
+
+            # Format priority
+            priority_str = f"P{priority}" if priority else "P?"
+
+            click.echo(f"  [{priority_str}] {issue_id}: {title}")
+            click.echo(f"       Status: {issue_status}, Updated: {updated_at}")
+            click.echo()
+
 
 def _parse_timeout(timeout_str: str) -> int | None:
     """Parse timeout string like '30s', '5m', '1h', '1h30m' to seconds.
