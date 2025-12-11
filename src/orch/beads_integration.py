@@ -769,3 +769,48 @@ class BeadsIntegration:
                 return word
 
         return output.split()[0] if output else ""
+
+    def get_stale_issues(
+        self,
+        days: int = 14,
+        status: Optional[str] = None,
+        limit: int = 50
+    ) -> list:
+        """Get issues that haven't been updated recently.
+
+        Args:
+            days: Number of days without updates to consider stale. Defaults to 14.
+            status: Optional filter by status (open|in_progress|blocked).
+            limit: Maximum number of issues to return. Defaults to 50.
+
+        Returns:
+            List of issue dicts with id, title, status, priority, updated_at fields.
+            Returns empty list on failure.
+
+        Raises:
+            BeadsCLINotFoundError: If bd CLI is not installed
+        """
+        cmd = self._build_command("stale", "--days", str(days), "--json")
+
+        if status:
+            cmd.extend(["--status", status])
+
+        cmd.extend(["--limit", str(limit)])
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise BeadsCLINotFoundError()
+
+        if result.returncode != 0:
+            return []
+
+        try:
+            issues = json.loads(result.stdout)
+            return issues if issues else []
+        except json.JSONDecodeError:
+            return []

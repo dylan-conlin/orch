@@ -2168,3 +2168,177 @@ class TestBeadsIntegrationCreateIssue:
             assert "--db" in cmd
             assert "/path/to/other/.beads/beads.db" in cmd
             assert issue_id == "other-repo-abc"
+
+
+class TestBeadsIntegrationGetStaleIssues:
+    """Tests for get_stale_issues() - finds issues not updated recently."""
+
+    def test_get_stale_issues_success(self):
+        """Test getting stale issues with default parameters."""
+        mock_output = json.dumps([
+            {
+                "id": "orch-cli-abc",
+                "title": "Old forgotten issue",
+                "status": "open",
+                "priority": 2,
+                "updated_at": "2025-11-01T10:00:00Z"
+            },
+            {
+                "id": "orch-cli-def",
+                "title": "Stale in-progress work",
+                "status": "in_progress",
+                "priority": 1,
+                "updated_at": "2025-11-05T10:00:00Z"
+            },
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues()
+
+            assert len(issues) == 2
+            assert issues[0]["id"] == "orch-cli-abc"
+            assert issues[0]["title"] == "Old forgotten issue"
+            assert issues[1]["id"] == "orch-cli-def"
+
+            # Verify bd stale was called with correct default days (14)
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "bd" in cmd
+            assert "stale" in cmd
+            assert "--days" in cmd
+            days_idx = cmd.index("--days") + 1
+            assert cmd[days_idx] == "14"
+            assert "--json" in cmd
+
+    def test_get_stale_issues_custom_days(self):
+        """Test getting stale issues with custom days parameter."""
+        mock_output = json.dumps([])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues(days=7)
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            days_idx = cmd.index("--days") + 1
+            assert cmd[days_idx] == "7"
+
+    def test_get_stale_issues_with_status_filter(self):
+        """Test filtering stale issues by status."""
+        mock_output = json.dumps([
+            {
+                "id": "orch-cli-abc",
+                "title": "Stale in-progress",
+                "status": "in_progress",
+                "priority": 1,
+            }
+        ])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues(status="in_progress")
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--status" in cmd
+            status_idx = cmd.index("--status") + 1
+            assert cmd[status_idx] == "in_progress"
+
+    def test_get_stale_issues_with_limit(self):
+        """Test limiting the number of stale issues returned."""
+        mock_output = json.dumps([])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues(limit=10)
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--limit" in cmd
+            limit_idx = cmd.index("--limit") + 1
+            assert cmd[limit_idx] == "10"
+
+    def test_get_stale_issues_empty_result(self):
+        """Test when no stale issues exist."""
+        mock_output = json.dumps([])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues()
+
+            assert issues == []
+
+    def test_get_stale_issues_cli_not_found(self):
+        """Test error when bd CLI is not installed."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("bd not found")
+
+            beads = BeadsIntegration()
+            with pytest.raises(BeadsCLINotFoundError):
+                beads.get_stale_issues()
+
+    def test_get_stale_issues_command_fails(self):
+        """Test handling bd stale command failure."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error: database not found",
+            )
+
+            beads = BeadsIntegration()
+            issues = beads.get_stale_issues()
+
+            # Should return empty list on failure, not raise
+            assert issues == []
+
+    def test_get_stale_issues_with_db_path(self):
+        """Test get_stale_issues uses --db flag when db_path is set."""
+        mock_output = json.dumps([])
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=mock_output,
+                stderr="",
+            )
+
+            beads = BeadsIntegration(db_path="/other/repo/.beads/beads.db")
+            beads.get_stale_issues()
+
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert "--db" in cmd
+            assert "/other/repo/.beads/beads.db" in cmd
