@@ -333,6 +333,40 @@ def generate_agent_file(config: SpawnConfig) -> Optional[Path]:
     return agent_path
 
 
+def show_compact_summary(config: SpawnConfig) -> None:
+    """
+    Display compact one-line spawn summary for non-interactive mode.
+
+    Optimized for CLI display (especially Claude Code) where verbose output
+    gets collapsed. Shows key info (skill, project, task) in scannable format.
+
+    Format: 🚀 spawning: [emoji][skill] → [project] "[task...]" (beads: id)
+
+    Args:
+        config: Spawn configuration
+    """
+    import click
+
+    # Get skill emoji
+    emoji = get_emoji_for_skill(config.skill_name) if config.skill_name else "⚙️"
+
+    # Truncate task to fit in single line (~60 chars for task)
+    task = config.task or ""
+    max_task_len = 60
+    if len(task) > max_task_len:
+        task = task[:max_task_len - 3] + "..."
+
+    # Build summary line
+    skill_part = f"{emoji}{config.skill_name}" if config.skill_name else "interactive"
+    summary = f"🚀 spawning: {skill_part} → {config.project} \"{task}\""
+
+    # Add beads ID if present
+    if config.beads_id:
+        summary += f" (beads: {config.beads_id})"
+
+    click.echo(summary)
+
+
 def show_preview(config: SpawnConfig) -> None:
     """
     Display spawn preview with configuration details.
@@ -1599,8 +1633,13 @@ def spawn_with_skill(
     workspace_path.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Show preview
-        show_preview(config)
+        # Show preview or compact summary based on interactivity
+        # Non-interactive (yes=True): compact one-line summary for Claude Code readability
+        # Interactive (yes=False): full preview box with detailed info
+        if yes:
+            show_compact_summary(config)
+        else:
+            show_preview(config)
 
         # Confirm
         if not yes:
