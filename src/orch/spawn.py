@@ -1078,6 +1078,10 @@ def spawn_interactive(
         project_dir = get_project_dir(project)
         if not project_dir:
             raise ValueError(format_project_not_found_error(project, "--project"))
+        # If input was a path (contains /), extract project name from resolved directory
+        # This prevents invalid tmuxinator configs like "workers-/Users/.../project.yml"
+        if '/' in project:
+            project = project_dir.name
 
     # Create workspace for interactive session
     # Use descriptive slugified naming based on context (or timestamp fallback)
@@ -1536,6 +1540,10 @@ def spawn_with_skill(
         project_dir = get_project_dir(project)
         if not project_dir:
             raise ValueError(format_project_not_found_error(project, "--project"))
+        # If input was a path (contains /), extract project name from resolved directory
+        # This prevents invalid tmuxinator configs like "workers-/Users/.../project.yml"
+        if '/' in project:
+            project = project_dir.name
 
     # Git State Validation
     stashed = _handle_git_dirty_state(

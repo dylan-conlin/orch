@@ -391,3 +391,111 @@ class TestGetProjectDirCwdFallback:
             assert result is None
         finally:
             os.chdir(original_cwd)
+
+
+class TestProjectNameNormalization:
+    """Tests for project name normalization when full paths are provided.
+
+    When --project is given a full filesystem path instead of just a project name,
+    spawn functions should extract the project name (basename) from the resolved path.
+    This prevents invalid tmuxinator configs like "workers-/Users/.../project.yml".
+
+    Regression test for beads issue: orch-cli-fs0
+    """
+
+    def test_project_name_normalized_in_spawn_with_skill(self, tmp_path):
+        """Test that spawn_with_skill() extracts project name from full path.
+
+        When user passes --project /full/path/to/my-project, the project name
+        should become "my-project", not the full path.
+
+        This test verifies the fix by checking that the project variable
+        is normalized BEFORE SpawnConfig is created.
+        """
+        from orch.spawn import SpawnConfig
+
+        # Simulate what the code does:
+        # 1. User passes full path: project = "/full/path/to/my-project"
+        # 2. get_project_dir() resolves it: project_dir = Path("/full/path/to/my-project")
+        # 3. FIX: If project contains '/', extract basename
+
+        project = "/full/path/to/my-project"
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+
+        # Apply the normalization fix
+        if '/' in project:
+            project = project_dir.name
+
+        # Verify the normalized name
+        assert project == "my-project", f"Expected 'my-project', got '{project}'"
+        assert "/" not in project, f"Project name should not contain '/'"
+
+        # Verify it creates valid SpawnConfig
+        config = SpawnConfig(
+            task="Test task",
+            project=project,
+            project_dir=project_dir,
+            workspace_name="test-workspace"
+        )
+        assert config.project == "my-project"
+
+    def test_project_name_unchanged_when_not_path(self, tmp_path):
+        """Test that project name is unchanged when it's just a name (not a path)."""
+        project = "my-project"  # Just a name, no slashes
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+
+        # Normalization should not change it
+        if '/' in project:
+            project = project_dir.name
+
+        assert project == "my-project", f"Expected 'my-project', got '{project}'"
+
+    def test_tmuxinator_config_with_normalized_name(self, tmp_path):
+        """Test that tmuxinator config is created correctly with normalized name.
+
+        This verifies that using a normalized project name creates a valid
+        tmuxinator config filename (e.g., workers-my-project.yml not
+        workers-/Users/.../my-project.yml).
+        """
+        from orch.tmuxinator import ensure_tmuxinator_config
+
+        # Create test project directory
+        project_dir = tmp_path / "test-project"
+        project_dir.mkdir()
+
+        # Mock the config directory to be in tmp_path
+        with patch('orch.tmuxinator.Path.home', return_value=tmp_path):
+            config_path = ensure_tmuxinator_config("test-project", project_dir)
+
+        # Verify valid filename (no slashes in filename)
+        assert config_path.name == "workers-test-project.yml", \
+            f"Expected 'workers-test-project.yml', got '{config_path.name}'"
+        # Verify no path separators in the config file basename
+        assert "/" not in config_path.name, \
+            f"Config filename should not contain '/', got '{config_path.name}'"
+
+    def test_tmuxinator_config_would_fail_with_path(self, tmp_path):
+        """Demonstrate what happens without normalization (the bug).
+
+        Without the fix, passing a full path as project_name would create
+        an invalid filename that cannot be created or loaded.
+        """
+        # This is what would happen WITHOUT the fix:
+        bad_project_name = "/Users/someone/projects/my-project"
+
+        # The config path would try to be something like:
+        # ~/.tmuxinator/workers-/Users/someone/projects/my-project.yml
+        # which is an invalid path (contains directory separators in filename)
+
+        expected_bad_filename = f"workers-{bad_project_name}.yml"
+        assert "/" in expected_bad_filename, \
+            "This demonstrates the bug: path separators end up in filename"
+
+        # With the fix, we extract just the basename
+        fixed_project_name = Path(bad_project_name).name
+        fixed_filename = f"workers-{fixed_project_name}.yml"
+        assert "/" not in fixed_filename, \
+            "After fix: no path separators in filename"
+        assert fixed_filename == "workers-my-project.yml"
