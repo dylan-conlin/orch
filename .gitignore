@@ -94,3 +94,4 @@ Thumbs.db
 # Project specific
 .orch/workspace/*/
 *.log
+.agentlog/errors.jsonl
