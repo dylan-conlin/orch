@@ -130,6 +130,69 @@ def load_kb_context(task: str, project_dir: Path) -> Optional[str]:
     return "\n".join(lines)
 
 
+def load_agentlog_context(project_dir: Path) -> Optional[str]:
+    """
+    Load recent error context from agentlog for the spawn task.
+
+    Runs `agentlog prime` to surface:
+    - Recent error counts (last hour, last 24h)
+    - Top error types by frequency
+    - Top sources by frequency
+    - Actionable tip for the agent
+
+    This complements load_kn_context() and load_kb_context() by adding
+    error visibility to spawned agents. Agents get awareness of recent
+    issues without the orchestrator having to manually include them.
+
+    Args:
+        project_dir: Project directory (must have .agentlog initialized)
+
+    Returns:
+        Formatted markdown string of agentlog context, or None if not available.
+    """
+    # Check if .agentlog directory exists
+    agentlog_dir = project_dir / '.agentlog'
+    if not agentlog_dir.exists():
+        return None
+
+    try:
+        result = subprocess.run(
+            ['agentlog', 'prime'],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5
+        )
+        stdout = result.stdout.strip()
+
+        # Check for actual error content (not "No errors" or "No log file" messages)
+        if result.returncode != 0:
+            return None
+        if not stdout:
+            return None
+        if "No errors logged" in stdout or "No error log found" in stdout:
+            return None
+
+        # Format the context
+        lines = ["## RECENT ERRORS (from agentlog)\n"]
+        lines.append("*Recent errors detected in this project. Consider these when investigating issues.*\n")
+        lines.append("```")
+        lines.append(stdout)
+        lines.append("```\n")
+        lines.append("*Run `agentlog errors` for detailed error information.*\n")
+
+        return "\n".join(lines)
+
+    except FileNotFoundError:
+        # agentlog CLI not installed
+        return None
+    except subprocess.TimeoutExpired:
+        return None
+    except Exception:
+        return None
+
+
 def load_kn_context(task: str, project_dir: Path) -> Optional[str]:
     """
     Load relevant knowledge context from kn for the spawn task.
@@ -931,6 +994,12 @@ Signal orchestrator when blocked:
     kb_context = load_kb_context(config.task, config.project_dir)
     if kb_context:
         additional_parts.append(kb_context)
+
+    # Recent errors from agentlog (smart auto-inject)
+    # Surfaces error patterns to give agents awareness of recent issues
+    agentlog_context = load_agentlog_context(config.project_dir)
+    if agentlog_context:
+        additional_parts.append(agentlog_context)
 
     # Beads progress tracking (when spawned from a beads issue)
     if config.beads_id:

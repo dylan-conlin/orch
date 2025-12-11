@@ -932,3 +932,230 @@ class TestSpawnPromptKbContextIntegration:
         kn_pos = prompt.find("PRIOR KNOWLEDGE (from kn)")
         kb_pos = prompt.find("PRIOR INVESTIGATIONS (from kb)")
         assert kb_pos > kn_pos, "kb context should appear after kn context"
+
+
+class TestLoadAgentlogContext:
+    """
+    Tests for load_agentlog_context() function which surfaces recent errors
+    from agentlog for spawn prompt enrichment.
+
+    Related: orch-cli-0ce
+    """
+
+    def test_load_agentlog_context_returns_none_when_no_agentlog_dir(self, tmp_path):
+        """Verify load_agentlog_context returns None when .agentlog directory doesn't exist."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # No .agentlog directory
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+    def test_load_agentlog_context_returns_none_when_no_errors(self, tmp_path, mocker):
+        """Verify load_agentlog_context returns None when agentlog reports no errors."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to return "No errors logged"
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout='agentlog: No errors logged\n',
+            stderr=''
+        )
+
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+    def test_load_agentlog_context_returns_none_when_no_log_file(self, tmp_path, mocker):
+        """Verify load_agentlog_context returns None when no error log exists."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to return "No error log found"
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout='agentlog: No error log found (.agentlog/errors.jsonl)\n  Run \'agentlog init\' to set up error tracking\n',
+            stderr=''
+        )
+
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+    def test_load_agentlog_context_formats_errors_correctly(self, tmp_path, mocker):
+        """Verify load_agentlog_context formats error output correctly."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to return error summary
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=0,
+            stdout='agentlog: 5 errors (2 in last hour)\n  Top types: TypeError (3), SyntaxError (2)\n  Sources: src/app.js (4), src/parser.js (1)\n  Tip: Focus on TypeError in src/app.js - 60% of errors\n',
+            stderr=''
+        )
+
+        result = load_agentlog_context(tmp_path)
+
+        assert result is not None
+        assert "## RECENT ERRORS (from agentlog)" in result
+        assert "Recent errors detected in this project" in result
+        assert "agentlog: 5 errors" in result
+        assert "TypeError" in result
+        assert "Run `agentlog errors` for detailed error information" in result
+
+    def test_load_agentlog_context_handles_subprocess_error(self, tmp_path, mocker):
+        """Verify load_agentlog_context handles subprocess errors gracefully."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to return non-zero exit code
+        mock_run = mocker.patch('orch.spawn_prompt.subprocess.run')
+        mock_run.return_value = mocker.Mock(
+            returncode=1,
+            stdout='',
+            stderr='Error: something went wrong'
+        )
+
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+    def test_load_agentlog_context_handles_timeout(self, tmp_path, mocker):
+        """Verify load_agentlog_context handles subprocess timeout gracefully."""
+        from orch.spawn_prompt import load_agentlog_context
+        import subprocess
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to raise timeout
+        mocker.patch('orch.spawn_prompt.subprocess.run', side_effect=subprocess.TimeoutExpired('agentlog', 5))
+
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+    def test_load_agentlog_context_handles_missing_cli(self, tmp_path, mocker):
+        """Verify load_agentlog_context handles missing agentlog CLI gracefully."""
+        from orch.spawn_prompt import load_agentlog_context
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock subprocess to raise FileNotFoundError (CLI not installed)
+        mocker.patch('orch.spawn_prompt.subprocess.run', side_effect=FileNotFoundError())
+
+        result = load_agentlog_context(tmp_path)
+        assert result is None
+
+
+class TestSpawnPromptAgentlogContextIntegration:
+    """
+    Integration tests for agentlog context in spawn prompts.
+
+    Verifies that load_agentlog_context is properly integrated into build_spawn_prompt.
+    Related: orch-cli-0ce
+    """
+
+    def test_spawn_prompt_calls_load_agentlog_context(self, tmp_path, mocker):
+        """Verify build_spawn_prompt calls load_agentlog_context."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock load_agentlog_context to track if it's called
+        mock_load_agentlog = mocker.patch('orch.spawn_prompt.load_agentlog_context')
+        mock_load_agentlog.return_value = None  # No agentlog context
+
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        build_spawn_prompt(config)
+
+        # Verify load_agentlog_context was called with project_dir
+        mock_load_agentlog.assert_called_once_with(tmp_path)
+
+    def test_spawn_prompt_includes_agentlog_context_when_available(self, tmp_path, mocker):
+        """Verify spawn prompt includes agentlog context when errors exist."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create .agentlog directory
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock load_agentlog_context to return error context
+        mock_load_agentlog = mocker.patch('orch.spawn_prompt.load_agentlog_context')
+        mock_load_agentlog.return_value = "## RECENT ERRORS (from agentlog)\n\n```\nagentlog: 3 errors\n```"
+
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # agentlog context should be in the prompt
+        assert "## RECENT ERRORS (from agentlog)" in prompt
+        assert "agentlog: 3 errors" in prompt
+
+    def test_spawn_prompt_agentlog_context_after_kb_context(self, tmp_path, mocker):
+        """Verify agentlog context appears after kb context in spawn prompt."""
+        from orch.spawn import SpawnConfig, DEFAULT_DELIVERABLES
+        from orch.spawn_prompt import build_spawn_prompt
+
+        # Create both .kb and .agentlog directories
+        (tmp_path / '.kb').mkdir()
+        (tmp_path / '.agentlog').mkdir()
+
+        # Mock all context loaders
+        mock_load_kn = mocker.patch('orch.spawn_prompt.load_kn_context')
+        mock_load_kn.return_value = "## PRIOR KNOWLEDGE (from kn)\n\nSome kn context"
+
+        mock_load_kb = mocker.patch('orch.spawn_prompt.load_kb_context')
+        mock_load_kb.return_value = "## PRIOR INVESTIGATIONS (from kb)\n\nSome kb context"
+
+        mock_load_agentlog = mocker.patch('orch.spawn_prompt.load_agentlog_context')
+        mock_load_agentlog.return_value = "## RECENT ERRORS (from agentlog)\n\nSome errors"
+
+        config = SpawnConfig(
+            task="Test task",
+            project="test-project",
+            project_dir=tmp_path,
+            workspace_name="test-workspace",
+            skill_name="feature-impl",
+            beads_id="test-123",
+            deliverables=DEFAULT_DELIVERABLES
+        )
+
+        prompt = build_spawn_prompt(config)
+
+        # All contexts should be present
+        assert "PRIOR KNOWLEDGE (from kn)" in prompt
+        assert "PRIOR INVESTIGATIONS (from kb)" in prompt
+        assert "RECENT ERRORS (from agentlog)" in prompt
+
+        # agentlog context should appear after kb context
+        kb_pos = prompt.find("PRIOR INVESTIGATIONS (from kb)")
+        agentlog_pos = prompt.find("RECENT ERRORS (from agentlog)")
+        assert agentlog_pos > kb_pos, "agentlog context should appear after kb context"
