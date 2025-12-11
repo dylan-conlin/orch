@@ -127,6 +127,45 @@ Note: "playwright" is NOT in the enabledMcpjsonServers list.
 
 ---
 
+### Finding 6: Exact location where disabled state is stored
+
+**Evidence:** MCP server configuration follows a two-part pattern:
+
+1. **Server definitions** stored in `~/.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "web-to-markdown": {
+      "command": "node",
+      "args": ["/path/to/index.js"],
+      "type": "stdio"
+    },
+    "browser-use": {
+      "command": "uvx",
+      "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+2. **Enabled/disabled state** tracked in `~/.claude/settings.local.json` under `enabledMcpjsonServers`:
+   - Servers IN this list = **enabled**
+   - Servers NOT in this list = **disabled**
+
+**Verification:** User screenshot showed "browser-use" as "disabled" in orch-cli project - checking the list confirms "browser-use" is NOT in `enabledMcpjsonServers`.
+
+**Source:** `~/.mcp.json` + `~/.claude/settings.local.json`
+
+**Significance:** This explains the exact mechanism:
+- `--mcp-config` writes a valid config file
+- But Claude Code checks `enabledMcpjsonServers` before loading any MCP server
+- If the server name isn't pre-approved in this list, it won't load regardless of `--mcp-config`
+
+**Note:** `enableAllProjectMcpServers: true` only applies to project-level `.mcp.json` files, NOT user-level `~/.mcp.json` or runtime `--mcp-config` configs.
+
+---
+
 ## Synthesis
 
 **Key Insights:**
