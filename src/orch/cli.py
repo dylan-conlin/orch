@@ -2,11 +2,49 @@ import click
 import json
 import os
 import subprocess
+import sys
 import time
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from orch import __version__
+
+
+# agentlog error handler - captures unhandled exceptions
+def _init_agentlog():
+    if os.environ.get('ENV') == 'production':
+        return  # no-op in production
+
+    original_excepthook = sys.excepthook
+
+    def agentlog_excepthook(exc_type, exc_value, exc_tb):
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "cli",
+            "error_type": exc_type.__name__,
+            "message": str(exc_value)[:500],
+            "context": {
+                "command": " ".join(sys.argv) if sys.argv else "orch",
+                "stack_trace": "".join(traceback.format_exception(exc_type, exc_value, exc_tb))[:2048]
+            }
+        }
+
+        agentlog_dir = Path('.agentlog')
+        if agentlog_dir.exists():
+            try:
+                with open(agentlog_dir / 'errors.jsonl', 'a') as f:
+                    f.write(json.dumps(entry) + '\n')
+            except Exception:
+                pass  # Silent failure
+
+        original_excepthook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = agentlog_excepthook
+
+
+_init_agentlog()
 from orch.registry import AgentRegistry
 from orch.tmux_utils import list_windows, find_session, is_tmux_available, get_window_by_target
 from orch.monitor import check_agent_status, get_status_emoji
@@ -14,8 +52,6 @@ from orch.logging import OrchLogger
 from orch.complete import verify_agent_work, clean_up_agent
 from orch.help import show_help_overview, show_help_topic, show_unknown_topic, HELP_TOPICS
 from orch.markdown_utils import extract_tldr
-from orch.error_logging import log_error, ErrorType
-
 # Import from path_utils to break circular dependencies
 # (cli -> complete -> spawn -> cli and cli -> complete -> spawn -> investigations -> cli)
 # Re-export for backward compatibility
@@ -26,29 +62,7 @@ from orch.spawn_commands import register_spawn_commands
 from orch.monitoring_commands import register_monitoring_commands
 from orch.workspace_commands import register_workspace_commands
 from orch.work_commands import register_work_commands
-from orch.error_commands import register_error_commands
 from orch.end_commands import register_end_commands
-import sys
-
-
-def log_cli_error(
-    subcommand: str,
-    error_type: ErrorType,
-    message: str,
-    context: dict = None,
-) -> None:
-    """Log a CLI error to the error log.
-
-    Helper function that constructs the full command from sys.argv.
-    """
-    command = " ".join(sys.argv) if sys.argv else f"orch {subcommand}"
-    log_error(
-        command=command,
-        subcommand=subcommand,
-        error_type=error_type,
-        message=message,
-        context=context,
-    )
 
 
 @click.group()
@@ -62,7 +76,6 @@ register_spawn_commands(cli)
 register_monitoring_commands(cli)
 register_workspace_commands(cli)
 register_work_commands(cli)
-register_error_commands(cli)
 register_end_commands(cli)
 
 @cli.command()
@@ -516,12 +529,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
             if not force:
                 phase = beads.get_phase_from_comments(beads_issue)
                 if not phase or phase.lower() != "complete":
-                    log_cli_error(
-                        subcommand="complete",
-                        error_type=ErrorType.VERIFICATION_FAILED,
-                        message=f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'",
-                        context={"beads_id": beads_issue, "current_phase": phase or "none"}
-                    )
                     click.echo(f"Cannot close beads issue '{beads_issue}': Phase is '{phase or 'none'}', not 'Complete'.", err=True)
                     click.echo(f"   Agent must run: bd comment {beads_issue} \"Phase: Complete - <summary>\"", err=True)
                     raise click.Abort()
@@ -535,21 +542,9 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
                 click.echo(f"Beads issue '{beads_issue}' closed successfully.")
 
         except BeadsCLINotFoundError:
-            log_cli_error(
-                subcommand="complete",
-                error_type=ErrorType.BEADS_ERROR,
-                message="bd CLI not found. Install beads or check PATH.",
-                context={"beads_id": beads_issue}
-            )
             click.echo("bd CLI not found. Install beads or check PATH.", err=True)
             raise click.Abort()
         except BeadsIssueNotFoundError:
-            log_cli_error(
-                subcommand="complete",
-                error_type=ErrorType.BEADS_ERROR,
-                message=f"Beads issue '{beads_issue}' not found",
-                context={"beads_id": beads_issue}
-            )
             click.echo(f"Beads issue '{beads_issue}' not found.", err=True)
             raise click.Abort()
 
@@ -645,12 +640,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
     agent = registry.find(agent_id)
 
     if not agent:
-        log_cli_error(
-            subcommand="complete",
-            error_type=ErrorType.AGENT_NOT_FOUND,
-            message=f"Agent '{agent_id}' not found in registry",
-            context={"agent_id": agent_id}
-        )
         click.echo(f"❌ Agent '{agent_id}' not found in registry.", err=True)
         raise click.Abort()
 
@@ -699,14 +688,6 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
 
         click.echo()
     else:
-        # Log the completion failure
-        error_type = ErrorType.VERIFICATION_FAILED if not result['verified'] else ErrorType.UNEXPECTED_ERROR
-        log_cli_error(
-            subcommand="complete",
-            error_type=error_type,
-            message=result['errors'][0] if result['errors'] else "Unknown completion error",
-            context={"agent_id": agent_id, "errors": result['errors'], "verified": result['verified']}
-        )
         click.echo("❌ Completion failed:", err=True)
         click.echo()
         if not result['verified']:
