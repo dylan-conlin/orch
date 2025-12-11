@@ -211,3 +211,77 @@ class TestDeterminePrimaryArtifact:
 
         result = determine_primary_artifact(config)
         assert result is None
+
+
+class TestCompactSummary:
+    """Tests for compact summary output (non-interactive mode)."""
+
+    def test_show_compact_summary_basic(self, capsys):
+        """Test compact summary outputs single line with key info."""
+        from orch.spawn import show_compact_summary
+
+        config = SpawnConfig(
+            task="Optimize orch spawn output for Claude Code",
+            project="orch-cli",
+            project_dir=Path("/Users/test/orch-cli"),
+            workspace_name="feat-optimize-spawn-11dec",
+            skill_name="feature-impl",
+        )
+
+        show_compact_summary(config)
+
+        captured = capsys.readouterr()
+        output = captured.out.strip()
+
+        # Should be single line (or at most 2 short lines)
+        lines = output.split('\n')
+        assert len(lines) <= 2
+
+        # Key info visible in output
+        assert "feature-impl" in output
+        assert "orch-cli" in output
+        assert "Optimize" in output  # Task truncated but starts visible
+
+    def test_show_compact_summary_truncates_long_task(self, capsys):
+        """Test compact summary truncates very long task descriptions."""
+        from orch.spawn import show_compact_summary
+
+        long_task = "This is a very long task description that would take up way too much space if we showed it all in the compact summary line which should stay short"
+        config = SpawnConfig(
+            task=long_task,
+            project="test-project",
+            project_dir=Path("/test/project"),
+            workspace_name="test-workspace",
+            skill_name="investigation",
+        )
+
+        show_compact_summary(config)
+
+        captured = capsys.readouterr()
+        output = captured.out.strip()
+
+        # Output should be much shorter than task
+        assert len(output) < len(long_task) + 50
+        # Should have ellipsis indicating truncation
+        assert "..." in output
+
+    def test_show_compact_summary_shows_beads_id_when_present(self, capsys):
+        """Test compact summary includes beads ID when spawned from issue."""
+        from orch.spawn import show_compact_summary
+
+        config = SpawnConfig(
+            task="Fix bug in auth module",
+            project="myapp",
+            project_dir=Path("/test/myapp"),
+            workspace_name="fix-auth-bug-11dec",
+            skill_name="feature-impl",
+            beads_id="myapp-abc",
+        )
+
+        show_compact_summary(config)
+
+        captured = capsys.readouterr()
+        output = captured.out.strip()
+
+        # Beads ID should be visible
+        assert "myapp-abc" in output
