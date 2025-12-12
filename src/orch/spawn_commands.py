@@ -4,7 +4,9 @@ Commands for spawning new worker agents.
 """
 
 import click
+import io
 import os
+import select
 import sys
 from pathlib import Path
 
@@ -16,6 +18,53 @@ from orch.beads_integration import (
     BeadsIssueNotFoundError,
 )
 from orch.git_utils import find_commits_mentioning_issue
+
+
+def stdin_has_data(timeout: float = 0.1) -> bool:
+    """
+    Check if stdin has data available to read without blocking.
+
+    Uses select() to check for data availability with a short timeout.
+    This avoids the issue where stdin.read() blocks forever in non-TTY
+    environments (like Claude Code) when no data is actually piped.
+
+    Args:
+        timeout: How long to wait for data (seconds). Default 0.1s.
+
+    Returns:
+        True if stdin has data available, False otherwise.
+
+    Note:
+        On Windows, select() doesn't work on stdin. Windows users should
+        use the explicit --from-stdin flag instead of relying on auto-detection.
+    """
+    try:
+        # select.select() returns (readable, writable, exceptional) lists
+        # If stdin has data, it will appear in the readable list
+        readable, _, _ = select.select([sys.stdin], [], [], timeout)
+        return bool(readable)
+    except (ValueError, OSError, io.UnsupportedOperation) as e:
+        # select() can fail in several cases:
+        # - Windows: select doesn't work on stdin
+        # - StringIO (test mocks): no fileno() method
+        # - Invalid stdin
+        #
+        # For StringIO (Click CliRunner tests), we check if there's content
+        # by checking if we can peek or if the object has readable content.
+        # This maintains backward compatibility with tests while fixing the
+        # real-world hang issue.
+        if hasattr(sys.stdin, 'read') and hasattr(sys.stdin, 'seek'):
+            # Looks like a StringIO-like object (test environment)
+            # Try to peek at content without consuming it
+            try:
+                pos = sys.stdin.tell()
+                char = sys.stdin.read(1)
+                sys.stdin.seek(pos)
+                return bool(char)
+            except Exception:
+                pass
+        # If we can't determine, return False (don't block on unknown stdin)
+        return False
 
 
 def register_spawn_commands(cli):
@@ -157,10 +206,17 @@ def register_spawn_commands(cli):
             elif from_stdin:
                 # --from-stdin flag: read stdin as context (not prompt replacement)
                 stdin_context = sys.stdin.read().strip()
-            elif not sys.stdin.isatty():
+            elif not sys.stdin.isatty() and stdin_has_data():
                 # Auto-detect piped stdin (heredoc or pipe without explicit flag)
                 # This enables: orch spawn skill "task" << 'CONTEXT' ... CONTEXT
-                stdin_context = sys.stdin.read().strip()
+                # Note: We check stdin_has_data() because non-TTY doesn't always mean
+                # piped data - Claude Code and other environments have non-TTY stdin
+                # but no piped data, which would cause stdin.read() to hang forever.
+                data = sys.stdin.read().strip()
+                # Only set stdin_context if there's actual content
+                # (stdin at EOF returns empty string, not None)
+                if data:
+                    stdin_context = data
 
             # Validate mutual exclusivity of --issue and --issues
             if issue_id and issue_ids:

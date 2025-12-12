@@ -259,3 +259,66 @@ class TestPromptFileVsStdin:
             "Task description should be present"
         assert "Extra context from heredoc" in prompt, \
             "Additional context should also be present"
+
+
+class TestStdinHasData:
+    """
+    Tests for the stdin_has_data() helper function.
+
+    This function prevents hangs in non-TTY environments (like Claude Code)
+    where stdin.read() would block forever waiting for EOF.
+
+    Related: orch-cli-be4 (orch spawn hangs with long multi-line task prompts)
+    """
+
+    def test_stdin_has_data_with_stringio_content(self):
+        """
+        Verify stdin_has_data() detects content in StringIO (test environment).
+
+        Click CliRunner uses StringIO for stdin simulation. Our fix must handle
+        this case to maintain backward compatibility with tests.
+        """
+        from orch.spawn_commands import stdin_has_data
+
+        # Create a StringIO with content
+        mock_stdin = io.StringIO("test content")
+
+        with patch.object(sys, 'stdin', mock_stdin):
+            result = stdin_has_data(timeout=0.1)
+            assert result is True, "Should detect content in StringIO"
+
+    def test_stdin_has_data_with_empty_stringio(self):
+        """
+        Verify stdin_has_data() returns False for empty StringIO.
+        """
+        from orch.spawn_commands import stdin_has_data
+
+        # Create an empty StringIO
+        mock_stdin = io.StringIO("")
+
+        with patch.object(sys, 'stdin', mock_stdin):
+            result = stdin_has_data(timeout=0.1)
+            assert result is False, "Should return False for empty StringIO"
+
+    def test_stdin_has_data_handles_no_seek_method(self):
+        """
+        Verify stdin_has_data() handles stdin objects without seek() method.
+
+        Real stdin may not have seek(), so we should handle this gracefully.
+        """
+        from orch.spawn_commands import stdin_has_data
+
+        # Create a mock stdin without seek method (like real stdin)
+        class MockStdin:
+            def read(self):
+                return ""
+
+            def fileno(self):
+                raise io.UnsupportedOperation("fileno")
+
+        mock_stdin = MockStdin()
+
+        with patch.object(sys, 'stdin', mock_stdin):
+            result = stdin_has_data(timeout=0.1)
+            # Should return False (can't determine, so don't block)
+            assert result is False, "Should return False when can't determine data availability"
