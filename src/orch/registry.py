@@ -100,7 +100,8 @@ class AgentRegistry:
     def _merge_agents(self, current: List[Dict[str, Any]], ours: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Merge concurrent registry changes using ID-based deduplication.
-        Newer entries (by spawned_at) win in conflicts.
+        Newer entries (by updated_at) win in conflicts.
+        Falls back to spawned_at for backwards compatibility with older entries.
         """
         merged = {}
 
@@ -114,11 +115,14 @@ class AgentRegistry:
 
             if our_agent:
                 # Compare timestamps, newer wins
-                current_ts = current_agent.get('spawned_at', '')
-                our_ts = our_agent.get('spawned_at', '')
-                if current_ts >= our_ts:
+                # Use updated_at if available, fallback to spawned_at for backwards compatibility
+                current_ts = current_agent.get('updated_at') or current_agent.get('spawned_at', '')
+                our_ts = our_agent.get('updated_at') or our_agent.get('spawned_at', '')
+                if current_ts > our_ts:
                     merged[agent_id] = current_agent
                 else:
+                    # When timestamps are equal or ours is newer, prefer our version
+                    # This ensures in-memory changes are preserved
                     merged[agent_id] = our_agent
             else:
                 merged[agent_id] = current_agent
@@ -219,6 +223,7 @@ class AgentRegistry:
                 now = datetime.now().isoformat()
                 existing_window['status'] = 'abandoned'
                 existing_window['abandoned_at'] = now
+                existing_window['updated_at'] = now
                 self.save()
 
         now = datetime.now().isoformat()
@@ -230,6 +235,7 @@ class AgentRegistry:
             'project_dir': str(Path(project_dir).expanduser()),
             'workspace': workspace,
             'spawned_at': now,
+            'updated_at': now,
             'status': 'active',
             'is_interactive': is_interactive
         }
@@ -275,6 +281,7 @@ class AgentRegistry:
                 now = datetime.now().isoformat()
                 agent['status'] = 'deleted'
                 agent['deleted_at'] = now
+                agent['updated_at'] = now
                 return True
         return False
 
@@ -287,6 +294,7 @@ class AgentRegistry:
         now = datetime.now().isoformat()
         agent['status'] = 'abandoned'
         agent['abandoned_at'] = now
+        agent['updated_at'] = now
         if reason:
             agent['abandon_reason'] = reason
 
@@ -317,6 +325,7 @@ class AgentRegistry:
                     now = datetime.now().isoformat()
                     agent['status'] = 'completed'
                     agent['completed_at'] = now
+                    agent['updated_at'] = now
 
                     self._logger.log_event("registry",
                         f"Agent completed (window closed): {agent['id']}", {

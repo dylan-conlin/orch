@@ -269,3 +269,128 @@ class TestRegistryConcurrency:
         final_registry = AgentRegistry(temp_registry_path)
         agents = final_registry.list_active_agents()
         assert len(agents) == 5
+
+
+class TestRegistryMerge:
+    """Tests for registry merge logic - ensures status changes persist after save/reload."""
+
+    @pytest.fixture
+    def temp_registry_path(self, tmp_path):
+        """Create a temporary registry path for testing."""
+        return tmp_path / "agent-registry.json"
+
+    def test_reconcile_status_change_persists_after_reload(self, temp_registry_path):
+        """
+        Regression test: Status changes from reconcile() must persist after save() and reload.
+
+        Bug: _merge_agents was using spawned_at for conflict resolution. Since spawned_at
+        is identical for disk and in-memory versions, disk always won, discarding status
+        changes made by reconcile().
+
+        Fix: Use updated_at (which is set when status changes) for conflict resolution.
+        """
+        # Step 1: Create a registry and register an agent
+        registry1 = AgentRegistry(temp_registry_path)
+        registry1.register(
+            agent_id="test-agent-merge",
+            task="Test merge behavior",
+            window="test:1",
+            window_id="@456",
+            project_dir="/tmp/test",
+            workspace="/tmp/workspace-merge",
+        )
+
+        # Verify agent has updated_at field
+        agent = registry1.find("test-agent-merge")
+        assert "updated_at" in agent, "Agent should have updated_at field"
+        assert agent["status"] == "active"
+
+        # Step 2: Reconcile with empty window list (window closed)
+        # This should mark the agent as completed AND update updated_at
+        registry1.reconcile(active_windows=[])
+
+        # Verify status changed in-memory
+        agent = registry1.find("test-agent-merge")
+        assert agent["status"] == "completed", "Status should be 'completed' in memory"
+        assert "completed_at" in agent
+
+        # Step 3: Create a new registry instance and reload from disk
+        # This is the critical test - the status change must have been persisted
+        registry2 = AgentRegistry(temp_registry_path)
+        agent_reloaded = registry2.find("test-agent-merge")
+
+        assert agent_reloaded is not None, "Agent should be found after reload"
+        assert agent_reloaded["status"] == "completed", \
+            "Bug: Status change was discarded during merge. " \
+            "Expected 'completed' but got '{}'".format(agent_reloaded["status"])
+        assert "completed_at" in agent_reloaded, "completed_at should persist after reload"
+
+    def test_updated_at_is_set_on_status_changes(self, temp_registry_path):
+        """Verify that updated_at is set whenever status changes."""
+        import time
+
+        registry = AgentRegistry(temp_registry_path)
+        registry.register(
+            agent_id="test-updated-at",
+            task="Test updated_at field",
+            window="test:1",
+            window_id="@789",
+            project_dir="/tmp/test",
+            workspace="/tmp/workspace-updated",
+        )
+
+        agent = registry.find("test-updated-at")
+        initial_updated_at = agent["updated_at"]
+
+        # Small delay to ensure timestamp changes
+        time.sleep(0.01)
+
+        # Reconcile to mark as completed
+        registry.reconcile(active_windows=[])
+
+        agent_after = registry.find("test-updated-at")
+        assert agent_after["updated_at"] > initial_updated_at, \
+            "updated_at should be updated when status changes"
+
+    def test_merge_prefers_newer_updated_at(self, temp_registry_path):
+        """
+        Test that merge logic correctly prefers the version with newer updated_at.
+        """
+        import time
+
+        # Create initial registry with an agent
+        registry1 = AgentRegistry(temp_registry_path)
+        registry1.register(
+            agent_id="merge-test",
+            task="Merge test",
+            window="test:1",
+            window_id="@999",
+            project_dir="/tmp/test",
+            workspace="/tmp/workspace-merge-test",
+        )
+
+        # Create second instance (simulates another process reading the registry)
+        registry2 = AgentRegistry(temp_registry_path)
+
+        # Small delay
+        time.sleep(0.01)
+
+        # First registry updates the agent (reconcile marks as completed)
+        registry1.reconcile(active_windows=[])
+        # This calls save() which should persist the change
+
+        # Second registry makes a different change (simulate concurrent modification)
+        # But registry2 still has the old in-memory state
+        agent_in_registry2 = registry2.find("merge-test")
+        assert agent_in_registry2["status"] == "active", \
+            "Registry2 should have stale in-memory state"
+
+        # When registry2 saves, the merge should detect that disk has newer updated_at
+        # and keep the disk version (completed), not the in-memory version (active)
+        registry2.save()
+
+        # Reload and verify the completed status was preserved
+        registry_final = AgentRegistry(temp_registry_path)
+        agent_final = registry_final.find("merge-test")
+        assert agent_final["status"] == "completed", \
+            "Merge should prefer disk version with newer updated_at"
