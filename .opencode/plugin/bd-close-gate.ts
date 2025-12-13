@@ -17,7 +17,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 /**
  * Check if a command should be blocked.
  */
-function shouldBlockCommand(command: string): boolean {
+export function shouldBlockCommand(command: string): boolean {
   // Only block in worker context
   const context = process.env.CLAUDE_CONTEXT ?? ""
   if (context !== "worker") {
@@ -33,7 +33,7 @@ function shouldBlockCommand(command: string): boolean {
 /**
  * Get the error message for blocked commands.
  */
-function getBlockedMessage(): string {
+export function getBlockedMessage(): string {
   return `Workers cannot run 'bd close' directly. This bypasses verification and breaks tracking.
 
 Instead:

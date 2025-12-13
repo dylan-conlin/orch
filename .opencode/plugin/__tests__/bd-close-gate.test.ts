@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { shouldBlockCommand, getBlockedMessage, BdCloseGate } from "./bd-close-gate";
+import { shouldBlockCommand, getBlockedMessage, BdCloseGate } from "../bd-close-gate";
 
 describe("shouldBlockCommand", () => {
   let originalContext: string | undefined;

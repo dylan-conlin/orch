@@ -36,7 +36,7 @@ interface OrchStatusOutput {
 /**
  * Check if a file or directory exists
  */
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await access(path)
     return true
@@ -48,7 +48,7 @@ async function exists(path: string): Promise<boolean> {
 /**
  * Find .orch directory in current directory or parents
  */
-async function findOrchDirectory(startDir: string | unknown): Promise<string | null> {
+export async function findOrchDirectory(startDir: string | unknown): Promise<string | null> {
   // Defensive: ensure startDir is a string
   if (typeof startDir !== "string") {
     console.log("[session-context] findOrchDirectory called with non-string:", typeof startDir)
@@ -81,7 +81,7 @@ async function findOrchDirectory(startDir: string | unknown): Promise<string | n
 /**
  * Load orchestrator skill from ~/.claude/skills/orchestrator/SKILL.md
  */
-async function loadOrchestratorSkill(): Promise<string | null> {
+export async function loadOrchestratorSkill(): Promise<string | null> {
   const skillPath = join(homedir(), ".claude", "skills", "orchestrator", "SKILL.md")
 
   try {

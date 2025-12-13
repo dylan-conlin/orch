@@ -16,7 +16,7 @@ import {
   exists,
   findOrchDirectory,
   loadOrchestratorSkill,
-} from "./session-context"
+} from "../session-context"
 
 describe("exists", () => {
   let tempDir: string
