@@ -37,12 +37,17 @@ def tail_agent_output(agent: Dict[str, Any], lines: int = 20) -> str:
 
 def _tail_opencode(agent: Dict[str, Any], lines: int) -> str:
     """Capture recent output from an OpenCode agent via HTTP API."""
+    import logging
+    
     session_id = agent.get('session_id')
+    
+    # Fallback to tmux if no session_id (standalone TUI mode)
+    # This matches the pattern in send.py for consistency
     if not session_id:
-        raise RuntimeError(
-            f"Agent '{agent['id']}' is an OpenCode agent but has no session_id. "
-            f"Cannot capture output."
+        logging.getLogger(__name__).info(
+            f"OpenCode agent {agent['id']} has no session_id, using tmux fallback"
         )
+        return _tail_tmux(agent, lines)
 
     # Discover server
     server_url = discover_server()

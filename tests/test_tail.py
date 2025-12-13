@@ -252,18 +252,33 @@ class TestTailOpenCode:
         # Output should contain assistant message content
         assert 'Hello from assistant' in output
 
-    def test_opencode_agent_no_session_id_raises_error(self):
-        """Test that OpenCode agent without session_id raises RuntimeError."""
+    def test_opencode_agent_no_session_id_falls_back_to_tmux(self):
+        """Test that OpenCode agent without session_id falls back to tmux capture."""
         from orch.tail import tail_agent_output
 
         opencode_agent = {
             'id': 'test-opencode-agent',
             'backend': 'opencode',
-            # Missing session_id
+            'window': 'workers:1',  # Has window for tmux fallback
+            # Missing session_id - should fallback to tmux
         }
 
-        with pytest.raises(RuntimeError, match='no session_id'):
-            tail_agent_output(opencode_agent, lines=20)
+        # Mock subprocess to simulate tmux capture-pane
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(
+                returncode=0,
+                stdout='Tmux fallback output\nLine 2\nLine 3',
+                stderr=''
+            )
+            
+            result = tail_agent_output(opencode_agent, lines=20)
+            
+            # Verify tmux capture-pane was called (fallback worked)
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert 'tmux' in call_args
+            assert 'capture-pane' in call_args
+            assert result == 'Tmux fallback output\nLine 2\nLine 3'
 
     def test_opencode_server_not_found_raises_error(self):
         """Test that missing OpenCode server raises RuntimeError."""
