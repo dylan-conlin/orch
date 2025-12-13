@@ -141,6 +141,25 @@ class TestSkillMetadata:
         assert metadata.disallowed_tools is None
         assert metadata.default_model is None
 
+    def test_creates_with_review_gate(self):
+        """Should create metadata with review gate field."""
+        metadata = SkillMetadata(
+            name="reviewed-skill",
+            triggers=["test"],
+            deliverables=DEFAULT_DELIVERABLES,
+            review="required"
+        )
+        assert metadata.review == "required"
+
+    def test_review_gate_defaults_to_none(self):
+        """Review gate should default to None."""
+        metadata = SkillMetadata(
+            name="basic-skill",
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES
+        )
+        assert metadata.review is None
+
 
 class TestParseSkillMetadata:
     """Tests for parse_skill_metadata function."""
@@ -348,6 +367,45 @@ name: basic-skill
         assert metadata.allowed_tools is None
         assert metadata.disallowed_tools is None
         assert metadata.default_model is None
+
+    def test_parses_review_required_from_frontmatter(self):
+        """Should parse review: required from frontmatter."""
+        content = """---
+name: reviewed-skill
+review: required
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.review == "required"
+
+    def test_parses_review_optional_from_frontmatter(self):
+        """Should parse review: optional from frontmatter."""
+        content = """---
+name: optional-review-skill
+review: optional
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.review == "optional"
+
+    def test_parses_review_none_from_frontmatter(self):
+        """Should parse review: none from frontmatter."""
+        content = """---
+name: no-review-skill
+review: none
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.review == "none"
+
+    def test_review_defaults_to_none_when_not_in_frontmatter(self):
+        """Review field should be None when not in frontmatter."""
+        content = """---
+name: basic-skill
+---
+"""
+        metadata = parse_skill_metadata(content, "fallback")
+        assert metadata.review is None
 
 
 class TestDiscoverSkills:
