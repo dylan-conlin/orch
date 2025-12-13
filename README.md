@@ -141,16 +141,18 @@ Built-in skills include:
 
 ## AI Agent Setup
 
-For AI agents (like Claude Code) to automatically load orchestration context:
+For AI agents to automatically load orchestration context, follow the setup guide for your agent:
 
-### 1. Install the orchestrator skill
+### Claude Code
+
+1. **Install the orchestrator skill:**
 
 ```bash
 mkdir -p ~/.claude/skills/orchestrator
 cp skills/orchestrator/SKILL.md ~/.claude/skills/orchestrator/
 ```
 
-### 2. Install the SessionStart hook
+2. **Install the SessionStart hook:**
 
 ```bash
 mkdir -p ~/.orch/hooks
@@ -175,11 +177,33 @@ Add to `~/.claude/settings.json`:
 
 Now when Claude Code starts in an orch project, it automatically loads orchestration context.
 
+### OpenCode
+
+OpenCode uses a different extension mechanism (plugins and `opencode.json` configuration).
+
+**Quick setup** - add to your project's `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "~/.claude/skills/orchestrator/SKILL.md"
+  ]
+}
+```
+
+For detailed setup including plugins and session hooks, see [docs/opencode-setup.md](docs/opencode-setup.md).
+
+**Key differences from Claude Code:**
+- Uses `.opencode/plugin/` directory instead of hooks
+- Configuration in `opencode.json` instead of `settings.json`
+- Plugin events (`session.created`) instead of hook events (`SessionStart`)
+
 ## Agent Compatibility
 
 Designed to work with:
-- Claude Code (primary target)
-- OpenCode
+- **Claude Code** (primary target) - uses hooks in `~/.claude/settings.json`
+- **OpenCode** - uses plugins in `.opencode/plugin/` and `opencode.json`
 - Any CLI-based AI coding agent
 
 ## Development
