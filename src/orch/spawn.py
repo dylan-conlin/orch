@@ -900,8 +900,9 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
 
         # After TUI is ready, type the prompt directly into the input
         # This is more reliable than --prompt flag which has inconsistent submit behavior
-        # The TUI needs a moment for input focus after initial render
-        time.sleep(0.5)
+        # The TUI needs time after visual render for input focus and event loop to settle
+        # Testing shows 0.5s is often insufficient; 1.0s is reliable
+        time.sleep(1.0)
 
         # Type the prompt using tmux send-keys -l (literal mode to handle special chars)
         subprocess.run([
@@ -971,7 +972,8 @@ def _wait_for_opencode_ready(window_target: str, timeout: float = 15.0) -> bool:
     """
     Wait for OpenCode TUI to be ready in tmux window.
 
-    Checks for OpenCode UI indicators in pane content.
+    Checks for OpenCode UI indicators in pane content. The TUI is considered
+    ready when it displays the prompt box with agent/model selector.
 
     Args:
         window_target: Tmux window target (e.g., "session:1")
@@ -991,18 +993,18 @@ def _wait_for_opencode_ready(window_target: str, timeout: float = 15.0) -> bool:
                 timeout=1.0
             )
 
-            output = result.stdout.lower()
+            output_lower = result.stdout.lower()
+            output_raw = result.stdout
 
-            # OpenCode TUI indicators
-            # - "opencode" in the UI
-            # - Command palette hint
-            # - Session indicators
-            if any(indicator in output for indicator in [
-                "opencode",
-                "ctrl+p",  # Command palette hint
-                "session",
-                "│",  # Box drawing characters from TUI
-            ]):
+            # OpenCode TUI indicators - need BOTH visual box AND agent selector
+            # The agent selector (showing "Build" or agent name) indicates the
+            # TUI is fully initialized and ready for input
+            has_prompt_box = "┃" in output_raw  # Thick vertical bar used by OpenCode
+            has_agent_selector = "build" in output_lower or "agent" in output_lower
+            has_command_hint = "alt+x" in output_lower or "commands" in output_lower
+
+            # TUI is ready when we see the prompt box AND either agent selector or command hints
+            if has_prompt_box and (has_agent_selector or has_command_hint):
                 return True
 
         except (subprocess.SubprocessError, subprocess.TimeoutExpired):
