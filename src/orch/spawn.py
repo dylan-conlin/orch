@@ -857,21 +857,15 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
         existing_server = server_url or discover_server()
 
         if existing_server:
-            # Attach mode: connect to existing server, create session via API first
+            # Attach mode: connect to existing server
+            # We start the TUI first, then send the prompt via API after it's ready
+            # Note: opencode attach does NOT support --session or --model flags
+            # The TUI will connect to the server and we'll create/send to a session via API
             backend = OpenCodeBackend(existing_server)
-
-            # Create session via API (this sends the prompt immediately)
-            session = backend.spawn_session(
-                prompt=minimal_prompt,
-                directory=str(config.project_dir),
-                agent="build",
-                async_mode=True,
-                model=opencode_model
-            )
-
-            # Build attach command to connect TUI to that session
-            opencode_cmd = f"{opencode_bin} attach {existing_server} --session {session.id} --model {shlex.quote(model_arg)} --dir {shlex.quote(str(config.project_dir))}"
-            session_id = session.id
+            
+            # Build attach command - only use supported flags (--dir for working directory)
+            opencode_cmd = f"{opencode_bin} attach {existing_server} --dir {shlex.quote(str(config.project_dir))}"
+            session_id = None  # Will be set after TUI starts and we create session via API
         else:
             # Standalone mode: start opencode with prompt pre-filled
             # Note: --prompt pre-fills input but doesn't auto-send
@@ -916,6 +910,32 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
                 f"Spawn failed: Window {actual_window_target} closed immediately. "
                 f"OpenCode may have crashed or failed to start."
             )
+
+        # For attach mode: now that TUI is ready, create session and send prompt via API
+        # This ensures the TUI is connected to the server before we try to create a session
+        if existing_server and session_id is None:
+            # Create session via API (this sends the prompt immediately)
+            session = backend.spawn_session(
+                prompt=minimal_prompt,
+                directory=str(config.project_dir),
+                agent="build",
+                async_mode=True,
+                model=opencode_model
+            )
+            session_id = session.id
+            
+            # Wait briefly for session to be visible
+            # The TUI should pick up the new session automatically
+            time.sleep(0.5)
+        elif not existing_server:
+            # Standalone mode: TUI has --prompt pre-filled, send Enter to submit it
+            # Small delay to ensure TUI has fully initialized
+            time.sleep(0.3)
+            subprocess.run([
+                "tmux", "send-keys",
+                "-t", actual_window_target,
+                "Enter"
+            ], check=False)
 
         # Calculate duration
         duration_ms = int((time.time() - start_time) * 1000)
