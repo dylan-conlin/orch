@@ -756,27 +756,24 @@ def spawn_in_tmux(config: SpawnConfig, session_name: str = None) -> Dict[str, st
 
 def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -> Dict[str, str]:
     """
-    Spawn agent using OpenCode HTTP API instead of tmux.
+    Spawn agent using OpenCode in a tmux window.
 
-    This is an alternative to spawn_in_tmux() that uses OpenCode's client-server
-    architecture. Benefits:
-    - No tmux dependency
-    - Structured API responses
-    - Real-time monitoring via SSE
-    - Session management via HTTP
+    This follows the same pattern as spawn_in_tmux() but uses OpenCode instead of Claude Code.
+    Each agent gets its own OpenCode TUI instance in a tmux window.
 
     Args:
         config: Spawn configuration
-        server_url: OpenCode server URL (auto-discovers if not provided)
+        server_url: OpenCode server URL (optional - if provided, uses attach mode)
 
     Returns:
         Dictionary with spawn info:
-        - session_id: OpenCode session ID
+        - window: tmux window target
+        - window_id: stable tmux window ID
         - agent_id: Unique agent identifier (workspace name)
         - backend: "opencode"
 
     Raises:
-        RuntimeError: If OpenCode server not available or spawn fails
+        RuntimeError: If spawn fails
     """
     from orch.backends.opencode import OpenCodeBackend, discover_server
 
@@ -796,35 +793,13 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
     })
 
     try:
-        # Discover or use provided server URL
-        url = server_url or discover_server()
-        if not url:
-            orch_logger.log_error("spawn", "OpenCode server not found", {
-                "reason": "No running OpenCode server discovered"
-            })
-            raise RuntimeError(
-                "OpenCode server not found. Start one with: "
-                "cd ~/Documents/personal/opencode && bun run dev serve --port 4096"
-            )
-
-        # Initialize backend
-        backend = OpenCodeBackend(url)
-
-        # Verify server is responding
-        if not backend.wait_for_ready("", timeout=5.0):
-            orch_logger.log_error("spawn", "OpenCode server not responding", {
-                "url": url
-            })
-            raise RuntimeError(f"OpenCode server at {url} not responding")
-
-        # Build spawn prompt (same as tmux path)
+        # Build spawn prompt (same as other backends)
         prompt = build_spawn_prompt(config)
 
         # Validate spawn context length - fail fast if context is too short
-        # This catches incomplete templates, missing skill content, etc.
         validate_spawn_context_length(prompt, workspace_name=config.workspace_name)
 
-        # Write full prompt to SPAWN_CONTEXT.md (same as tmux path)
+        # Write full prompt to SPAWN_CONTEXT.md
         workspace_path = config.project_dir / ".orch" / "workspace" / config.workspace_name
         workspace_path.mkdir(parents=True, exist_ok=True)
         context_file = workspace_path / "SPAWN_CONTEXT.md"
@@ -836,21 +811,111 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
             f"and begin the task."
         )
 
-        # Spawn OpenCode session
-        # Note: OpenCode's "build" agent = full access, "plan" = read-only
-        agent_type = "build"  # Default to full access for worker agents
-
-        # Resolve model for OpenCode
-        # Default to Opus 4.5 if no model specified
-        opencode_model = resolve_opencode_model(config.model)
-
-        session = backend.spawn_session(
-            prompt=minimal_prompt,
-            directory=str(config.project_dir),
-            agent=agent_type,
-            async_mode=True,  # Return immediately while agent processes
-            model=opencode_model
+        # Determine tmux session (per-project workers session)
+        session_name = get_workers_session_name(config.project)  # e.g., "workers-orch-cli"
+        window_name = build_window_name(
+            config.workspace_name,
+            config.project_dir,
+            skill_name=config.skill_name,
+            beads_id=config.beads_id
         )
+
+        # Create tmux window
+        # Note: trailing colon on session name tells tmux to auto-pick next available index
+        create_window_cmd = [
+            "tmux", "new-window",
+            "-t", f"{session_name}:",
+            "-n", window_name,
+            "-c", str(config.project_dir),
+            "-d", "-P", "-F", "#{window_index}:#{window_id}"
+        ]
+
+        result = subprocess.run(create_window_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            orch_logger.log_error("spawn", "Failed to create tmux window", {
+                "reason": result.stderr,
+                "session_name": session_name,
+                "window_name": window_name
+            })
+            raise RuntimeError(f"Failed to create tmux window: {result.stderr}")
+
+        # Parse "index:id" output
+        output = result.stdout.strip()
+        window_index, window_id = output.split(':', 1)
+        actual_window_target = f"{session_name}:{window_index}"
+
+        # Build opencode command
+        # Resolve model for OpenCode format
+        opencode_model = resolve_opencode_model(config.model)
+        model_arg = f"{opencode_model['providerID']}/{opencode_model['modelID']}"
+
+        # Get opencode binary path - allow override for dev builds
+        # OPENCODE_BIN can point to local dev build, otherwise use 'opencode' from PATH
+        opencode_bin = os.getenv("OPENCODE_BIN", "opencode")
+
+        # Check if there's an existing server to attach to
+        existing_server = server_url or discover_server()
+
+        if existing_server:
+            # Attach mode: connect to existing server, create session via API first
+            backend = OpenCodeBackend(existing_server)
+
+            # Create session via API (this sends the prompt immediately)
+            session = backend.spawn_session(
+                prompt=minimal_prompt,
+                directory=str(config.project_dir),
+                agent="build",
+                async_mode=True,
+                model=opencode_model
+            )
+
+            # Build attach command to connect TUI to that session
+            opencode_cmd = f"{opencode_bin} attach {existing_server} --session {session.id} --model {shlex.quote(model_arg)} --dir {shlex.quote(str(config.project_dir))}"
+            session_id = session.id
+        else:
+            # Standalone mode: start opencode with prompt pre-filled
+            # Note: --prompt pre-fills input but doesn't auto-send
+            # User needs to press Enter or we need a running server for API mode
+            opencode_cmd = f"{opencode_bin} {shlex.quote(str(config.project_dir))} --model {shlex.quote(model_arg)} --prompt {shlex.quote(minimal_prompt)}"
+            session_id = None  # Will be created by opencode on first submit
+
+        # Send command to tmux window
+        send_cmd = [
+            "tmux", "send-keys",
+            "-t", actual_window_target,
+            opencode_cmd
+        ]
+        subprocess.run(send_cmd, check=True)
+
+        # Send Enter to execute
+        subprocess.run([
+            "tmux", "send-keys",
+            "-t", actual_window_target,
+            "Enter"
+        ], check=True)
+
+        # Wait for OpenCode to start (check for TUI initialization)
+        spawn_timeout = float(os.getenv("ORCH_SPAWN_TIMEOUT") or "15.0")
+        if not _wait_for_opencode_ready(actual_window_target, timeout=spawn_timeout):
+            orch_logger.log_error("spawn", "OpenCode failed to start within timeout", {
+                "window": actual_window_target,
+                "timeout": spawn_timeout
+            })
+            raise RuntimeError(
+                f"OpenCode failed to start in window {actual_window_target} within {spawn_timeout} seconds. "
+                f"Check tmux session manually for error messages."
+            )
+
+        # Verify window still exists
+        from orch.tmux_utils import get_window_by_target
+        if not get_window_by_target(actual_window_target):
+            orch_logger.log_error("spawn", "Window closed immediately after creation", {
+                "window": actual_window_target
+            })
+            raise RuntimeError(
+                f"Spawn failed: Window {actual_window_target} closed immediately. "
+                f"OpenCode may have crashed or failed to start."
+            )
 
         # Calculate duration
         duration_ms = int((time.time() - start_time) * 1000)
@@ -858,17 +923,31 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
         # Log spawn complete
         orch_logger.log_command_complete("spawn", duration_ms, {
             "agent_id": config.workspace_name,
-            "session_id": session.id,
+            "window": actual_window_target,
+            "window_id": window_id,
+            "session_id": session_id,
             "project": config.project,
             "workspace": config.workspace_name,
             "backend": "opencode"
         })
 
+        # Auto-focus the newly spawned window
+        subprocess.run([
+            "tmux", "select-window",
+            "-t", actual_window_target
+        ], check=False)
+
+        # Switch workers client if needed
+        if not switch_workers_client(session_name, check_orchestrator_context=True):
+            logger.debug(f"Could not switch workers client to {session_name}")
+
         return {
-            'session_id': session.id,
+            'window': actual_window_target,
+            'window_id': window_id,
+            'window_name': window_name,
             'agent_id': config.workspace_name,
-            'backend': 'opencode',
-            'server_url': url
+            'session_id': session_id,
+            'backend': 'opencode'
         }
 
     except Exception as e:
@@ -882,6 +961,52 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
             "backend": "opencode"
         })
         raise
+
+
+def _wait_for_opencode_ready(window_target: str, timeout: float = 15.0) -> bool:
+    """
+    Wait for OpenCode TUI to be ready in tmux window.
+
+    Checks for OpenCode UI indicators in pane content.
+
+    Args:
+        window_target: Tmux window target (e.g., "session:1")
+        timeout: Maximum wait time in seconds
+
+    Returns:
+        True if OpenCode ready, False if timeout reached
+    """
+    start = time.time()
+
+    while (time.time() - start) < timeout:
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", window_target, "-p"],
+                capture_output=True,
+                text=True,
+                timeout=1.0
+            )
+
+            output = result.stdout.lower()
+
+            # OpenCode TUI indicators
+            # - "opencode" in the UI
+            # - Command palette hint
+            # - Session indicators
+            if any(indicator in output for indicator in [
+                "opencode",
+                "ctrl+p",  # Command palette hint
+                "session",
+                "│",  # Box drawing characters from TUI
+            ]):
+                return True
+
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired):
+            pass
+
+        time.sleep(0.2)
+
+    return False
 
 
 # Auto-registration
@@ -1664,12 +1789,12 @@ def spawn_with_skill(
         if config.backend == "opencode":
             spawn_info = spawn_with_opencode(config)
 
-            # Register agent with opencode-specific info
+            # Register agent with opencode-specific info (now has tmux window like other backends)
             register_agent(
                 agent_id=spawn_info['agent_id'],
                 task=config.task,
-                window=None,  # No tmux window for opencode
-                window_id=None,
+                window=spawn_info.get('window'),
+                window_id=spawn_info.get('window_id'),
                 project_dir=config.project_dir,
                 workspace_name=config.workspace_name,
                 skill_name=config.skill_name,
@@ -1685,8 +1810,9 @@ def spawn_with_skill(
             )
 
             click.echo(f"\n✅ Spawned (OpenCode): {config.workspace_name}")
-            click.echo(f"   Session: {spawn_info['session_id']}")
-            click.echo(f"   Server: {spawn_info.get('server_url', 'auto-discovered')}")
+            click.echo(f"   Window: {spawn_info.get('window')}")
+            if spawn_info.get('session_id'):
+                click.echo(f"   Session: {spawn_info['session_id']}")
             click.echo(f"   Workspace: {workspace_name}")
             if stashed:
                 click.echo(f"   ⚠️  Git changes stashed (will auto-unstash on complete)")
