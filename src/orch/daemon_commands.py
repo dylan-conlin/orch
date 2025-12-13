@@ -70,11 +70,15 @@ def register_daemon_commands(cli):
     @click.option("--label", default="triage:ready", help="Required label for spawn (default: triage:ready)")
     @click.option("--dry-run", is_flag=True, help="Preview spawns without executing")
     @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-    def run(poll_interval, max_agents, label, dry_run, verbose):
+    @click.option("--no-focus", is_flag=True, help="Disable focus-based prioritization")
+    def run(poll_interval, max_agents, label, dry_run, verbose, no_focus):
         """Run the work daemon in foreground.
 
         Polls `bd ready` across all projects registered with kb and spawns
         agents for issues that have the required label (default: triage:ready).
+
+        By default, issues are prioritized based on ~/.orch/focus.json config.
+        Use --no-focus to disable prioritization and spawn in discovery order.
 
         \b
         Examples:
@@ -82,6 +86,7 @@ def register_daemon_commands(cli):
             orch daemon run --dry-run           # Preview spawns
             orch daemon run --poll-interval 30  # Poll every 30 seconds
             orch daemon run --max-agents 5      # Allow 5 concurrent agents
+            orch daemon run --no-focus          # Disable focus prioritization
         """
         config = DaemonConfig(
             poll_interval_seconds=poll_interval,
@@ -89,6 +94,7 @@ def register_daemon_commands(cli):
             required_label=label,
             dry_run=dry_run,
             verbose=verbose,
+            use_focus=not no_focus,
         )
 
         run_daemon(config)
@@ -98,7 +104,8 @@ def register_daemon_commands(cli):
     @click.option("--max-agents", default=3, help="Max concurrent agents (default: 3)")
     @click.option("--dry-run", is_flag=True, help="Preview spawns without executing")
     @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-    def once(label, max_agents, dry_run, verbose):
+    @click.option("--no-focus", is_flag=True, help="Disable focus-based prioritization")
+    def once(label, max_agents, dry_run, verbose, no_focus):
         """Run a single polling cycle.
 
         Useful for testing or one-shot processing.
@@ -108,6 +115,7 @@ def register_daemon_commands(cli):
             orch daemon once                # Run one cycle
             orch daemon once --dry-run      # Preview what would be spawned
             orch daemon once --verbose      # Show detailed output
+            orch daemon once --no-focus     # Skip focus prioritization
         """
         config = DaemonConfig(
             poll_interval_seconds=0,  # Not used for once
@@ -115,6 +123,7 @@ def register_daemon_commands(cli):
             required_label=label,
             dry_run=dry_run,
             verbose=verbose,
+            use_focus=not no_focus,
         )
 
         stats = run_once(config)

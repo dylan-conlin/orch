@@ -21,6 +21,29 @@ from typing import Optional
 
 
 @dataclass
+class FocusConfig:
+    """Configuration for focus-based prioritization.
+
+    Read from ~/.orch/focus.json to prioritize certain projects,
+    labels, or issue types when the daemon spawns agents.
+    """
+
+    priority_projects: list = None  # type: ignore
+    priority_labels: list = None  # type: ignore
+    priority_issue_types: list = None  # type: ignore
+    enabled: bool = True
+
+    def __post_init__(self):
+        """Initialize empty lists for None values."""
+        if self.priority_projects is None:
+            self.priority_projects = []
+        if self.priority_labels is None:
+            self.priority_labels = []
+        if self.priority_issue_types is None:
+            self.priority_issue_types = []
+
+
+@dataclass
 class DaemonConfig:
     """Configuration for the work daemon."""
 
@@ -29,6 +52,7 @@ class DaemonConfig:
     required_label: str = "triage:ready"
     dry_run: bool = False
     verbose: bool = False
+    use_focus: bool = True  # Enable focus-based prioritization
 
 
 @dataclass
@@ -40,6 +64,84 @@ class ReadyIssue:
     issue_type: str
     labels: list
     project_path: Path
+
+
+def get_focus_path() -> Path:
+    """Get path to focus configuration file.
+
+    Returns:
+        Path to ~/.orch/focus.json
+    """
+    return Path.home() / ".orch" / "focus.json"
+
+
+def load_focus_config() -> FocusConfig:
+    """Load focus configuration from ~/.orch/focus.json.
+
+    If the file doesn't exist or is invalid, returns default FocusConfig.
+
+    Returns:
+        FocusConfig with prioritization settings.
+    """
+    focus_path = get_focus_path()
+
+    if not focus_path.exists():
+        return FocusConfig()
+
+    try:
+        data = json.loads(focus_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return FocusConfig()
+
+    return FocusConfig(
+        priority_projects=data.get("priority_projects", []),
+        priority_labels=data.get("priority_labels", []),
+        priority_issue_types=data.get("priority_issue_types", []),
+        enabled=data.get("enabled", True),
+    )
+
+
+def prioritize_issues(issues: list[ReadyIssue], config: FocusConfig) -> list[ReadyIssue]:
+    """Prioritize issues based on focus configuration.
+
+    Issues matching priority criteria are moved to the front of the list.
+    Higher priority scores (more matches) come first.
+
+    Args:
+        issues: List of ReadyIssue objects to prioritize
+        config: FocusConfig with prioritization settings
+
+    Returns:
+        Sorted list with focus-aligned issues first.
+    """
+    if not config.enabled or not issues:
+        return issues
+
+    # If no priorities configured, preserve original order
+    if not config.priority_projects and not config.priority_labels and not config.priority_issue_types:
+        return issues
+
+    def priority_score(issue: ReadyIssue) -> int:
+        """Calculate priority score for an issue (higher = more priority)."""
+        score = 0
+
+        # Check project priority
+        if issue.project_path.name in config.priority_projects:
+            score += 1
+
+        # Check label priorities
+        for label in config.priority_labels:
+            if label in issue.labels:
+                score += 1
+
+        # Check issue type priority
+        if issue.issue_type in config.priority_issue_types:
+            score += 1
+
+        return score
+
+    # Sort by priority score descending (stable sort preserves relative order)
+    return sorted(issues, key=priority_score, reverse=True)
 
 
 def get_kb_projects() -> list[Path]:
@@ -226,6 +328,11 @@ def run_daemon_cycle(config: DaemonConfig) -> dict:
         if config.verbose:
             print(f"No ready issues with label '{config.required_label}'")
         return stats
+
+    # Apply focus-based prioritization if enabled
+    if config.use_focus:
+        focus_config = load_focus_config()
+        ready_issues = prioritize_issues(ready_issues, focus_config)
 
     # Check concurrency limit
     active_count = count_active_agents()

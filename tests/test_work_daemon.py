@@ -30,6 +30,7 @@ class TestDaemonConfig:
         assert config.required_label == "triage:ready"
         assert config.dry_run is False
         assert config.verbose is False
+        assert config.use_focus is True
 
     def test_custom_values(self):
         """Test custom configuration values."""
@@ -39,12 +40,14 @@ class TestDaemonConfig:
             required_label="actionable",
             dry_run=True,
             verbose=True,
+            use_focus=False,
         )
         assert config.poll_interval_seconds == 30
         assert config.max_concurrent_agents == 5
         assert config.required_label == "actionable"
         assert config.dry_run is True
         assert config.verbose is True
+        assert config.use_focus is False
 
 
 class TestReadyIssue:
