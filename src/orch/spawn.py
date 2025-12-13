@@ -855,8 +855,9 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
 
         # Always use standalone mode - each agent gets its own opencode instance
         # Attach mode has issues with project/session routing that aren't worth fighting
-        # Standalone mode with --prompt pre-fills the prompt, we just need to send Enter to submit
-        opencode_cmd = f"{opencode_bin} {shlex.quote(str(config.project_dir))} --model {shlex.quote(model_arg)} --prompt {shlex.quote(minimal_prompt)}"
+        # Note: We don't use --prompt flag because its submit behavior is unreliable
+        # Instead, we type the prompt directly after TUI is ready (more explicit control)
+        opencode_cmd = f"{opencode_bin} {shlex.quote(str(config.project_dir))} --model {shlex.quote(model_arg)}"
         session_id = None  # Will be created by opencode on first submit
 
         # Send command to tmux window
@@ -897,16 +898,26 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
                 f"OpenCode may have crashed or failed to start."
             )
 
-        # Standalone mode: TUI has --prompt pre-filled, send Enter to submit it
-        # Need longer delay to ensure TUI has fully initialized and input is ready
-        # The TUI takes time to render and set up event handlers
-        time.sleep(1.0)
+        # After TUI is ready, type the prompt directly into the input
+        # This is more reliable than --prompt flag which has inconsistent submit behavior
+        # The TUI needs a moment for input focus after initial render
+        time.sleep(0.5)
+
+        # Type the prompt using tmux send-keys -l (literal mode to handle special chars)
+        subprocess.run([
+            "tmux", "send-keys",
+            "-t", actual_window_target,
+            "-l",  # Literal mode - don't interpret special characters
+            minimal_prompt
+        ], check=True)
+
+        # Send Enter to submit the prompt
         subprocess.run([
             "tmux", "send-keys",
             "-t", actual_window_target,
             "Enter"
-        ], check=False)
-        
+        ], check=True)
+
         # Give the agent time to start processing before returning
         time.sleep(0.5)
 
