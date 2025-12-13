@@ -37,11 +37,15 @@ def _send_message_opencode(agent: Dict[str, Any], message: str):
     from orch.backends.opencode import OpenCodeClient, discover_server
 
     session_id = agent.get('session_id')
+    
+    # Fallback to tmux if no session_id (standalone TUI mode)
     if not session_id:
-        raise RuntimeError(
-            f"Agent '{agent['id']}' is an OpenCode agent but has no session_id. "
-            f"Cannot send message."
+        import logging
+        logging.getLogger(__name__).info(
+            f"OpenCode agent {agent['id']} has no session_id, using tmux fallback"
         )
+        _send_message_tmux(agent, message)
+        return
 
     # Discover server
     server_url = discover_server()
