@@ -1,4 +1,4 @@
-**TLDR:** Question: How to add review gate metadata to skill schema? Answer: Added `review` field to `SkillMetadata` dataclass accepting values 'required', 'optional', or 'none'. Field is parsed from YAML frontmatter in SKILL.md files. High confidence (95%) - implemented with 6 passing tests.
+**TLDR:** Question: How to add review gate metadata to skill schema? Answer: Added `review` field to `SkillMetadata` dataclass accepting values 'required', 'optional', or 'none'. Field is parsed from YAML frontmatter in SKILL.md files. **Enforcement location identified:** `complete.py:complete_agent_work()` should check skill's review field via agent_info['skill'] → discover_skills() → SkillMetadata.review. High confidence (95%) - metadata implemented with 6 passing tests, enforcement location clear.
 
 ---
 
@@ -60,6 +60,61 @@
 
 ---
 
+### Finding 4: Review Gate Enforcement Location
+
+**Evidence:** The `complete_agent_work()` function in `src/orch/complete.py` (lines 202-335) is the single point where agent completion is processed. Key observations:
+
+1. **Agent info contains skill name:** `agent_info['skill']` stores the skill used for spawning (line 224 of verification.py shows this pattern)
+
+2. **Skill metadata is accessible:** `discover_skills()` returns a dict mapping skill names to `SkillMetadata` objects, which now include the `review` field
+
+3. **Verification already gates completion:** Lines 256-263 show verification gating pattern - if verification fails, errors are returned and completion stops
+
+4. **Beads phase check is similar pattern:** Lines 302-320 show another gating check (BeadsPhaseNotCompleteError) that blocks completion
+
+**Source:** 
+- `src/orch/complete.py:202-335` (complete_agent_work function)
+- `src/orch/verification.py:39-56` (_get_skill_deliverables shows skill lookup pattern)
+
+**Significance:** The enforcement logic should be added in `complete_agent_work()` between verification and beads close, following the existing gating patterns. The skill name is available via `agent['skill']`, and `SkillMetadata.review` can be accessed via `discover_skills()[skill_name].review`.
+
+---
+
+### Finding 5: Proposed Review Gate Workflow
+
+**Evidence:** Based on analysis of the completion flow:
+
+| `review` value | Behavior |
+|----------------|----------|
+| `'required'` | Block completion, show message asking for explicit `--reviewed` flag or `orch review <agent-id>` |
+| `'optional'` | Show warning but allow completion |
+| `'none'` or `None` | No change to current behavior |
+
+**Proposed implementation point:** After verification passes (line 263), before beads close (line 302):
+
+```python
+# Check review gate (after verification, before beads close)
+if agent.get('skill'):
+    from orch.skill_discovery import discover_skills
+    skills = discover_skills()
+    skill_metadata = skills.get(agent['skill'])
+    if skill_metadata and skill_metadata.review == 'required':
+        if not reviewed:  # new --reviewed flag
+            result['errors'].append(
+                f"Skill '{agent['skill']}' requires review before completion. "
+                f"Use --reviewed flag after reviewing agent work."
+            )
+            return result
+    elif skill_metadata and skill_metadata.review == 'optional':
+        result['warnings'].append(f"Note: Skill '{agent['skill']}' suggests review before completion")
+```
+
+**Source:** Analysis of `complete.py` flow and existing gating patterns
+
+**Significance:** This provides a clear implementation path that follows existing patterns in the codebase.
+
+---
+
 ## Synthesis
 
 **Key Insights:**
@@ -85,7 +140,7 @@ The review gate metadata was added by:
 
 **Why this level?**
 
-The implementation follows established patterns in the codebase and all 47 runnable tests pass (including 6 new tests specifically for the review field).
+The implementation follows established patterns in the codebase and all 47 runnable tests pass (including 6 new tests specifically for the review field). The enforcement location is clear from code analysis.
 
 **What's certain:**
 
@@ -93,63 +148,33 @@ The implementation follows established patterns in the codebase and all 47 runna
 - ✅ Frontmatter parsing correctly extracts the `review` value
 - ✅ Default behavior (None when not specified) works correctly
 - ✅ All existing tests continue to pass
+- ✅ Enforcement location identified: `complete.py:complete_agent_work()`
 
 **What's uncertain:**
 
 - ⚠️ Validation of allowed values ('required', 'optional', 'none') is not enforced - any string value is accepted
-- ⚠️ Downstream consumers of SkillMetadata need to handle the new field
+- ⚠️ Actual enforcement logic not yet implemented
 
 **What would increase confidence to Very High (100%):**
 
 - Add validation to reject invalid review values
-- Verify downstream code (spawn.py, spawn_prompt.py) handles the field correctly
+- Implement enforcement logic in `complete_agent_work()`
 
 ---
 
 ## Implementation Recommendations
 
-**Purpose:** Document what was implemented for future reference.
+**Purpose:** Document what was implemented and what remains for enforcement.
 
-### Implemented Approach ⭐
+### Part 1: Schema (COMPLETED) ✅
 
 **Add Optional[str] field to SkillMetadata** - Simple string field matching existing patterns.
-
-**Why this approach:**
-- Matches existing patterns (category, default_model)
-- No complex validation needed at schema level
-- Allows flexibility for future review values
-
-**Trade-offs accepted:**
-- No schema-level validation of allowed values
-- Downstream code must handle unknown values gracefully
-
-**Implementation sequence:**
-1. Added field to dataclass
-2. Added parsing in parse_skill_metadata
-3. Added tests
-
-### Alternative Approaches Considered
-
-**Option B: Enum type for review values**
-- **Pros:** Type safety, clear valid values
-- **Cons:** More complex, requires enum definition, less flexible for future values
-- **When to use instead:** If strict validation is needed
-
----
-
-### Implementation Details
 
 **What was implemented:**
 
 1. `src/orch/skill_discovery.py:56` - Added `review: Optional[str] = None` to SkillMetadata
 2. `src/orch/skill_discovery.py:248` - Added `review=frontmatter.get('review')` to parse_skill_metadata return
-3. `tests/test_skill_discovery.py` - Added 6 tests:
-   - `test_creates_with_review_gate`
-   - `test_review_gate_defaults_to_none`
-   - `test_parses_review_required_from_frontmatter`
-   - `test_parses_review_optional_from_frontmatter`
-   - `test_parses_review_none_from_frontmatter`
-   - `test_review_defaults_to_none_when_not_in_frontmatter`
+3. `tests/test_skill_discovery.py` - Added 6 tests (all passing)
 
 **Example SKILL.md usage:**
 ```yaml
@@ -159,6 +184,50 @@ skill-type: procedure
 review: required
 ---
 ```
+
+### Part 2: Enforcement (NOT YET IMPLEMENTED) ⭐
+
+**Add review gate check in complete_agent_work()** - Block completion for skills with `review: required`.
+
+**Implementation sequence:**
+1. Add `--reviewed` flag to `orch complete` command in `cli.py`
+2. Pass `reviewed` parameter to `complete_agent_work()`
+3. Add review gate check after verification, before beads close
+4. Add tests for review gate enforcement
+
+**Proposed code location:** `src/orch/complete.py:complete_agent_work()` around line 263 (after verification check)
+
+**Proposed logic:**
+```python
+# Check review gate
+if agent.get('skill'):
+    from orch.skill_discovery import discover_skills
+    skills = discover_skills()
+    skill_metadata = skills.get(agent['skill'])
+    if skill_metadata and skill_metadata.review == 'required':
+        if not reviewed:
+            result['errors'].append(
+                f"Skill '{agent['skill']}' requires review before completion. "
+                f"Use --reviewed flag after reviewing agent work."
+            )
+            return result
+    elif skill_metadata and skill_metadata.review == 'optional':
+        result['warnings'].append(
+            f"Note: Skill '{agent['skill']}' suggests review before completion"
+        )
+```
+
+### Alternative Approaches Considered
+
+**Option B: Separate `orch review` command**
+- **Pros:** More explicit review workflow, can track review status
+- **Cons:** More complex, requires additional state tracking
+- **When to use instead:** If review needs to be tracked/auditable
+
+**Option C: Review status in beads comments**
+- **Pros:** Auditable, follows beads pattern
+- **Cons:** More complex, requires parsing beads comments
+- **When to use instead:** If review audit trail is required
 
 ---
 
