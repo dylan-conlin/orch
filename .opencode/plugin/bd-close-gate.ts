@@ -12,38 +12,34 @@
  * Equivalent to: hooks/block-bd-close.py (Claude Code PreToolUse hook)
  */
 
-import type { Plugin } from "@opencode-ai/plugin";
+import type { Plugin } from "@opencode-ai/plugin"
 
 /**
  * Check if a command should be blocked.
- *
- * @param command - The bash command being executed
- * @returns true if the command should be blocked, false otherwise
  */
-export function shouldBlockCommand(command: string): boolean {
+function shouldBlockCommand(command: string): boolean {
   // Only block in worker context
-  const context = process.env.CLAUDE_CONTEXT ?? "";
+  const context = process.env.CLAUDE_CONTEXT ?? ""
   if (context !== "worker") {
-    return false;
+    return false
   }
 
   // Check for 'bd close' pattern
   // Match: bd close, bd  close (multiple spaces), but not 'echo "bd close"' etc.
-  // Use word boundary to avoid matching 'abcd close' or 'bd closed'
-  const bdClosePattern = /^\s*bd\s+close\b/;
-  return bdClosePattern.test(command);
+  const bdClosePattern = /^\s*bd\s+close\b/
+  return bdClosePattern.test(command)
 }
 
 /**
  * Get the error message for blocked commands.
  */
-export function getBlockedMessage(): string {
+function getBlockedMessage(): string {
   return `Workers cannot run 'bd close' directly. This bypasses verification and breaks tracking.
 
 Instead:
 1. Report completion via: bd comment <beads-id> "Phase: Complete - [summary]"
 2. Run /exit to close the agent session
-3. The orchestrator will verify and close the issue via 'orch complete'`;
+3. The orchestrator will verify and close the issue via 'orch complete'`
 }
 
 /**
@@ -57,22 +53,22 @@ export const BdCloseGate: Plugin = async ({
   worktree,
 }) => {
   return {
-    "tool.execute.before": async (input, output) => {
+    "tool.execute.before": async (input: any, output: any) => {
       // Only check Bash tool calls
       if (input.tool !== "bash") {
-        return;
+        return
       }
 
       // Get the command being executed
-      const command = output.args?.command as string | undefined;
+      const command = output.args?.command as string | undefined
       if (!command) {
-        return;
+        return
       }
 
       // Check if this command should be blocked
       if (shouldBlockCommand(command)) {
-        throw new Error(getBlockedMessage());
+        throw new Error(getBlockedMessage())
       }
     },
-  };
-};
+  }
+}

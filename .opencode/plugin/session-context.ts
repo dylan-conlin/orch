@@ -14,7 +14,7 @@
  * Installation:
  *   Place in .opencode/plugin/ directory (project) or ~/.config/opencode/plugin/ (global)
  *
- * Run tests with: bun test .opencode/plugin/session-context.test.ts
+ * Run tests with: bun test .opencode/plugin/__tests__/session-context.test.ts
  */
 
 import type { Plugin } from "@opencode-ai/plugin"
@@ -36,7 +36,7 @@ interface OrchStatusOutput {
 /**
  * Check if a file or directory exists
  */
-export async function exists(path: string): Promise<boolean> {
+async function exists(path: string): Promise<boolean> {
   try {
     await access(path)
     return true
@@ -48,7 +48,13 @@ export async function exists(path: string): Promise<boolean> {
 /**
  * Find .orch directory in current directory or parents
  */
-export async function findOrchDirectory(startDir: string): Promise<string | null> {
+async function findOrchDirectory(startDir: string | unknown): Promise<string | null> {
+  // Defensive: ensure startDir is a string
+  if (typeof startDir !== "string") {
+    console.log("[session-context] findOrchDirectory called with non-string:", typeof startDir)
+    return null
+  }
+
   let currentDir = resolve(startDir)
 
   // Check current directory
@@ -75,7 +81,7 @@ export async function findOrchDirectory(startDir: string): Promise<string | null
 /**
  * Load orchestrator skill from ~/.claude/skills/orchestrator/SKILL.md
  */
-export async function loadOrchestratorSkill(): Promise<string | null> {
+async function loadOrchestratorSkill(): Promise<string | null> {
   const skillPath = join(homedir(), ".claude", "skills", "orchestrator", "SKILL.md")
 
   try {
@@ -136,6 +142,8 @@ async function loadActiveAgents($: any): Promise<string | null> {
  * Load recent kn entries if .kn exists
  */
 async function loadKnRecent($: any, directory: string): Promise<string | null> {
+  if (typeof directory !== "string") return null
+  
   const knDir = join(directory, ".kn")
   if (!(await exists(knDir))) {
     return null
@@ -186,8 +194,9 @@ export const SessionContextPlugin: Plugin = async ({
         return
       }
 
-      // Must be in an orch project
-      const orchDir = await findOrchDirectory(directory)
+      // Must be in an orch project - use process.cwd() as directory may be object
+      const workingDir = typeof directory === "string" ? directory : process.cwd()
+      const orchDir = await findOrchDirectory(workingDir)
       if (!orchDir) {
         return
       }
@@ -213,7 +222,7 @@ export const SessionContextPlugin: Plugin = async ({
       }
 
       // Load recent kn entries
-      const knRecent = await loadKnRecent($, directory)
+      const knRecent = await loadKnRecent($, workingDir)
       if (knRecent) {
         contextParts.push("\n## Recent Knowledge (kn)\n\n")
         contextParts.push("*Quick decisions, constraints, failed attempts, questions*\n\n")
