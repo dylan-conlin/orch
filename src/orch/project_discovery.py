@@ -161,9 +161,16 @@ def get_kb_projects_via_cli(filter_existing: bool = False) -> Optional[List[Path
             return None
 
         # Parse JSON output
-        # Expected format: {"projects": [{"name": "...", "path": "..."}]}
+        # Format: [{"name": "...", "path": "..."}, ...]
         data = json.loads(result.stdout)
-        projects_data = data.get("projects", [])
+
+        # Handle both wrapped format {"projects": [...]} and direct array [...]
+        if isinstance(data, dict):
+            projects_data = data.get("projects", [])
+        elif isinstance(data, list):
+            projects_data = data
+        else:
+            return None
 
         if not isinstance(projects_data, list):
             return None
