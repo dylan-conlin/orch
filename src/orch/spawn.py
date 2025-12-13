@@ -853,25 +853,11 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
         # OPENCODE_BIN can point to local dev build, otherwise use 'opencode' from PATH
         opencode_bin = os.getenv("OPENCODE_BIN", "opencode")
 
-        # Check if there's an existing server to attach to
-        existing_server = server_url or discover_server()
-
-        if existing_server:
-            # Attach mode: connect to existing server
-            # We start the TUI first, then send the prompt via API after it's ready
-            # Note: opencode attach does NOT support --session or --model flags
-            # The TUI will connect to the server and we'll create/send to a session via API
-            backend = OpenCodeBackend(existing_server)
-            
-            # Build attach command - only use supported flags (--dir for working directory)
-            opencode_cmd = f"{opencode_bin} attach {existing_server} --dir {shlex.quote(str(config.project_dir))}"
-            session_id = None  # Will be set after TUI starts and we create session via API
-        else:
-            # Standalone mode: start opencode with prompt pre-filled
-            # Note: --prompt pre-fills input but doesn't auto-send
-            # User needs to press Enter or we need a running server for API mode
-            opencode_cmd = f"{opencode_bin} {shlex.quote(str(config.project_dir))} --model {shlex.quote(model_arg)} --prompt {shlex.quote(minimal_prompt)}"
-            session_id = None  # Will be created by opencode on first submit
+        # Always use standalone mode - each agent gets its own opencode instance
+        # Attach mode has issues with project/session routing that aren't worth fighting
+        # Standalone mode with --prompt pre-fills the prompt, we just need to send Enter to submit
+        opencode_cmd = f"{opencode_bin} {shlex.quote(str(config.project_dir))} --model {shlex.quote(model_arg)} --prompt {shlex.quote(minimal_prompt)}"
+        session_id = None  # Will be created by opencode on first submit
 
         # Send command to tmux window
         send_cmd = [
@@ -911,31 +897,18 @@ def spawn_with_opencode(config: SpawnConfig, server_url: Optional[str] = None) -
                 f"OpenCode may have crashed or failed to start."
             )
 
-        # For attach mode: now that TUI is ready, create session and send prompt via API
-        # This ensures the TUI is connected to the server before we try to create a session
-        if existing_server and session_id is None:
-            # Create session via API (this sends the prompt immediately)
-            session = backend.spawn_session(
-                prompt=minimal_prompt,
-                directory=str(config.project_dir),
-                agent="build",
-                async_mode=True,
-                model=opencode_model
-            )
-            session_id = session.id
-            
-            # Wait briefly for session to be visible
-            # The TUI should pick up the new session automatically
-            time.sleep(0.5)
-        elif not existing_server:
-            # Standalone mode: TUI has --prompt pre-filled, send Enter to submit it
-            # Small delay to ensure TUI has fully initialized
-            time.sleep(0.3)
-            subprocess.run([
-                "tmux", "send-keys",
-                "-t", actual_window_target,
-                "Enter"
-            ], check=False)
+        # Standalone mode: TUI has --prompt pre-filled, send Enter to submit it
+        # Need longer delay to ensure TUI has fully initialized and input is ready
+        # The TUI takes time to render and set up event handlers
+        time.sleep(1.0)
+        subprocess.run([
+            "tmux", "send-keys",
+            "-t", actual_window_target,
+            "Enter"
+        ], check=False)
+        
+        # Give the agent time to start processing before returning
+        time.sleep(0.5)
 
         # Calculate duration
         duration_ms = int((time.time() - start_time) * 1000)
