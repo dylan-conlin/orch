@@ -15,8 +15,9 @@ This module provides two approaches for project discovery:
 """
 
 import json
+import subprocess
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
 
 
@@ -131,6 +132,56 @@ def read_cache(cache_file: Path) -> List[Path]:
 # ============================================================================
 
 
+def get_kb_projects_via_cli(filter_existing: bool = False) -> Optional[List[Path]]:
+    """
+    Get registered projects from kb CLI via 'kb projects list --json'.
+
+    This shells out to the kb CLI to get the project list in JSON format.
+    Using the CLI provides proper abstraction - kb owns project discovery,
+    orch just consumes it.
+
+    Args:
+        filter_existing: If True, only return paths that exist on the filesystem.
+
+    Returns:
+        List of Path objects for registered projects, or None if CLI fails.
+        Returns None (not empty list) on failure so callers can fallback.
+    """
+    try:
+        result = subprocess.run(
+            ['kb', 'projects', 'list', '--json'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10  # Don't hang if kb is broken
+        )
+
+        if result.returncode != 0:
+            # CLI failed - return None to signal fallback needed
+            return None
+
+        # Parse JSON output
+        # Expected format: {"projects": [{"name": "...", "path": "..."}]}
+        data = json.loads(result.stdout)
+        projects_data = data.get("projects", [])
+
+        if not isinstance(projects_data, list):
+            return None
+
+        paths = []
+        for entry in projects_data:
+            if isinstance(entry, dict) and "path" in entry:
+                path = Path(entry["path"])
+                if not filter_existing or path.exists():
+                    paths.append(path)
+
+        return paths
+
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError, FileNotFoundError):
+        # Any error - return None to signal fallback needed
+        return None
+
+
 def get_kb_projects_path() -> Path:
     """
     Get path to kb's project registry file.
@@ -143,10 +194,39 @@ def get_kb_projects_path() -> Path:
 
 def get_kb_projects(filter_existing: bool = False) -> List[Path]:
     """
-    Read registered projects from kb's project registry.
+    Get registered projects from kb's project registry.
 
-    This reads from ~/.kb/projects.json which is maintained by the `kb` CLI.
-    The registry format is:
+    Uses a two-tier strategy:
+    1. Try `kb projects list --json` (preferred - proper CLI abstraction)
+    2. Fall back to reading ~/.kb/projects.json directly
+
+    This approach:
+    - Prefers CLI for proper abstraction (kb owns project discovery)
+    - Falls back to direct file read if CLI unavailable/fails
+    - Forward-compatible: when kb adds --json flag, it'll be used automatically
+
+    Args:
+        filter_existing: If True, only return paths that exist on the filesystem.
+                        Useful for handling stale entries in the registry.
+
+    Returns:
+        List of Path objects for registered projects.
+        Returns empty list if both CLI and file read fail.
+    """
+    # Try CLI first (preferred approach)
+    cli_result = get_kb_projects_via_cli(filter_existing)
+    if cli_result is not None:
+        return cli_result
+
+    # Fallback: read file directly
+    return _read_kb_projects_file(filter_existing)
+
+
+def _read_kb_projects_file(filter_existing: bool = False) -> List[Path]:
+    """
+    Read registered projects directly from ~/.kb/projects.json.
+
+    This is the fallback when CLI is unavailable. The file format is:
     {
         "projects": [
             {"name": "project-name", "path": "/absolute/path/to/project"},
@@ -156,14 +236,10 @@ def get_kb_projects(filter_existing: bool = False) -> List[Path]:
 
     Args:
         filter_existing: If True, only return paths that exist on the filesystem.
-                        Useful for handling stale entries in the registry.
 
     Returns:
         List of Path objects for registered projects.
-        Returns empty list if:
-        - Registry file doesn't exist
-        - File contains invalid JSON
-        - File is missing 'projects' key
+        Returns empty list if file doesn't exist or is invalid.
     """
     projects_file = get_kb_projects_path()
 

@@ -212,13 +212,140 @@ def test_build_orchestrator_context_with_rescan(tmp_path, monkeypatch, cli_runne
 
 
 # ============================================================================
+# Tests for get_kb_projects_via_cli() - CLI-based project discovery
+# ============================================================================
+
+
+def test_get_kb_projects_via_cli_parses_json_output(monkeypatch):
+    """Test that get_kb_projects_via_cli correctly parses JSON output from kb CLI."""
+    import subprocess
+    import orch.project_discovery as pd
+
+    # Mock subprocess.run to return valid JSON
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 0)
+        result.stdout = json.dumps({
+            "projects": [
+                {"name": "orch-cli", "path": "/Users/test/projects/orch-cli"},
+                {"name": "beads", "path": "/Users/test/projects/beads"}
+            ]
+        })
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(subprocess, 'run', mock_run)
+
+    # Get projects
+    projects = pd.get_kb_projects_via_cli()
+
+    # Verify we got all projects
+    assert projects is not None
+    assert len(projects) == 2
+    assert Path("/Users/test/projects/orch-cli") in projects
+    assert Path("/Users/test/projects/beads") in projects
+
+
+def test_get_kb_projects_via_cli_returns_none_on_cli_error(monkeypatch):
+    """Test that get_kb_projects_via_cli returns None when CLI fails."""
+    import subprocess
+    import orch.project_discovery as pd
+
+    # Mock subprocess.run to return error
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 1)
+        result.stdout = ""
+        result.stderr = "kb: command not found"
+        return result
+
+    monkeypatch.setattr(subprocess, 'run', mock_run)
+
+    # Should return None (not empty list) to signal fallback needed
+    projects = pd.get_kb_projects_via_cli()
+    assert projects is None
+
+
+def test_get_kb_projects_via_cli_returns_none_on_invalid_json(monkeypatch):
+    """Test that get_kb_projects_via_cli returns None when output is not valid JSON."""
+    import subprocess
+    import orch.project_discovery as pd
+
+    # Mock subprocess.run to return invalid JSON
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 0)
+        result.stdout = "not valid json"
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(subprocess, 'run', mock_run)
+
+    # Should return None to signal fallback needed
+    projects = pd.get_kb_projects_via_cli()
+    assert projects is None
+
+
+def test_get_kb_projects_via_cli_returns_none_on_timeout(monkeypatch):
+    """Test that get_kb_projects_via_cli returns None on timeout."""
+    import subprocess
+    import orch.project_discovery as pd
+
+    # Mock subprocess.run to raise timeout
+    def mock_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 10)
+
+    monkeypatch.setattr(subprocess, 'run', mock_run)
+
+    # Should return None to signal fallback needed
+    projects = pd.get_kb_projects_via_cli()
+    assert projects is None
+
+
+def test_get_kb_projects_via_cli_filters_existing(tmp_path, monkeypatch):
+    """Test that get_kb_projects_via_cli respects filter_existing parameter."""
+    import subprocess
+    import orch.project_discovery as pd
+
+    # Create one real project
+    real_project = tmp_path / "real-project"
+    real_project.mkdir()
+
+    # Mock subprocess.run to return mixed paths
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 0)
+        result.stdout = json.dumps({
+            "projects": [
+                {"name": "real-project", "path": str(real_project)},
+                {"name": "missing-project", "path": "/nonexistent/path/to/project"}
+            ]
+        })
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(subprocess, 'run', mock_run)
+
+    # Get all projects (no filter)
+    all_projects = pd.get_kb_projects_via_cli(filter_existing=False)
+    assert all_projects is not None
+    assert len(all_projects) == 2
+
+    # Get only existing projects
+    existing_projects = pd.get_kb_projects_via_cli(filter_existing=True)
+    assert existing_projects is not None
+    assert len(existing_projects) == 1
+    assert real_project in existing_projects
+
+
+# ============================================================================
 # Tests for get_kb_projects() - reading from kb's project registry
+# (Tests file fallback when CLI is unavailable)
 # ============================================================================
 
 
 def test_get_kb_projects_reads_from_kb_registry(tmp_path, monkeypatch):
-    """Test that get_kb_projects reads projects from ~/.kb/projects.json."""
+    """Test that get_kb_projects reads projects from ~/.kb/projects.json when CLI unavailable."""
     import orch.project_discovery as pd
+
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
 
     # Create mock kb projects.json
     kb_dir = tmp_path / ".kb"
@@ -251,6 +378,9 @@ def test_get_kb_projects_returns_empty_list_if_file_missing(tmp_path, monkeypatc
     """Test that get_kb_projects returns empty list if kb projects.json doesn't exist."""
     import orch.project_discovery as pd
 
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
+
     # Point to non-existent file
     monkeypatch.setattr(pd, 'get_kb_projects_path', 
                         lambda: tmp_path / ".kb" / "projects.json")
@@ -265,6 +395,9 @@ def test_get_kb_projects_returns_empty_list_if_file_missing(tmp_path, monkeypatc
 def test_get_kb_projects_handles_empty_projects_array(tmp_path, monkeypatch):
     """Test that get_kb_projects handles empty projects array gracefully."""
     import orch.project_discovery as pd
+
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
 
     # Create mock kb projects.json with empty projects
     kb_dir = tmp_path / ".kb"
@@ -285,6 +418,9 @@ def test_get_kb_projects_handles_malformed_json(tmp_path, monkeypatch):
     """Test that get_kb_projects handles malformed JSON gracefully."""
     import orch.project_discovery as pd
 
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
+
     # Create malformed JSON file
     kb_dir = tmp_path / ".kb"
     kb_dir.mkdir()
@@ -302,6 +438,9 @@ def test_get_kb_projects_handles_missing_projects_key(tmp_path, monkeypatch):
     """Test that get_kb_projects handles JSON without 'projects' key."""
     import orch.project_discovery as pd
 
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
+
     # Create JSON without projects key
     kb_dir = tmp_path / ".kb"
     kb_dir.mkdir()
@@ -318,6 +457,9 @@ def test_get_kb_projects_handles_missing_projects_key(tmp_path, monkeypatch):
 def test_get_kb_projects_filters_nonexistent_paths(tmp_path, monkeypatch):
     """Test that get_kb_projects optionally filters out paths that don't exist."""
     import orch.project_discovery as pd
+
+    # Mock CLI to return None (trigger fallback)
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: None)
 
     # Create one real project path and one that doesn't exist
     real_project = tmp_path / "real-project"
@@ -345,3 +487,20 @@ def test_get_kb_projects_filters_nonexistent_paths(tmp_path, monkeypatch):
     existing_projects = pd.get_kb_projects(filter_existing=True)
     assert len(existing_projects) == 1
     assert real_project in existing_projects
+
+
+def test_get_kb_projects_uses_cli_when_available(monkeypatch):
+    """Test that get_kb_projects uses CLI result when available."""
+    import orch.project_discovery as pd
+
+    # Mock CLI to return successful result
+    cli_projects = [Path("/cli/project1"), Path("/cli/project2")]
+    monkeypatch.setattr(pd, 'get_kb_projects_via_cli', lambda filter_existing=False: cli_projects)
+
+    # Get projects - should use CLI result, not file
+    projects = pd.get_kb_projects()
+
+    # Verify we got CLI projects (not file projects)
+    assert len(projects) == 2
+    assert Path("/cli/project1") in projects
+    assert Path("/cli/project2") in projects
