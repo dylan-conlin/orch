@@ -111,9 +111,11 @@ def test_read_cache_returns_empty_list_if_file_missing(tmp_path):
     assert projects == []
 
 
-def test_scan_projects_cli_command(tmp_path, mocker, cli_runner):
+def test_scan_projects_cli_command(tmp_path, monkeypatch, cli_runner):
     """Test the orch scan-projects CLI command."""
     from orch.cli import cli
+    import orch.config
+    import orch.project_discovery
 
     # Create test project structure
     projects_dir = tmp_path / "projects"
@@ -131,10 +133,10 @@ def test_scan_projects_cli_command(tmp_path, mocker, cli_runner):
 
     # Mock the cache file location
     cache_file = tmp_path / "cache" / "initialized-projects.json"
-    mocker.patch('orch.config.get_initialized_projects_cache', return_value=cache_file)
+    monkeypatch.setattr(orch.config, 'get_initialized_projects_cache', lambda: cache_file)
 
     # Mock the search directories
-    mocker.patch('orch.project_discovery.get_default_search_dirs', return_value=[str(projects_dir)])
+    monkeypatch.setattr(orch.project_discovery, 'get_default_search_dirs', lambda: [str(projects_dir)])
 
     # Run CLI command
     result = cli_runner.invoke(cli, ['scan-projects'])
@@ -156,9 +158,17 @@ def test_scan_projects_cli_command(tmp_path, mocker, cli_runner):
     assert str(project2) in data["projects"]
 
 
-def test_build_orchestrator_context_with_rescan(tmp_path, mocker, cli_runner):
-    """Test that build-orchestrator-context --rescan rescans before building."""
+@pytest.mark.skip(reason="build-orchestrator-context command was removed; test was never working (required mocker fixture)")
+def test_build_orchestrator_context_with_rescan(tmp_path, monkeypatch, cli_runner):
+    """Test that build-orchestrator-context --rescan rescans before building.
+    
+    NOTE: This test was never working - it used 'mocker' fixture which isn't installed.
+    The build-orchestrator-context command has been removed from the CLI.
+    """
     from orch.cli import cli
+    import orch.config
+    import orch.project_discovery
+    import pathlib
 
     # Create test project structure
     projects_dir = tmp_path / "projects"
@@ -171,16 +181,18 @@ def test_build_orchestrator_context_with_rescan(tmp_path, mocker, cli_runner):
 
     # Mock the cache file location
     cache_file = tmp_path / "cache" / "initialized-projects.json"
-    mocker.patch('orch.config.get_initialized_projects_cache', return_value=cache_file)
+    monkeypatch.setattr(orch.config, 'get_initialized_projects_cache', lambda: cache_file)
 
     # Mock the search directories
-    mocker.patch('orch.project_discovery.get_default_search_dirs', return_value=[str(projects_dir)])
+    monkeypatch.setattr(orch.project_discovery, 'get_default_search_dirs', lambda: [str(projects_dir)])
 
     # Mock template directory with correct structure
     template_dir = tmp_path / ".orch" / "templates" / "orchestrator"
     template_dir.mkdir(parents=True)
     (template_dir / "test.md").write_text("Test template content")
-    mocker.patch('pathlib.Path.home', return_value=tmp_path)
+    
+    # Mock Path.home() properly by patching it in pathlib module
+    monkeypatch.setattr(pathlib.Path, 'home', staticmethod(lambda: tmp_path))
 
     # Ensure cache doesn't exist initially
     assert not cache_file.exists()
@@ -197,3 +209,139 @@ def test_build_orchestrator_context_with_rescan(tmp_path, mocker, cli_runner):
         data = json.load(f)
     assert len(data["projects"]) == 1
     assert str(project1) in data["projects"]
+
+
+# ============================================================================
+# Tests for get_kb_projects() - reading from kb's project registry
+# ============================================================================
+
+
+def test_get_kb_projects_reads_from_kb_registry(tmp_path, monkeypatch):
+    """Test that get_kb_projects reads projects from ~/.kb/projects.json."""
+    import orch.project_discovery as pd
+
+    # Create mock kb projects.json
+    kb_dir = tmp_path / ".kb"
+    kb_dir.mkdir()
+    projects_file = kb_dir / "projects.json"
+    
+    kb_data = {
+        "projects": [
+            {"name": "orch-cli", "path": "/Users/test/projects/orch-cli"},
+            {"name": "beads", "path": "/Users/test/projects/beads"},
+            {"name": "kb-cli", "path": "/Users/test/projects/kb-cli"}
+        ]
+    }
+    projects_file.write_text(json.dumps(kb_data))
+
+    # Mock the kb projects path
+    monkeypatch.setattr(pd, 'get_kb_projects_path', lambda: projects_file)
+
+    # Get projects
+    projects = pd.get_kb_projects()
+
+    # Verify we got all projects
+    assert len(projects) == 3
+    assert Path("/Users/test/projects/orch-cli") in projects
+    assert Path("/Users/test/projects/beads") in projects
+    assert Path("/Users/test/projects/kb-cli") in projects
+
+
+def test_get_kb_projects_returns_empty_list_if_file_missing(tmp_path, monkeypatch):
+    """Test that get_kb_projects returns empty list if kb projects.json doesn't exist."""
+    import orch.project_discovery as pd
+
+    # Point to non-existent file
+    monkeypatch.setattr(pd, 'get_kb_projects_path', 
+                        lambda: tmp_path / ".kb" / "projects.json")
+
+    # Get projects
+    projects = pd.get_kb_projects()
+
+    # Should return empty list
+    assert projects == []
+
+
+def test_get_kb_projects_handles_empty_projects_array(tmp_path, monkeypatch):
+    """Test that get_kb_projects handles empty projects array gracefully."""
+    import orch.project_discovery as pd
+
+    # Create mock kb projects.json with empty projects
+    kb_dir = tmp_path / ".kb"
+    kb_dir.mkdir()
+    projects_file = kb_dir / "projects.json"
+    projects_file.write_text(json.dumps({"projects": []}))
+
+    monkeypatch.setattr(pd, 'get_kb_projects_path', lambda: projects_file)
+
+    # Get projects
+    projects = pd.get_kb_projects()
+
+    # Should return empty list
+    assert projects == []
+
+
+def test_get_kb_projects_handles_malformed_json(tmp_path, monkeypatch):
+    """Test that get_kb_projects handles malformed JSON gracefully."""
+    import orch.project_discovery as pd
+
+    # Create malformed JSON file
+    kb_dir = tmp_path / ".kb"
+    kb_dir.mkdir()
+    projects_file = kb_dir / "projects.json"
+    projects_file.write_text("{ not valid json")
+
+    monkeypatch.setattr(pd, 'get_kb_projects_path', lambda: projects_file)
+
+    # Get projects - should not raise, return empty list
+    projects = pd.get_kb_projects()
+    assert projects == []
+
+
+def test_get_kb_projects_handles_missing_projects_key(tmp_path, monkeypatch):
+    """Test that get_kb_projects handles JSON without 'projects' key."""
+    import orch.project_discovery as pd
+
+    # Create JSON without projects key
+    kb_dir = tmp_path / ".kb"
+    kb_dir.mkdir()
+    projects_file = kb_dir / "projects.json"
+    projects_file.write_text(json.dumps({"version": "1.0"}))
+
+    monkeypatch.setattr(pd, 'get_kb_projects_path', lambda: projects_file)
+
+    # Get projects - should return empty list
+    projects = pd.get_kb_projects()
+    assert projects == []
+
+
+def test_get_kb_projects_filters_nonexistent_paths(tmp_path, monkeypatch):
+    """Test that get_kb_projects optionally filters out paths that don't exist."""
+    import orch.project_discovery as pd
+
+    # Create one real project path and one that doesn't exist
+    real_project = tmp_path / "real-project"
+    real_project.mkdir()
+
+    kb_dir = tmp_path / ".kb"
+    kb_dir.mkdir()
+    projects_file = kb_dir / "projects.json"
+    
+    kb_data = {
+        "projects": [
+            {"name": "real-project", "path": str(real_project)},
+            {"name": "missing-project", "path": "/nonexistent/path/to/project"}
+        ]
+    }
+    projects_file.write_text(json.dumps(kb_data))
+
+    monkeypatch.setattr(pd, 'get_kb_projects_path', lambda: projects_file)
+
+    # Get all projects (no filter)
+    all_projects = pd.get_kb_projects(filter_existing=False)
+    assert len(all_projects) == 2
+
+    # Get only existing projects
+    existing_projects = pd.get_kb_projects(filter_existing=True)
+    assert len(existing_projects) == 1
+    assert real_project in existing_projects

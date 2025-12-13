@@ -13,34 +13,7 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin"
-
-/**
- * Check if a command should be blocked.
- */
-export function shouldBlockCommand(command: string): boolean {
-  // Only block in worker context
-  const context = process.env.CLAUDE_CONTEXT ?? ""
-  if (context !== "worker") {
-    return false
-  }
-
-  // Check for 'bd close' pattern
-  // Match: bd close, bd  close (multiple spaces), but not 'echo "bd close"' etc.
-  const bdClosePattern = /^\s*bd\s+close\b/
-  return bdClosePattern.test(command)
-}
-
-/**
- * Get the error message for blocked commands.
- */
-export function getBlockedMessage(): string {
-  return `Workers cannot run 'bd close' directly. This bypasses verification and breaks tracking.
-
-Instead:
-1. Report completion via: bd comment <beads-id> "Phase: Complete - [summary]"
-2. Run /exit to close the agent session
-3. The orchestrator will verify and close the issue via 'orch complete'`
-}
+import { shouldBlockCommand, getBlockedMessage } from "../lib/bd-close-helpers"
 
 /**
  * OpenCode plugin that blocks 'bd close' commands for worker agents.

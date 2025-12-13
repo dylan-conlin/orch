@@ -11,12 +11,8 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test"
 import { mkdtemp, writeFile, mkdir, rm } from "fs/promises"
 import { tmpdir, homedir } from "os"
 import { join } from "path"
-import {
-  SessionContextPlugin,
-  exists,
-  findOrchDirectory,
-  loadOrchestratorSkill,
-} from "../session-context"
+import { SessionContextPlugin } from "../session-context"
+import { exists, findOrchDirectory, loadOrchestratorSkill } from "../../lib/helpers"
 
 describe("exists", () => {
   let tempDir: string

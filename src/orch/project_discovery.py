@@ -1,4 +1,18 @@
-"""Project discovery functionality for finding initialized .orch projects."""
+"""Project discovery functionality for finding initialized .orch projects.
+
+This module provides two approaches for project discovery:
+
+1. **scan_projects()** - Active scanning of filesystem for .orch/CLAUDE.md files
+   - Searches specified directories
+   - Creates its own cache at ~/.orch/initialized-projects.json
+   - Used by `orch scan-projects` and `orch projects list`
+
+2. **get_kb_projects()** - Reads from kb's project registry
+   - Reads ~/.kb/projects.json maintained by `kb` CLI
+   - No filesystem scanning - just reads the registry
+   - Preferred for cross-project operations like the work daemon
+   - Avoids duplication: one source of truth for registered projects
+"""
 
 import json
 from pathlib import Path
@@ -110,3 +124,71 @@ def read_cache(cache_file: Path) -> List[Path]:
         data = json.load(f)
 
     return [Path(p) for p in data["projects"]]
+
+
+# ============================================================================
+# kb project registry integration
+# ============================================================================
+
+
+def get_kb_projects_path() -> Path:
+    """
+    Get path to kb's project registry file.
+
+    Returns:
+        Path to ~/.kb/projects.json
+    """
+    return Path.home() / ".kb" / "projects.json"
+
+
+def get_kb_projects(filter_existing: bool = False) -> List[Path]:
+    """
+    Read registered projects from kb's project registry.
+
+    This reads from ~/.kb/projects.json which is maintained by the `kb` CLI.
+    The registry format is:
+    {
+        "projects": [
+            {"name": "project-name", "path": "/absolute/path/to/project"},
+            ...
+        ]
+    }
+
+    Args:
+        filter_existing: If True, only return paths that exist on the filesystem.
+                        Useful for handling stale entries in the registry.
+
+    Returns:
+        List of Path objects for registered projects.
+        Returns empty list if:
+        - Registry file doesn't exist
+        - File contains invalid JSON
+        - File is missing 'projects' key
+    """
+    projects_file = get_kb_projects_path()
+
+    if not projects_file.exists():
+        return []
+
+    try:
+        with open(projects_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        # Invalid JSON or read error - return empty list
+        return []
+
+    # Get projects array, handle missing key
+    projects_data = data.get("projects", [])
+    if not isinstance(projects_data, list):
+        return []
+
+    # Extract paths from project entries
+    # Each entry is {"name": "...", "path": "..."}
+    paths = []
+    for entry in projects_data:
+        if isinstance(entry, dict) and "path" in entry:
+            path = Path(entry["path"])
+            if not filter_existing or path.exists():
+                paths.append(path)
+
+    return paths
