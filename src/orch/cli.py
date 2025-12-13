@@ -1900,10 +1900,11 @@ def scan_projects_cmd():
 @cli.group(invoke_without_command=True)
 @click.option('--skills', 'target_skills', is_flag=True, help='Build skill SKILL.md files')
 @click.option('--readme', 'target_readme', is_flag=True, help='Auto-generate .orch/README.md from artifact metadata')
+@click.option('--opencode', 'target_opencode', is_flag=True, help='Validate OpenCode configuration (opencode.json)')
 @click.option('--dry-run', is_flag=True, help='Show what would be built without making changes')
 @click.option('--check', is_flag=True, help='Check if files need rebuilding')
 @click.pass_context
-def build(ctx, target_skills, target_readme, dry_run, check):
+def build(ctx, target_skills, target_readme, target_opencode, dry_run, check):
     """
     Build skills from templates.
 
@@ -1913,12 +1914,14 @@ def build(ctx, target_skills, target_readme, dry_run, check):
     Subcommand style (preferred):
       orch build skills             # Build skill SKILL.md files
       orch build readme             # Generate .orch/README.md
+      orch build opencode           # Validate OpenCode config
 
     \b
     Flag style:
       orch build                    # Build skills (default)
       orch build --skills           # Just SKILL.md files
       orch build --readme           # Generate README
+      orch build --opencode         # Validate OpenCode config
       orch build --check            # Check if any rebuilds needed
       orch build --dry-run          # Preview all changes
     """
@@ -1929,7 +1932,15 @@ def build(ctx, target_skills, target_readme, dry_run, check):
     from pathlib import Path
 
     # Check if any specific target is requested
-    any_specific = target_skills or target_readme
+    any_specific = target_skills or target_readme or target_opencode
+
+    if target_opencode:
+        click.echo("🔨 Validating OpenCode config (--opencode)...")
+        click.echo()
+        ctx.invoke(build_opencode_cmd, dry_run=dry_run, check=check, project=None)
+        click.echo()
+        if not target_skills and not target_readme:
+            return
 
     if target_readme:
         click.echo("🔨 Building README (--readme)...")
@@ -2361,6 +2372,178 @@ def build_global_cmd(ctx, dry_run):
         click.echo(f"📋 Dry-run: {synced_count} file(s) would be synced, {skipped_count} up-to-date")
     else:
         click.echo(f"✅ Templates: {synced_count} synced, {skipped_count} up-to-date")
+
+
+@build.command(name='opencode')
+@click.option('--dry-run', is_flag=True, help='Preview validation without changes')
+@click.option('--check', is_flag=True, help='Exit with error code if validation fails')
+@click.option('--project', help='Project directory (defaults to current dir)')
+def build_opencode_cmd(dry_run, check, project):
+    """Validate OpenCode configuration (opencode.json).
+
+    Checks:
+    - JSON syntax validity
+    - Instruction file existence (supports glob patterns)
+    - Path resolution (~/ expansion)
+
+    \b
+    Examples:
+      orch build opencode               # Validate opencode.json in current project
+      orch build opencode --check       # Exit with error if validation fails
+      orch build opencode --project ~/foo
+    """
+    import glob
+    from pathlib import Path
+
+    # Determine project directory
+    if project:
+        project_dir = Path(project).expanduser().resolve()
+    else:
+        project_dir = Path.cwd()
+
+    # Look for opencode.json or opencode.jsonc
+    config_file = None
+    for filename in ['opencode.json', 'opencode.jsonc']:
+        candidate = project_dir / filename
+        if candidate.exists():
+            config_file = candidate
+            break
+
+    if not config_file:
+        if dry_run:
+            click.echo(f"📋 Would check: No opencode.json found in {project_dir}")
+        elif check:
+            click.echo(f"❌ No opencode.json or opencode.jsonc found in {project_dir}", err=True)
+            raise click.Abort()
+        else:
+            click.echo(f"⚠️  No opencode.json or opencode.jsonc found in {project_dir}")
+        return
+
+    click.echo(f"🔍 Validating OpenCode config...")
+    click.echo(f"   Config: {config_file}")
+    click.echo()
+
+    # Parse JSON/JSONC
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Handle JSONC (strip // comments and /* */ comments)
+        # Use a state machine approach to avoid breaking strings containing //
+        if config_file.suffix == '.jsonc':
+            result = []
+            i = 0
+            in_string = False
+            escape_next = False
+
+            while i < len(content):
+                char = content[i]
+
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                    i += 1
+                    continue
+
+                if char == '\\' and in_string:
+                    escape_next = True
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if char == '"' and not in_string:
+                    in_string = True
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if char == '"' and in_string:
+                    in_string = False
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if not in_string:
+                    # Check for single-line comment
+                    if content[i:i+2] == '//':
+                        # Skip to end of line
+                        while i < len(content) and content[i] != '\n':
+                            i += 1
+                        continue
+
+                    # Check for multi-line comment
+                    if content[i:i+2] == '/*':
+                        # Skip to end of comment
+                        i += 2
+                        while i < len(content) - 1 and content[i:i+2] != '*/':
+                            i += 1
+                        i += 2  # Skip */
+                        continue
+
+                result.append(char)
+                i += 1
+
+            content = ''.join(result)
+
+        config = json.loads(content)
+    except json.JSONDecodeError as e:
+        click.echo(f"❌ JSON syntax error in {config_file.name}:", err=True)
+        click.echo(f"   {e}", err=True)
+        if check:
+            raise click.Abort()
+        return
+
+    click.echo(f"   ✅ JSON syntax valid")
+
+    # Validate instructions
+    instructions = config.get('instructions', [])
+    if not instructions:
+        click.echo(f"   ℹ️  No instructions configured")
+        click.echo()
+        click.echo("✅ OpenCode config valid")
+        return
+
+    click.echo(f"   📄 Instructions ({len(instructions)}):")
+
+    missing_files = []
+    total_matched = 0
+
+    for instruction in instructions:
+        # Expand ~ to home directory
+        if instruction.startswith('~'):
+            expanded = Path.home() / instruction[2:]  # Skip ~/
+        elif instruction.startswith('/'):
+            expanded = Path(instruction)
+        else:
+            expanded = project_dir / instruction
+
+        # Check if it's a glob pattern
+        if '*' in instruction or '?' in instruction:
+            # Use glob to find matching files
+            matches = list(expanded.parent.glob(expanded.name)) if expanded.parent.exists() else []
+            if matches:
+                click.echo(f"      ✅ {instruction}: {len(matches)} file(s) matched")
+                total_matched += len(matches)
+            else:
+                click.echo(f"      ❌ {instruction}: no files matched", err=True)
+                missing_files.append(instruction)
+        else:
+            # Direct file reference
+            if expanded.exists():
+                click.echo(f"      ✅ {instruction}")
+                total_matched += 1
+            else:
+                click.echo(f"      ❌ {instruction}: MISSING", err=True)
+                missing_files.append(instruction)
+
+    click.echo()
+
+    if missing_files:
+        click.echo(f"❌ Validation FAILED: {len(missing_files)} missing instruction file(s)", err=True)
+        if check:
+            raise click.Abort()
+    else:
+        click.echo(f"✅ OpenCode config valid ({total_matched} instruction file(s) resolved)")
 
 
 # ============================================================================
