@@ -185,35 +185,42 @@ review: required
 ---
 ```
 
-### Part 2: Enforcement (NOT YET IMPLEMENTED) ⭐
+### Part 2: Enforcement (COMPLETED) ✅
 
 **Add review gate check in complete_agent_work()** - Block completion for skills with `review: required`.
 
-**Implementation sequence:**
-1. Add `--reviewed` flag to `orch complete` command in `cli.py`
-2. Pass `reviewed` parameter to `complete_agent_work()`
-3. Add review gate check after verification, before beads close
-4. Add tests for review gate enforcement
+**What was implemented:**
 
-**Proposed code location:** `src/orch/complete.py:complete_agent_work()` around line 263 (after verification check)
+1. `src/orch/cli.py:495` - Added `--reviewed` flag to `orch complete` command
+2. `src/orch/cli.py:606,667` - Pass `reviewed` parameter to both `complete_agent_work()` calls
+3. `src/orch/complete.py:202-228` - Added `reviewed` parameter to function signature
+4. `src/orch/complete.py:268-296` - Added review gate check logic after verification passes
+5. `tests/test_complete.py:1280-1533` - Added 6 tests for review gate enforcement:
+   - `test_review_required_blocks_without_reviewed_flag`
+   - `test_review_required_passes_with_reviewed_flag`
+   - `test_review_optional_shows_warning`
+   - `test_review_none_no_gate`
+   - `test_review_not_set_no_gate`
+   - `test_force_bypasses_review_gate`
 
-**Proposed logic:**
+**Implemented logic:**
 ```python
-# Check review gate
-if agent.get('skill'):
+# Check review gate (if skill requires review)
+if agent.get('skill') and not force:
     from orch.skill_discovery import discover_skills
     skills = discover_skills()
     skill_metadata = skills.get(agent['skill'])
+    
     if skill_metadata and skill_metadata.review == 'required':
         if not reviewed:
             result['errors'].append(
-                f"Skill '{agent['skill']}' requires review before completion. "
-                f"Use --reviewed flag after reviewing agent work."
+                f"Skill '{skill_name}' requires review before completion.\n"
+                f"Review the agent's work, then run: orch complete {agent_id} --reviewed"
             )
             return result
     elif skill_metadata and skill_metadata.review == 'optional':
         result['warnings'].append(
-            f"Note: Skill '{agent['skill']}' suggests review before completion"
+            f"Note: Skill '{agent['skill']}' suggests reviewing work before completion"
         )
 ```
 

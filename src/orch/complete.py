@@ -204,7 +204,8 @@ def complete_agent_work(
     project_dir: Path,
     dry_run: bool = False,
     skip_test_check: bool = False,
-    force: bool = False
+    force: bool = False,
+    reviewed: bool = False
 ) -> dict[str, Any]:
     """
     Complete agent work: verify, close beads issue, cleanup.
@@ -212,8 +213,9 @@ def complete_agent_work(
     Simplified workflow:
     1. Get agent from registry
     2. Verify work (Phase: Complete check happens in close_beads_issue)
-    3. Close beads issue if present
-    4. Clean up agent and tmux window
+    3. Check review gate (if skill requires review)
+    4. Close beads issue if present
+    5. Clean up agent and tmux window
 
     Args:
         agent_id: Agent identifier
@@ -221,6 +223,7 @@ def complete_agent_work(
         dry_run: Show what would happen without executing
         skip_test_check: Skip test verification (unused, kept for API compat)
         force: Bypass safety checks
+        reviewed: Confirm work has been reviewed (required for skills with review: required)
 
     Returns:
         Dictionary with success, verified, errors, warnings
@@ -261,6 +264,36 @@ def complete_agent_work(
     if not verification.passed:
         result['errors'].extend(verification.errors)
         return result
+
+    # Check review gate (if skill requires review)
+    if agent.get('skill') and not force:
+        from orch.skill_discovery import discover_skills
+
+        skills = discover_skills()
+        skill_metadata = skills.get(agent['skill'])
+
+        if skill_metadata and skill_metadata.review == 'required':
+            if not reviewed:
+                skill_name = agent['skill']
+                result['errors'].append(
+                    f"Skill '{skill_name}' requires review before completion.\n"
+                    f"Review the agent's work, then run: orch complete {agent_id} --reviewed"
+                )
+                logger.log_event("complete", "Review gate blocked completion", {
+                    "agent_id": agent_id,
+                    "skill": skill_name,
+                    "review": "required"
+                })
+                return result
+            else:
+                logger.log_event("complete", "Review gate passed (--reviewed flag)", {
+                    "agent_id": agent_id,
+                    "skill": agent['skill']
+                })
+        elif skill_metadata and skill_metadata.review == 'optional':
+            result['warnings'].append(
+                f"Note: Skill '{agent['skill']}' suggests reviewing work before completion"
+            )
 
     # Validate work is committed
     # Exclude .beads/, .kn/, and .kb/ from validation - these are committed separately by their

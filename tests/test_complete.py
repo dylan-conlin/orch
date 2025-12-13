@@ -1274,3 +1274,258 @@ class TestForceBypassesPhaseCheck:
         # Should fail - uncommitted work blocks completion even with force
         assert result['success'] is False
         assert any('uncommitted' in str(e).lower() for e in result.get('errors', []))
+
+
+class TestReviewGateEnforcement:
+    """Tests for review gate enforcement in complete_agent_work."""
+
+    def test_review_required_blocks_without_reviewed_flag(self, tmp_path):
+        """Test that skill with review: required blocks completion without --reviewed flag."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'reviewed-skill'
+        }
+
+        # Mock skill with review: required
+        mock_skill_metadata = SkillMetadata(
+            name='reviewed-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES,
+            review='required'
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'reviewed-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=False  # Not reviewed
+                            )
+
+        # Should fail - review required but not reviewed
+        assert result['success'] is False
+        assert any('requires review' in str(e) for e in result.get('errors', []))
+
+    def test_review_required_passes_with_reviewed_flag(self, tmp_path):
+        """Test that skill with review: required passes with --reviewed flag."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'reviewed-skill'
+        }
+
+        # Mock skill with review: required
+        mock_skill_metadata = SkillMetadata(
+            name='reviewed-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES,
+            review='required'
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'reviewed-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=True  # Reviewed
+                            )
+
+        # Should pass - reviewed flag provided
+        assert result['success'] is True
+
+    def test_review_optional_shows_warning(self, tmp_path):
+        """Test that skill with review: optional shows warning but completes."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'optional-review-skill'
+        }
+
+        # Mock skill with review: optional
+        mock_skill_metadata = SkillMetadata(
+            name='optional-review-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES,
+            review='optional'
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'optional-review-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=False  # Not reviewed
+                            )
+
+        # Should succeed but with warning
+        assert result['success'] is True
+        assert any('suggests reviewing' in str(w) for w in result.get('warnings', []))
+
+    def test_review_none_no_gate(self, tmp_path):
+        """Test that skill with review: none has no gate."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'no-review-skill'
+        }
+
+        # Mock skill with review: none
+        mock_skill_metadata = SkillMetadata(
+            name='no-review-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES,
+            review='none'
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'no-review-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=False
+                            )
+
+        # Should succeed without warnings about review
+        assert result['success'] is True
+        assert not any('review' in str(w).lower() for w in result.get('warnings', []))
+
+    def test_review_not_set_no_gate(self, tmp_path):
+        """Test that skill without review field has no gate."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'basic-skill'
+        }
+
+        # Mock skill without review field (defaults to None)
+        mock_skill_metadata = SkillMetadata(
+            name='basic-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES
+            # review not set, defaults to None
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'basic-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=False
+                            )
+
+        # Should succeed without warnings about review
+        assert result['success'] is True
+        assert not any('review' in str(w).lower() for w in result.get('warnings', []))
+
+    def test_force_bypasses_review_gate(self, tmp_path):
+        """Test that --force flag bypasses review gate."""
+        from orch.skill_discovery import SkillMetadata, DEFAULT_DELIVERABLES
+
+        workspace_name = "test-workspace"
+        workspace_dir = tmp_path / ".orch" / "workspace" / workspace_name
+        workspace_dir.mkdir(parents=True)
+
+        # Setup git repo
+        (tmp_path / ".git").mkdir()
+
+        mock_agent = {
+            'id': workspace_name,
+            'workspace': f".orch/workspace/{workspace_name}",
+            'status': 'active',
+            'beads_id': 'test-123',
+            'skill': 'reviewed-skill'
+        }
+
+        # Mock skill with review: required
+        mock_skill_metadata = SkillMetadata(
+            name='reviewed-skill',
+            triggers=[],
+            deliverables=DEFAULT_DELIVERABLES,
+            review='required'
+        )
+
+        with patch('orch.complete.get_agent_by_id', return_value=mock_agent):
+            with patch('orch.complete.clean_up_agent'):
+                with patch('orch.git_utils.validate_work_committed', return_value=(True, "")):
+                    with patch('orch.complete.close_beads_issue', return_value=True):
+                        with patch('orch.skill_discovery.discover_skills', return_value={'reviewed-skill': mock_skill_metadata}):
+                            result = complete_agent_work(
+                                agent_id=workspace_name,
+                                project_dir=tmp_path,
+                                reviewed=False,  # Not reviewed
+                                force=True  # Force bypasses review gate
+                            )
+
+        # Should succeed - force bypasses review gate
+        assert result['success'] is True

@@ -492,7 +492,8 @@ def abandon(agent_ids, reason, yes, force):
 @click.option('--project', help='Filter agents by project directory (used with --all)')
 @click.option('--skip-test-check', is_flag=True, help='Skip test verification check (use when pre-existing test failures block completion)')
 @click.option('--force', is_flag=True, help='Bypass safety checks (active processes, git state) - use when work complete but session hung')
-def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_check, force):
+@click.option('--reviewed', is_flag=True, help='Confirm work has been reviewed (required for skills with review: required)')
+def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_check, force, reviewed):
     """
     Complete agent work: verify, close beads issue, cleanup.
 
@@ -605,7 +606,8 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
                     agent_id=agent_id_batch,
                     project_dir=project_dir,
                     dry_run=False,
-                    skip_test_check=skip_test_check
+                    skip_test_check=skip_test_check,
+                    reviewed=reviewed
                 )
 
                 if result['success']:
@@ -661,7 +663,8 @@ def complete(agent_id, beads_issue, dry_run, complete_all, project, skip_test_ch
         project_dir=project_dir,
         dry_run=dry_run,
         skip_test_check=skip_test_check,
-        force=force
+        force=force,
+        reviewed=reviewed
     )
 
     # Display results
