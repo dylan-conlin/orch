@@ -1,6 +1,7 @@
 {
   "instructions": [
-    "~/.claude/skills/orchestrator/SKILL.md"
+    "CLAUDE.md",
+    "~/.claude/skills/policy/orchestrator/SKILL.md"
   ],
   "$schema": "https://opencode.ai/config.json"
 }
