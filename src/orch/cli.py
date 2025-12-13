@@ -64,6 +64,7 @@ from orch.workspace_commands import register_workspace_commands
 from orch.work_commands import register_work_commands
 from orch.end_commands import register_end_commands
 from orch.daemon_commands import register_daemon_commands
+from orch.meta_commands import register_meta_commands
 
 
 @click.group()
@@ -79,6 +80,7 @@ register_workspace_commands(cli)
 register_work_commands(cli)
 register_end_commands(cli)
 register_daemon_commands(cli)
+register_meta_commands(cli)
 
 @cli.command()
 @click.argument('topic', required=False)
