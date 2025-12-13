@@ -2471,6 +2471,52 @@ def doc_check(verbose):
         raise SystemExit(1)
 
 
+@cli.command('usage')
+@click.option('--json', 'json_output', is_flag=True, help='Output in JSON format')
+@click.option('--brief', is_flag=True, help='Show one-line summary (for hooks/prompts)')
+def usage_cmd(json_output, brief):
+    """Check Claude Max subscription usage limits.
+
+    Displays current usage of your Claude Max subscription, including
+    5-hour session limits and weekly limits.
+
+    Uses an undocumented API endpoint - may break without notice.
+    Requires Claude Code to be installed and logged in with a Max subscription.
+
+    \b
+    Examples:
+      orch usage                 # Show usage in terminal
+      orch usage --json          # Output as JSON
+      orch usage --brief         # One-line summary
+
+    \b
+    Output includes:
+      - 5-hour session utilization
+      - Weekly limit utilization
+      - Time until limits reset
+    """
+    from orch.usage import fetch_usage, format_usage_display, get_usage_summary
+
+    if brief:
+        summary, is_warning = get_usage_summary()
+        click.echo(summary)
+        if is_warning:
+            raise SystemExit(1)
+        return
+
+    info = fetch_usage()
+
+    if json_output:
+        click.echo(json.dumps(info.to_dict(), indent=2))
+        if info.error:
+            raise SystemExit(1)
+        return
+
+    click.echo(format_usage_display(info))
+    if info.error:
+        raise SystemExit(1)
+
+
 @cli.command('doc-gen')
 @click.option('--output', '-o', type=click.Path(), help='Output directory (default: .orch/)')
 @click.option('--format', 'formats', multiple=True, type=click.Choice(['json', 'markdown']),
